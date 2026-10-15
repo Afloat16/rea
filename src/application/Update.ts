@@ -26,6 +26,8 @@ export type UpdateInstallation = NpmInstallation | BunInstallation;
 /** Output policy for the package manager subprocess. */
 export type UpdateOutput = "human" | "structured";
 
+type UpdateMode = "apply" | "check";
+
 /** Why release lookup failed before a version could be compared. */
 export type ReleaseLookupFailure =
   | { readonly kind: "unavailable"; readonly detail: string }
@@ -52,13 +54,22 @@ export interface UpdateHost {
   close?(): Promise<string | undefined>;
 }
 
-/** Verified update outcome, separate from the unapplied integration plan. */
+/** Release availability or a verified update, separate from integration maintenance. */
 export type UpdateResult = (
   | {
       readonly status: "current";
       readonly currentVersion: string;
       readonly latestVersion: string;
       readonly installMethod: UpdateInstallation["manager"] | "unknown";
+    }
+  | {
+      readonly status: "available";
+      readonly currentVersion: string;
+      readonly latestVersion: string;
+      readonly installMethod: UpdateInstallation["manager"] | "unknown";
+      readonly installation: UpdateInstallation | null;
+      readonly command: readonly string[] | null;
+      readonly remediation: string;
     }
   | {
       readonly status: "updated";
@@ -138,17 +149,41 @@ const versionCheckRemediation = (
   }
 };
 
-/** Identify, resolve, install, and verify REA without applying setup changes. */
+const MANUAL_UPDATE_REMEDIATION =
+  "Update this installation with the package manager or source checkout that owns it. For a one-off latest invocation, use npx rea-agents@latest.";
+
+const availableUpdate = (
+  currentVersion: string,
+  latestVersion: string,
+  installation: UpdateInstallation | undefined,
+): Extract<UpdateResult, { readonly status: "available" }> => ({
+  status: "available",
+  currentVersion,
+  latestVersion,
+  installMethod: installation?.manager ?? "unknown",
+  installation: installation ?? null,
+  command:
+    installation === undefined
+      ? null
+      : updateInstallCommand(installation, latestVersion),
+  remediation:
+    installation === undefined
+      ? MANUAL_UPDATE_REMEDIATION
+      : "A newer REA release is available. Run rea update to install it in this installation.",
+});
+
+/** Resolve release availability or update REA without applying setup changes. */
 export const runUpdate = async (
   currentVersion: string,
   host: UpdateHost,
   output: UpdateOutput = "human",
+  mode: UpdateMode = "apply",
 ): Promise<UpdateResult> => {
   let result: UpdateResult | undefined;
   let primaryFailure: unknown;
   let failed = false;
   try {
-    result = await runUpdateWorkflow(currentVersion, host, output);
+    result = await runUpdateWorkflow(currentVersion, host, output, mode);
   } catch (cause: unknown) {
     failed = true;
     primaryFailure = cause;
@@ -176,6 +211,7 @@ const runUpdateWorkflow = async (
   currentVersion: string,
   host: UpdateHost,
   output: UpdateOutput,
+  mode: UpdateMode,
 ): Promise<UpdateResult> => {
   const installation = await host.installation();
   const release = await host.latestVersion(installation);
@@ -196,14 +232,15 @@ const runUpdateWorkflow = async (
       latestVersion: targetVersion,
       installMethod: installation?.manager ?? "unknown",
     };
+  if (mode === "check")
+    return availableUpdate(currentVersion, targetVersion, installation);
   if (installation === undefined)
     return {
       status: "failed",
       currentVersion,
       latestVersion: targetVersion,
       reason: "unknown-install-method",
-      remediation:
-        "Update this installation with the package manager or source checkout that owns it. For a one-off latest invocation, use npx rea-agents@latest.",
+      remediation: MANUAL_UPDATE_REMEDIATION,
     };
   const installed = await host.installVersion(
     installation,

@@ -367,6 +367,18 @@ REA's managed shared and Claude Code personal skill locations. See the
 
 ### Update the owning installation
 
+Run `rea update --check --json` to check for a newer release without installing
+it or planning integration changes. The result is `current` or `available`;
+registry failures remain failures. An `available` result identifies the
+installation and exact package-manager command when ownership is known. For a
+source checkout or package-runner copy, `installation` and `command` are `null`
+and the result gives manual update guidance. Metadata lookup uses the selected
+package manager and may use its configured cache. Run `rea update` to apply an
+update after checking; it resolves the release and installation again. Bun
+updates retain the reported global directory as both the working directory and
+`BUN_INSTALL_GLOBAL_DIR`, rather than running the displayed argv in another
+project.
+
 `rea update` installs the exact resolved
 release into the npm prefix or Bun global directory that owns the running
 package, then checks the new executable's version before reporting success. It

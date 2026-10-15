@@ -217,6 +217,123 @@ describe("REA update", () => {
   });
 });
 
+describe("update availability checks", () => {
+  it.each(["npm", "bun"] as const)(
+    "reports the %s installation and command without applying an available release",
+    async (manager) => {
+      const host = new FakeUpdateHost();
+      if (manager === "bun")
+        host.installationResult = {
+          manager: "bun",
+          globalDirectory: "/fixture/bun/install/global",
+          packageRoot: "/fixture/bun/install/global/node_modules/rea-agents",
+        };
+
+      const result = await runUpdate("3.2.1", host, "structured", "check");
+
+      expect(result).toMatchObject({
+        status: "available",
+        currentVersion: "3.2.1",
+        latestVersion: "3.3.0",
+        installMethod: manager,
+        installation: host.installationResult,
+        command:
+          manager === "npm"
+            ? [
+                "npm",
+                "install",
+                "--global",
+                "--ignore-scripts",
+                "--prefix",
+                "/fixture",
+                "rea-agents@3.3.0",
+              ]
+            : [
+                "bun",
+                "add",
+                "--global",
+                "--ignore-scripts",
+                "rea-agents@3.3.0",
+              ],
+      });
+      expect(isUpdateFailure(result)).toBe(false);
+      expect(host.installedVersions).toEqual([]);
+      expect(host.verifiedInstallation).toBeUndefined();
+      expect(host.maintenanceInspected).toBe(false);
+    },
+  );
+
+  it("reports availability without inventing an installation owner or command", async () => {
+    const host = new FakeUpdateHost();
+    host.installationResult = undefined;
+
+    const result = await runUpdate("3.2.1", host, "structured", "check");
+
+    expect(result).toMatchObject({
+      status: "available",
+      currentVersion: "3.2.1",
+      latestVersion: "3.3.0",
+      installMethod: "unknown",
+      installation: null,
+      command: null,
+    });
+    expect(isUpdateFailure(result)).toBe(false);
+    expect(host.installedVersions).toEqual([]);
+    expect(host.verifiedInstallation).toBeUndefined();
+    expect(host.maintenanceInspected).toBe(false);
+  });
+
+  it("keeps already-current check results compatible without applying maintenance", async () => {
+    const host = new FakeUpdateHost();
+
+    expect(await runUpdate("3.3.0", host, "structured", "check")).toEqual({
+      status: "current",
+      currentVersion: "3.3.0",
+      latestVersion: "3.3.0",
+      installMethod: "npm",
+    });
+    expect(host.installedVersions).toEqual([]);
+    expect(host.verifiedInstallation).toBeUndefined();
+    expect(host.maintenanceInspected).toBe(false);
+  });
+
+  it.each([
+    ok("not-a-version"),
+    err({ kind: "unavailable", detail: "registry is offline" } as const),
+  ])(
+    "keeps invalid or unavailable release metadata as a failure: %j",
+    async (release) => {
+      const host = new FakeUpdateHost();
+      host.release = release;
+
+      const result = await runUpdate("3.2.1", host, "structured", "check");
+
+      expect(result).toMatchObject({
+        status: "failed",
+        reason: "version-check",
+      });
+      expect(isUpdateFailure(result)).toBe(true);
+      expect(host.installedVersions).toEqual([]);
+      expect(host.verifiedInstallation).toBeUndefined();
+      expect(host.maintenanceInspected).toBe(false);
+    },
+  );
+
+  it("retains cleanup failures after an availability check", async () => {
+    const host = new FakeUpdateHost();
+    host.cleanupFailure = "Update resource cleanup remains incomplete";
+
+    const result = await runUpdate("3.2.1", host, "structured", "check");
+
+    expect(result).toMatchObject({
+      status: "available",
+      cleanupFailure: host.cleanupFailure,
+    });
+    expect(isUpdateFailure(result)).toBe(true);
+    expect(host.installedVersions).toEqual([]);
+  });
+});
+
 describe("update failures and version boundaries", () => {
   it("normalizes accepted release metadata before installing and comparing versions", async () => {
     const host = new FakeUpdateHost();

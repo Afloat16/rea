@@ -170,7 +170,15 @@ const registerMaintenanceCommands = (
   cli.command(CLI_COMMANDS.update, {
     description:
       "Update this REA installation and verify the installed release",
-    run: ({ formatExplicit }) =>
+    options: z.object({
+      check: z
+        .boolean()
+        .default(false)
+        .describe(
+          "Check release availability without installing or changing integrations",
+        ),
+    }),
+    run: ({ options, formatExplicit }) =>
       logCliCommand(
         logger,
         CLI_COMMANDS.update,
@@ -183,6 +191,7 @@ const registerMaintenanceCommands = (
             PRODUCT_IDENTITY.packageVersion,
             systemUpdateHost(undefined, undefined, environment),
             formatExplicit ? "structured" : "human",
+            options.check ? "check" : "apply",
           );
         },
         isUpdateFailure,
