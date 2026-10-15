@@ -9,8 +9,15 @@ import {
 } from "parse5";
 import { expect, it } from "vitest";
 
-import { reconstructJavaScriptArtifact } from "../../support/javascriptApplicationScope.js";
+import {
+  readJavaScriptArtifactFiles,
+  reconstructJavaScriptArtifact,
+} from "../../support/javascriptApplicationScope.js";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
+import { scanCanonicalArtifactInventory } from "../../fixtures/artifactInventory.js";
+import { createJavaScriptArtifactReader } from "../../../src/artifacts/javascript/JavaScriptArtifactReader.js";
+import { analyzeJavaScriptArtifactFiles } from "../../../src/application/javascript/JavaScriptArtifactAnalysis.js";
+import { buildJavaScriptArtifactGraph } from "../../../src/application/javascript/JavaScriptArtifactGraphBuilder.js";
 
 const cases = [
   ['<script data-src="decoy.js"></script>', []],
@@ -26,6 +33,99 @@ const cases = [
   ['<template><script src="decoy.js"></script></template>', []],
   ['<script src="actual&#46;js" src="decoy.js"></script>', ["actual.js"]],
 ] as const;
+
+it("retains non-JavaScript source declarations without inventing script loads", async () => {
+  const root = await createTestTempDirectory("rea-html-script-kinds-");
+  const opening = '<script type="application/json" src="decoy.js">';
+  const html = [
+    opening + "{}</script>",
+    '<script type="module" src="actual.js"></script>',
+    '<script language="JavaScript" src="legacy.js"></script>',
+  ].join("\n");
+  await Promise.all([
+    writeFile(join(root, "index.html"), html),
+    writeFile(join(root, "actual.js"), "export const actual = true;"),
+    writeFile(join(root, "decoy.js"), "export const decoy = true;"),
+    writeFile(join(root, "legacy.js"), "globalThis.legacy = true;"),
+    writeFile(
+      join(root, "data-only.html"),
+      '<script type="importmap" src="missing.js"></script>',
+    ),
+  ]);
+  const snapshot = await scanCanonicalArtifactInventory(root, {});
+  const reader = createJavaScriptArtifactReader(root, "directory");
+  try {
+    const files = await readJavaScriptArtifactFiles(reader, snapshot);
+    const analysis = analyzeJavaScriptArtifactFiles(files);
+    const graph = buildJavaScriptArtifactGraph(snapshot, files, analysis);
+    const loads = graph.edges.filter(
+      ({ relation, properties }) =>
+        relation === "loads" && properties.script_path !== undefined,
+    );
+    expect(
+      loads.map(({ properties }) => properties.resolved_path).sort(),
+    ).toEqual(["actual.js", "legacy.js"]);
+    expect(
+      loads.find(({ properties }) => properties.script_path === "actual.js")
+        ?.properties.script_type,
+    ).toBe("module");
+    expect(
+      loads.find(({ properties }) => properties.script_path === "legacy.js")
+        ?.properties,
+    ).toMatchObject({
+      script_type: "classic",
+      declared_language: "JavaScript",
+      declared_type: null,
+    });
+    expect(
+      graph.nodes
+        .filter(({ kind }) => kind === "electron-renderer")
+        .flatMap(({ observations }) => observations)
+        .some(({ label }) => label === "data-only.html"),
+    ).toBe(false);
+    expect(
+      graph.nodes.flatMap(({ observations }) => observations),
+    ).toContainEqual(
+      expect.objectContaining({
+        properties: expect.objectContaining({
+          mechanism: "html-script-declaration",
+          script_path: "missing.js",
+          declared_type: "importmap",
+          script_type: "non-javascript",
+        }),
+      }),
+    );
+    const declaration = graph.nodes
+      .flatMap(({ observations }) => observations)
+      .find(
+        ({ properties }) =>
+          properties.mechanism === "html-script-declaration" &&
+          properties.script_path === "decoy.js",
+      );
+    expect(declaration?.properties).toMatchObject({
+      script_type: "non-javascript",
+      declared_type: "application/json",
+      declared_language: null,
+      script_path: "decoy.js",
+    });
+    expect(declaration?.evidence).toMatchObject({
+      state: "observed",
+      confidence: "exact",
+      artifact: { sha256: createHash("sha256").update(html).digest("hex") },
+      location: {
+        available: true,
+        value: {
+          kind: "source-range",
+          source: "index.html",
+          start: { line: 1, column: 0 },
+          end: { line: 1, column: opening.length },
+        },
+      },
+    });
+  } finally {
+    await reader.close();
+  }
+});
 
 it.each(cases)(
   "projects local loads from actual HTML attributes in %s",

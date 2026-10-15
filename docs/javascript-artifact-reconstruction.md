@@ -638,6 +638,12 @@ such as `./assets//app.js` stays unavailable. CommonJS keeps filesystem path
 semantics and selects `app.js` for the same text.
 Unresolved HTML references retain their declaration, source range, and resolution
 reason in the renderer observations.
+Only classic and module script elements create script-load relationships. Their
+observations retain the parsed script type and the declared `type` and `language`
+attributes. A non-JavaScript element's `src` remains an exact declaration on the
+HTML asset, with its source range, instead of creating a load or attempting to
+resolve the declared file. This includes data blocks, import maps, speculation
+rules, and unrecognized script types.
 HTML script source ranges follow the HTML parser across LF, CRLF, and bare CR
 line endings, preserving UTF-16 columns.
 Inline JavaScript in local HTML, meaning classic or module `<script>` bodies

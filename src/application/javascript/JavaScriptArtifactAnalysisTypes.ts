@@ -7,6 +7,7 @@ import type { JavaScriptSemanticIr } from "../../domain/javascript/javascriptSem
 import type { JavaScriptModuleSemanticIr } from "../../domain/javascript/javascriptModuleSemanticIr.js";
 import type { JavaScriptArtifactFile } from "../../domain/javascript/javascriptArtifactFiles.js";
 import type { JsonValue } from "../../domain/jsonValue.js";
+import type { HtmlScriptType } from "../../domain/javascript/htmlArtifactReferences.js";
 
 interface JavaScriptStructuredObservation {
   readonly path: string;
@@ -41,6 +42,9 @@ export type JavaScriptPackageObservation = JavaScriptStructuredObservation &
 export interface JavaScriptHtmlScriptObservation {
   readonly html_path: string;
   readonly script_path: string;
+  readonly script_type: HtmlScriptType;
+  readonly declared_type: string | null;
+  readonly declared_language: string | null;
   readonly base_href: string | null;
   readonly location: JavaScriptSourceRange;
 }

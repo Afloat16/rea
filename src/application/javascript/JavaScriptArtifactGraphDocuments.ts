@@ -8,10 +8,12 @@ import {
 } from "./JavaScriptArtifactGraphContext.js";
 import {
   artifactObservationEvidence,
+  astObservationEvidence,
   staticInferenceEvidence,
 } from "./JavaScriptArtifactGraphEvidence.js";
 import { completeApplicationCoverage } from "../../domain/javascript/javascriptApplicationEvidenceSchemas.js";
 import { resolveArtifactPathByContext } from "./JavaScriptArtifactPathResolution.js";
+import type { JavaScriptHtmlScriptObservation } from "./JavaScriptArtifactAnalysisTypes.js";
 
 /** Project HTML renderer entrypoints and their local script assets. */
 export const addJavaScriptHtmlRoles = (
@@ -19,6 +21,10 @@ export const addJavaScriptHtmlRoles = (
 ): void => {
   const byHtml = new Map<string, typeof context.analysis.html_scripts>();
   for (const script of context.analysis.html_scripts) {
+    if (script.script_type === "non-javascript") {
+      addNonJavaScriptHtmlDeclaration(context, script);
+      continue;
+    }
     const existing = byHtml.get(script.html_path);
     byHtml.set(
       script.html_path,
@@ -73,6 +79,9 @@ export const addJavaScriptHtmlRoles = (
               properties: {
                 mechanism: "html-script-reference",
                 script_path: script.script_path,
+                script_type: script.script_type,
+                declared_type: script.declared_type,
+                declared_language: script.declared_language,
                 base_href: script.base_href,
                 ...resolution,
               },
@@ -100,6 +109,9 @@ export const addJavaScriptHtmlRoles = (
         relation: "loads",
         properties: {
           script_path: script.script_path,
+          script_type: script.script_type,
+          declared_type: script.declared_type,
+          declared_language: script.declared_language,
           base_href: script.base_href,
           resolution_context: resolution.resolution_context,
           resolved_path: resolvedPath,
@@ -109,6 +121,40 @@ export const addJavaScriptHtmlRoles = (
       });
     }
   }
+};
+
+/** A non-JavaScript src is a declaration, not an attempted script load. */
+const addNonJavaScriptHtmlDeclaration = (
+  context: JavaScriptArtifactGraphContext,
+  script: JavaScriptHtmlScriptObservation,
+): void => {
+  const html = context.filesByPath.get(script.html_path);
+  const asset = context.fileNodes.get(script.html_path);
+  if (html === undefined || asset === undefined) return;
+  context.accumulator.addNode({
+    kind: asset.kind,
+    identity: asset.identity,
+    observations: [
+      {
+        label: script.script_path,
+        properties: {
+          mechanism: "html-script-declaration",
+          script_path: script.script_path,
+          script_type: script.script_type,
+          declared_type: script.declared_type,
+          declared_language: script.declared_language,
+          base_href: script.base_href,
+        },
+        evidence: astObservationEvidence({
+          sha256: html.sha256,
+          path: html.path,
+          range: script.location,
+          operation: "classify-html-script-declaration",
+          coverage: completeApplicationCoverage(),
+        }),
+      },
+    ],
+  });
 };
 
 /** Project original source names and optional content digests from approved maps. */

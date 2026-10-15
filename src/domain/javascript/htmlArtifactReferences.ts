@@ -9,15 +9,21 @@ import type {
   JavaScriptSourceRange,
 } from "./javascriptStaticAnalysisTypes.js";
 
+/** Parsed element type, independent of runtime loading or execution. */
+export type HtmlScriptType = "classic" | "module" | "non-javascript";
+
 interface HtmlScriptReference {
   readonly scriptPath: string;
+  readonly scriptType: HtmlScriptType;
+  readonly declaredType: string | null;
+  readonly declaredLanguage: string | null;
   /** The opening tag's range in parse5 coordinates. */
   readonly location: JavaScriptSourceRange;
 }
 
 /** JavaScript written directly in a script element instead of loaded by URL. */
 export interface HtmlInlineScript {
-  readonly scriptType: "classic" | "module";
+  readonly scriptType: Exclude<HtmlScriptType, "non-javascript">;
   /** The body's range, between the opening and closing tags. */
   readonly location: JavaScriptSourceRange;
 }
@@ -54,25 +60,24 @@ const JAVASCRIPT_MIME_TYPES = new Set([
  * MIME check; `module` must match the type string exactly, ignoring ASCII
  * case. Import maps, speculation rules and data blocks are not JavaScript.
  */
-const inlineScriptType = (
-  attrs: readonly { readonly name: string; readonly value: string }[],
-): HtmlInlineScript["scriptType"] | null => {
-  const type = attrs.find(({ name }) => name === "type");
-  const language = attrs.find(({ name }) => name === "language");
+const htmlScriptType = (
+  type: string | null,
+  language: string | null,
+): HtmlScriptType => {
   const typeString =
-    type !== undefined
-      ? type.value
-      : language !== undefined && language.value !== ""
-        ? `text/${language.value}`
+    type !== null
+      ? type
+      : language !== null && language !== ""
+        ? `text/${language}`
         : "";
   if (typeString === "") return "classic";
   const mimeCandidate =
-    type === undefined
+    type === null
       ? typeString
       : typeString.replace(/^[\t\n\f\r ]+|[\t\n\f\r ]+$/gu, "");
   if (JAVASCRIPT_MIME_TYPES.has(asciiLowercase(mimeCandidate)))
     return "classic";
-  return asciiLowercase(typeString) === "module" ? "module" : null;
+  return asciiLowercase(typeString) === "module" ? "module" : "non-javascript";
 };
 
 const asciiLowercase = (value: string): string =>
@@ -111,10 +116,18 @@ export const htmlArtifactReferences = (
       }
       if (node.tagName === "script") {
         const src = node.attrs.find(({ name }) => name === "src");
+        const declaredType =
+          node.attrs.find(({ name }) => name === "type")?.value ?? null;
+        const declaredLanguage =
+          node.attrs.find(({ name }) => name === "language")?.value ?? null;
+        const scriptType = htmlScriptType(declaredType, declaredLanguage);
         const location = node.sourceCodeLocation?.startTag;
         if (src !== undefined && src.value !== "" && location !== undefined) {
           scripts.push({
             scriptPath: src.value,
+            scriptType,
+            declaredType,
+            declaredLanguage,
             location: {
               start: sourcePoint(location.startLine, location.startCol),
               end: sourcePoint(location.endLine, location.endCol),
@@ -122,9 +135,7 @@ export const htmlArtifactReferences = (
           });
         }
         const inline = src === undefined ? inlineScriptBody(node) : undefined;
-        const scriptType =
-          inline === undefined ? null : inlineScriptType(node.attrs);
-        if (inline !== undefined && scriptType !== null) {
+        if (inline !== undefined && scriptType !== "non-javascript") {
           inlineScriptCount += 1;
           if (inlineScripts.length < HTML_INLINE_SCRIPT_LOCATION_LIMIT)
             inlineScripts.push({ scriptType, location: inline });

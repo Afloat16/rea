@@ -30,13 +30,51 @@ it.each([
     '<svg><foreignObject><script src="actual.js"></script></foreignObject></svg>',
     ["actual.js"],
   ],
-  // The existing extraction contract does not classify script MIME types.
+  // Non-JavaScript src attributes remain declarations for evidence.
   ['<script type="application/json" src="actual.js"></script>', ["actual.js"]],
 ])("extracts document references from %s", (text, expected) => {
   expect(
     htmlArtifactReferences(text).scripts.map(({ scriptPath }) => scriptPath),
   ).toEqual(expected);
 });
+
+it.each([
+  ["", "classic", null, null],
+  [' type="" language="vbscript"', "classic", "", "vbscript"],
+  [' type=" Text/JavaScript "', "classic", " Text/JavaScript ", null],
+  [' language="javascript"', "classic", null, "javascript"],
+  [' type="MODULE"', "module", "MODULE", null],
+  [' type=" module "', "non-javascript", " module ", null],
+  [' language=" javascript "', "non-javascript", null, " javascript "],
+  [' type="application/json"', "non-javascript", "application/json", null],
+  [
+    ' type="application/ld+json"',
+    "non-javascript",
+    "application/ld+json",
+    null,
+  ],
+  [' type="importmap"', "non-javascript", "importmap", null],
+  [' type="speculationrules"', "non-javascript", "speculationrules", null],
+  [' language="vbscript"', "non-javascript", null, "vbscript"],
+] as const)(
+  "shares script-type interpretation for external and inline %s",
+  (attrs, scriptType, declaredType, declaredLanguage) => {
+    const result = htmlArtifactReferences(
+      `<script${attrs} src="source.js"></script><script${attrs}>run();</script>`,
+    );
+    expect(result.scripts).toEqual([
+      expect.objectContaining({
+        scriptPath: "source.js",
+        scriptType,
+        declaredType,
+        declaredLanguage,
+      }),
+    ]);
+    expect(result.inlineScripts.map((script) => script.scriptType)).toEqual(
+      scriptType === "non-javascript" ? [] : [scriptType],
+    );
+  },
+);
 
 it("retains exact opening-tag coordinates rather than the script body", () => {
   const opening = '<script\n title=">" src=actual.js>';
@@ -49,6 +87,9 @@ it("retains exact opening-tag coordinates rather than the script body", () => {
     scripts: [
       {
         scriptPath: "actual.js",
+        scriptType: "classic",
+        declaredType: null,
+        declaredLanguage: null,
         location: {
           start: { line: 3, column: 0 },
           end: { line: 4, column: ' title=">" src=actual.js>'.length },
