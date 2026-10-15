@@ -241,6 +241,10 @@ Selected bounded text is then parsed as inert data to recover:
 - utility-process entrypoints and native `.node` binding requests without
   parsing or executing the add-on.
 
+Native binding requests use the exact `.node` suffix. Inventory may retain a
+broader, case-insensitive add-on filename hint, but that hint alone does not
+establish a native loader request or requested native exports.
+
 Overloaded `.open` calls use lexical receiver facts: ambient browser window and
 document receivers are treated as browsing-context or document operations,
 while locally shadowed receivers can still contribute network endpoint

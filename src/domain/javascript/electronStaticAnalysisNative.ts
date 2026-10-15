@@ -281,5 +281,7 @@ const isNativeSpecifier = (
 ): boolean => {
   const path =
     moduleKind === "require" ? specifier : stripQueryAndFragment(specifier);
-  return path.toLowerCase().endsWith(".node");
+  // Native binding evidence follows the loader's exact extension spelling;
+  // the inventory's broader filename hint does not establish loader identity.
+  return path.endsWith(".node");
 };

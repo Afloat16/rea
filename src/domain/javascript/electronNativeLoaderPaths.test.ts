@@ -64,6 +64,23 @@ describe("native addon type-only re-exports", () => {
 });
 
 describe("native addon loader provenance", () => {
+  it.each(["NODE", "NoDe"])(
+    "does not infer a native binding from the case-folded .%s filename hint",
+    (extension) => {
+      const analysis = analyzeJavaScriptStaticSource(`
+        const required = require("./addon.${extension}");
+        module.exports = require("./addon.${extension}");
+        import imported from "./addon.${extension}";
+        export { default } from "./addon.${extension}";
+      `);
+      expect(analysis.parse_status).toBe("complete");
+      expect(analysis.electron.native_addon_bindings).toEqual([]);
+      expect(analysis.references.map(({ specifier }) => specifier)).toContain(
+        `./addon.${extension}`,
+      );
+    },
+  );
+
   it("distinguishes CommonJS and ESM re-exports", () => {
     const analysis = analyzeJavaScriptStaticSource(`
       const required = require("./addon.node#literal.node");
