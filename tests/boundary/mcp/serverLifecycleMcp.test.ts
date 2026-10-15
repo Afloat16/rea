@@ -35,6 +35,7 @@ import {
 import { z } from "zod";
 import { createDeferred } from "../../fixtures/binarySession.js";
 import { GoBinaryService } from "../../../src/application/go/GoBinaryService.js";
+import { RustBinaryService } from "../../../src/application/rust/RustBinaryService.js";
 import { WebNetworkCaptureService } from "../../../src/application/WebNetworkCaptureService.js";
 import { AnalysisUnsupportedTargetError } from "../../../src/domain/analysisErrorCore.js";
 
@@ -337,9 +338,11 @@ it("awaits SQLite cleanup and retries its retained owner after failed server shu
   expect(attempts).toBe(2);
 });
 
-it("closes the bound Go and web-capture services and retries failed shutdown", async () => {
+it("closes the bound Go, Rust and web-capture services and retries failed shutdown", async () => {
   let goCalls = 0;
   let goCloseAttempts = 0;
+  let rustCalls = 0;
+  let rustCloseAttempts = 0;
   let captureCloseAttempts = 0;
   let cleanupAllowed = false;
   const goBinary = new GoBinaryService({
@@ -368,9 +371,26 @@ it("closes the bound Go and web-capture services and retries failed shutdown", a
       if (!cleanupAllowed) throw new Error("Capture cleanup refused");
     },
   });
+  const rustBinary = new RustBinaryService({
+    identity: { id: "rust-fixture", name: "Rust fixture", version: "1" },
+    inspect: async ({ path }) => {
+      rustCalls += 1;
+      return err(
+        new AnalysisUnsupportedTargetError(
+          "inspect_rust_binary",
+          path,
+          "fixture rejection",
+        ),
+      );
+    },
+    close: async () => {
+      rustCloseAttempts += 1;
+      if (!cleanupAllowed) throw new Error("Rust cleanup refused");
+    },
+  });
   const server = createServer(
     { kind: "fixed", analysis: { execute: async () => ok(null) } },
-    { goBinary, webNetworkCapture },
+    { goBinary, rustBinary, webNetworkCapture },
   );
   const client = new Client({ name: "bound-service-lifecycle", version: "1" });
   const [clientTransport, serverTransport] =
@@ -385,14 +405,22 @@ it("closes the bound Go and web-capture services and retries failed shutdown", a
     });
     expect(result.isError).toBe(true);
     expect(goCalls).toBe(1);
+    const rustResult = await client.callTool({
+      name: "inspect_rust_binary",
+      arguments: { path: "/tmp/rust-fixture" },
+    });
+    expect(rustResult.isError).toBe(true);
+    expect(rustCalls).toBe(1);
 
     await expect(server.close()).rejects.toBeInstanceOf(AggregateError);
     expect(goCloseAttempts).toBe(1);
+    expect(rustCloseAttempts).toBe(1);
     expect(captureCloseAttempts).toBe(1);
 
     cleanupAllowed = true;
     await server.close();
     expect(goCloseAttempts).toBe(2);
+    expect(rustCloseAttempts).toBe(2);
     expect(captureCloseAttempts).toBe(2);
   } finally {
     cleanupAllowed = true;
