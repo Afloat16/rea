@@ -7,6 +7,10 @@ import { createEvidence, evidenceSchema, parseEvidence } from "./evidence.js";
 import { MAX_JSON_DEPTH, type JsonValue } from "./jsonValue.js";
 import { createEvidenceBundle } from "./evidenceBundle.js";
 import { freezeJsonSnapshot } from "./immutableJson.js";
+import {
+  HISTORICAL_ORDERED_FILE_OFFSET_RECORDS,
+  HISTORICAL_REVERSED_FILE_OFFSET_RECORD,
+} from "../../tests/fixtures/evidenceFileOffsetRanges.js";
 
 const TARGET: BinaryTarget = {
   path: "/tmp/fixture",
@@ -18,6 +22,42 @@ const TARGET: BinaryTarget = {
 };
 const PROVIDER = { id: "fixture", name: "Fixture provider", version: "1" };
 const PROFILE = createAnalysisProfile(PROVIDER, { loader: "default" });
+
+it("preserves historical empty and nonempty file-offset ranges and identifiers", () => {
+  for (const record of HISTORICAL_ORDERED_FILE_OFFSET_RECORDS) {
+    expect(parseEvidence(structuredClone(record))).toEqual(record);
+    expect(
+      createEvidence(undefined, record.provider, {
+        operation: record.operation,
+        parameters: record.parameters,
+        result: record.normalized_result,
+        locations: record.locations,
+      }),
+    ).toEqual(record);
+  }
+});
+
+it("rejects reversed file-offset ranges before creating or authenticating Evidence", () => {
+  const record = HISTORICAL_REVERSED_FILE_OFFSET_RECORD;
+  const parsed = evidenceSchema.safeParse(record);
+  expect(parsed.error?.issues).toEqual([
+    expect.objectContaining({
+      path: ["locations", 0, "end"],
+      message: "File-offset range end must be greater than or equal to start",
+    }),
+  ]);
+  expect(() => parseEvidence(structuredClone(record))).toThrow(
+    "File-offset range end must be greater than or equal to start",
+  );
+  expect(() =>
+    createEvidence(undefined, record.provider, {
+      operation: record.operation,
+      parameters: record.parameters,
+      result: record.normalized_result,
+      locations: record.locations,
+    }),
+  ).toThrow("File-offset range end must be greater than or equal to start");
+});
 
 it("rejects a detected Evidence subject with the raw-only 6502 architecture", () => {
   const selected = {

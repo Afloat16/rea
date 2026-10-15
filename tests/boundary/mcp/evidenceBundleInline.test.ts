@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { ok as resultOk } from "../../../src/domain/result.js";
 import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
 import { expect, it } from "vitest";
+import { Ajv2020 } from "ajv/dist/2020.js";
+import { z } from "zod";
 
 import { createTestBinarySession } from "../../fixtures/binarySession.js";
 import { observed } from "../../fixtures/analysisExecution.js";
@@ -16,6 +18,90 @@ import { jsonValueSchema } from "../../../src/domain/jsonValue.js";
 import { EMPTY_PROCESS_CAPTURE_EXAMPLE } from "../../../src/domain/process/processCaptureExample.js";
 import { PROCESS_PROVIDER } from "../../../src/domain/process/processEvidenceProvider.js";
 import { createServer } from "../../../src/server/createServer.js";
+import { createEvidenceBundle } from "../../../src/domain/evidenceBundle.js";
+import {
+  HISTORICAL_ORDERED_FILE_OFFSET_RECORDS,
+  HISTORICAL_REVERSED_FILE_OFFSET_RECORD,
+} from "../../fixtures/evidenceFileOffsetRanges.js";
+
+it("rejects reversed file-offset ranges atomically and advertises their runtime constraint", async () => {
+  const root = await createTestTempDirectory("rea-evidence-range-mcp-");
+  const session = createTestBinarySession(() => ({
+    execute: () => Promise.resolve(observed(null)),
+    close: () => Promise.resolve(resultOk(null)),
+  }));
+  const retained = HISTORICAL_ORDERED_FILE_OFFSET_RECORDS[0]!;
+  expect(session.recordEvidence(retained).ok).toBe(true);
+  const { client, server } = await connectEvidenceMcp("range-import", session);
+  const path = join(root, "bundle.json");
+  const getBundle = async () =>
+    structured(
+      await client.callTool({
+        name: "get_evidence_bundle",
+        arguments: {},
+      }),
+    );
+
+  try {
+    const initial = await getBundle();
+    const invalid = createEvidenceBundle([
+      HISTORICAL_ORDERED_FILE_OFFSET_RECORDS[2]!,
+      HISTORICAL_REVERSED_FILE_OFFSET_RECORD,
+    ]);
+    await writeFile(path, JSON.stringify(invalid));
+    const rejected = await client.callTool({
+      name: "import_evidence_bundle",
+      arguments: { path },
+    });
+    expect(parseMcpToolError(rejected)).toMatchObject({
+      error: {
+        code: "evidence_integrity_mismatch",
+        message: expect.stringContaining("locations.0.end"),
+      },
+    });
+    expect(await getBundle()).toEqual(initial);
+
+    const advertised = (await client.listTools()).tools.find(
+      (tool) => tool.name === "get_evidence_bundle",
+    )?.outputSchema;
+    const { id, $id, $schema, $async, ...schemaKeywords } = z
+      .looseObject({
+        id: z.string().optional(),
+        $id: z.string().optional(),
+        $schema: z.string().optional(),
+        $async: z.literal(false).optional(),
+      })
+      .parse(advertised);
+    const advertisedSchema = {
+      ...schemaKeywords,
+      ...(id === undefined ? {} : { id }),
+      ...($id === undefined ? {} : { $id }),
+      ...($schema === undefined ? {} : { $schema }),
+      ...($async === undefined ? {} : { $async }),
+    };
+    expect(JSON.stringify(advertisedSchema)).toContain(
+      "end must be greater than or equal to start",
+    );
+    const ajv = new Ajv2020({ strict: false, validateFormats: false });
+    expect(ajv.validateSchema(advertisedSchema)).toBe(true);
+    const validate = ajv.compile(advertisedSchema);
+    expect(validate(initial)).toBe(true);
+    // Standard JSON Schema checks the shape; REA enforces the relationship
+    // between sibling numeric fields when authenticating the complete record.
+    expect(validate({ ...initial, result: invalid })).toBe(true);
+
+    const valid = createEvidenceBundle(HISTORICAL_ORDERED_FILE_OFFSET_RECORDS);
+    await writeFile(path, JSON.stringify(valid));
+    const accepted = await client.callTool({
+      name: "import_evidence_bundle",
+      arguments: { path },
+    });
+    expect(accepted.isError).not.toBe(true);
+    expect((await getBundle()).result).toEqual(valid);
+  } finally {
+    await Promise.allSettled([client.close(), server.close(), session.close()]);
+  }
+});
 
 it("returns the complete session Evidence bundle in the tool result", async () => {
   const evidence = createEvidence(

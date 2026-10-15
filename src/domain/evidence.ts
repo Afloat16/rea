@@ -98,11 +98,19 @@ export const evidenceLocationSchema = z.discriminatedUnion("kind", [
     kind: z.literal("file-offset"),
     offset: z.number().int().min(0),
   }),
-  z.strictObject({
-    kind: z.literal("file-offset-range"),
-    start: z.number().int().min(0),
-    end: z.number().int().min(0),
-  }),
+  z
+    .strictObject({
+      kind: z.literal("file-offset-range"),
+      start: z.number().int().min(0),
+      end: z.number().int().min(0),
+    })
+    .refine(({ start, end }) => end >= start, {
+      path: ["end"],
+      message: "File-offset range end must be greater than or equal to start",
+    })
+    .describe(
+      "File-offset range; end must be greater than or equal to start. Equal endpoints are allowed. REA validates this relationship at runtime; the advertised JSON Schema validates each offset independently.",
+    ),
 ]);
 
 const evidenceAuthoritySchema = z.enum([

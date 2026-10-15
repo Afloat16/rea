@@ -11,6 +11,45 @@ import {
 } from "../../../src/domain/residualUnknown.js";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 import { cliTest } from "../../support/cli/cliFixture.js";
+import {
+  HISTORICAL_ORDERED_FILE_OFFSET_RECORDS,
+  HISTORICAL_REVERSED_FILE_OFFSET_RECORD,
+} from "../../fixtures/evidenceFileOffsetRanges.js";
+
+cliTest(
+  "rejects authenticated reversed file-offset ranges and accepts historical ordered ranges",
+  async ({ cli }) => {
+    const root = await createTestTempDirectory("rea-evidence-import-ranges-");
+    const path = join(root, "bundle.json");
+    await writeFile(
+      path,
+      JSON.stringify(
+        createEvidenceBundle([HISTORICAL_REVERSED_FILE_OFFSET_RECORD]),
+      ),
+    );
+    const rejected = await cli.run({
+      arguments: ["evidence-import", path, "--json"],
+    });
+    expect(rejected.exitCode).toBe(1);
+    expect(rejected.json).toMatchObject({
+      code: "evidence_integrity_mismatch",
+      message: expect.stringContaining("records.0.locations.0.end"),
+    });
+    expect(rejected.json).not.toHaveProperty("imported");
+
+    await writeFile(
+      path,
+      JSON.stringify(
+        createEvidenceBundle(HISTORICAL_ORDERED_FILE_OFFSET_RECORDS),
+      ),
+    );
+    const accepted = await cli.run({
+      arguments: ["evidence-import", path, "--json"],
+    });
+    expect(accepted.exitCode).toBe(0);
+    expect(accepted.json).toEqual({ imported: 3, unknowns_added: 0, total: 3 });
+  },
+);
 
 const revisionBundle = () => {
   const records = ["open", "investigate"].map((operation) =>

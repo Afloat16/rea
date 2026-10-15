@@ -218,6 +218,11 @@ rea evidence-export /absolute/path/to/evidence/bundle.json /absolute/path/to/evi
 rea compare /absolute/path/to/evidence/left.json /absolute/path/to/evidence/right.json
 ```
 
+Evidence file-offset ranges require `end >= start`; equal endpoints remain
+valid. Creation and import reject reversed ranges, including records with a
+matching semantic identifier. Advertised JSON Schema describes this relationship;
+REA enforces it at runtime.
+
 Exports preserve an existing destination unless `--overwrite` is explicit.
 For application traces and version comparisons, see
 [JavaScript application workflows](javascript-application-workflows.md).
