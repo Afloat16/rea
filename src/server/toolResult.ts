@@ -102,24 +102,30 @@ export class ToolResultDelivery {
     );
   }
 
-  /** Deliver the original failure with the producer-acknowledged partial Evidence reference. */
+  /** Deliver the original failure and the partial Evidence recording outcome. */
   toRecordedPartialErrorToolResult(
     error: AnalysisError,
     evidenceId: string,
     recorded: Result<unknown, AnalysisError>,
     targetContent: boolean,
   ): CallToolResult {
-    if (!recorded.ok) return this.toErrorToolResult(error, targetContent);
     const projected = projectAnalysisError(error);
     return this.projectedErrorResult(
       {
         ...projected,
         details: {
           ...projected.details,
-          partial_observation: {
-            kind: "retained-evidence",
-            evidence_id: evidenceId,
-          },
+          ...(recorded.ok
+            ? {
+                partial_observation: {
+                  kind: "retained-evidence",
+                  evidence_id: evidenceId,
+                },
+              }
+            : {
+                retention: "failed",
+                retention_error: projectAnalysisError(recorded.error),
+              }),
         },
       },
       targetContent,
