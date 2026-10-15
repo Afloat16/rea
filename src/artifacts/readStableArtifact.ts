@@ -1,5 +1,12 @@
 import { createHash } from "node:crypto";
-import { constants, type BigIntStats } from "node:fs";
+import {
+  constants,
+  createReadStream,
+  read,
+  type BigIntStats,
+  type ReadStream,
+  type ReadStreamOptions,
+} from "node:fs";
 import { lstat, open, type FileHandle } from "node:fs/promises";
 import { ArtifactReaderFailure } from "./ArtifactReader.js";
 import type { ArtifactResourceScope } from "./ArtifactResourceScope.js";
@@ -9,6 +16,7 @@ import { OwnedFileHandle } from "../filesystem/OwnedFileHandle.js";
 export interface StableArtifactFileSystem {
   lstat(path: string): Promise<BigIntStats>;
   open(path: string, flags: number): Promise<FileHandle>;
+  createReadStream?(path: string, options: ReadStreamOptions): ReadStream;
 }
 
 const FILE_SYSTEM: StableArtifactFileSystem = {
@@ -45,6 +53,51 @@ const assertReadActive = (signal: AbortSignal | undefined): void => {
     });
 };
 
+const nextActiveChunk = async (
+  iterator: AsyncIterator<unknown>,
+  signal?: AbortSignal,
+): Promise<IteratorResult<unknown>> => {
+  assertReadActive(signal);
+  if (signal === undefined) return iterator.next();
+  let onAbort: () => void = () => undefined;
+  const cancelled = new Promise<never>((_resolve, reject) => {
+    onAbort = () =>
+      reject(
+        new ArtifactReaderFailure("cancelled", "Artifact read cancelled", {
+          cause: signal.reason,
+        }),
+      );
+  });
+  signal.addEventListener("abort", onAbort, { once: true });
+  try {
+    assertReadActive(signal);
+    return await Promise.race([iterator.next(), cancelled]);
+  } finally {
+    signal.removeEventListener("abort", onAbort);
+  }
+};
+
+/** Await native read quiescence without transferring descriptor ownership. */
+const closeReadSource = async (
+  source: ReadStream | undefined,
+): Promise<void> => {
+  if (source === undefined || source.closed) return;
+  await new Promise<void>((resolve, reject) => {
+    const onError = (): void => undefined;
+    source.on("error", onError);
+    source.once("close", () => {
+      source.off("error", onError);
+      resolve();
+    });
+    try {
+      source.destroy();
+    } catch (cause: unknown) {
+      source.off("error", onError);
+      reject(cause);
+    }
+  });
+};
+
 /** Read one bounded regular file and reject replacement or in-place changes. */
 export const readStableArtifact = async (
   path: string,
@@ -71,8 +124,9 @@ export const readStableArtifact = async (
       constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
     ),
   );
-  const owner =
-    resourceScope === undefined ? undefined : new OwnedFileHandle(file);
+  let source: ReadStream | undefined;
+  let iterator: AsyncIterator<unknown> | undefined;
+  const owner = new OwnedFileHandle(file);
   let failure: unknown;
   try {
     const initial = await file.stat({ bigint: true });
@@ -87,12 +141,20 @@ export const readStableArtifact = async (
       );
     const chunks: Buffer[] = [];
     let count = 0;
-    for await (const chunk of file.createReadStream({
+    source = (fileSystem.createReadStream ?? createReadStream)(path, {
+      // Supplying the admitted numeric fd prevents any path reopen. The
+      // source releases only its read state; owner closes the actual handle.
+      fd: file.fd,
       autoClose: false,
       highWaterMark: 65536,
-    })) {
+      fs: { read, close: (_fd, callback) => callback(null) },
+    });
+    iterator = source.iterator({ destroyOnReturn: false });
+    for (;;) {
+      const chunk = await nextActiveChunk(iterator, signal);
+      if (chunk.done === true) break;
       assertReadActive(signal);
-      const value: unknown = chunk;
+      const value: unknown = chunk.value;
       if (!Buffer.isBuffer(value))
         throw new ArtifactReaderFailure(
           "format",
@@ -134,18 +196,24 @@ export const readStableArtifact = async (
     failure = cause;
     throw cause;
   } finally {
-    if (owner === undefined || resourceScope === undefined) await file.close();
-    else {
-      const cleanup = await resourceScope.release({
-        kind: "file-handle",
-        resource: path,
-        handle: owner,
-      });
-      if (cleanup.kind === "failed")
-        throw ArtifactReaderFailure.withCleanup(
-          failure ?? cleanup.cause,
-          ArtifactReaderFailure.cleanupObservation(cleanup.cause, path),
-        );
+    await closeReadSource(source);
+    await iterator?.return?.().catch(() => undefined);
+    const cleanup =
+      resourceScope === undefined
+        ? await owner.close().then(
+            () => ({ kind: "released" as const }),
+            (cause: unknown) => ({ kind: "failed" as const, cause }),
+          )
+        : await resourceScope.release({
+            kind: "file-handle",
+            resource: path,
+            handle: owner,
+          });
+    if (cleanup.kind === "failed") {
+      throw ArtifactReaderFailure.withCleanup(
+        failure ?? cleanup.cause,
+        ArtifactReaderFailure.cleanupObservation(cleanup.cause, path),
+      );
     }
   }
 };
