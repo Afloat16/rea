@@ -3,6 +3,7 @@ import { z } from "zod";
 import { jsonParts } from "../domain/jsonSerialization.js";
 import {
   SQLITE_ROW_LIMIT_DEFAULT,
+  sqliteDatabaseSchema,
   sqliteSchemaScope,
   type InspectSqliteDatabaseInput,
   type SqliteDatabase,
@@ -60,7 +61,13 @@ const cellByteLengths = z.array(z.bigint().nonnegative());
 type DatabaseEncoding = z.output<typeof encodingSchema>;
 type Inspection = Pick<
   SqliteDatabase,
-  "engine" | "database_encoding" | "schema" | "rows" | "limitations"
+  | "engine"
+  | "database_encoding"
+  | "application_id"
+  | "user_version"
+  | "schema"
+  | "rows"
+  | "limitations"
 >;
 type SelectedTableFacts = Pick<
   SqliteDatabase["schema"]["tables"][number],
@@ -524,6 +531,22 @@ export const inspectSqliteDatabaseSnapshot = (
     const encoding = z
       .object({ encoding: encodingSchema })
       .parse(db.prepare("PRAGMA encoding").get()).encoding;
+    const applicationId = z
+      .object({
+        application_id: z
+          .bigint()
+          .transform(Number)
+          .pipe(sqliteDatabaseSchema.shape.application_id.unwrap()),
+      })
+      .parse(db.prepare("PRAGMA main.application_id").get()).application_id;
+    const userVersion = z
+      .object({
+        user_version: z
+          .bigint()
+          .transform(Number)
+          .pipe(sqliteDatabaseSchema.shape.user_version.unwrap()),
+      })
+      .parse(db.prepare("PRAGMA main.user_version").get()).user_version;
     const limitations = [
       "Inspects an offline stable file set. Filesystem identity checks detect observed acquisition changes; they do not establish an atomic snapshot of an actively changing database. Supply an application-created backup or quiescent database/WAL pair.",
       "The source database and WAL are never opened by SQLite or modified. A private copy may acquire its own WAL-index sidecar and is removed after inspection.",
@@ -541,6 +564,8 @@ export const inspectSqliteDatabaseSnapshot = (
     return {
       engine: { name: "SQLite", version },
       database_encoding: encoding,
+      application_id: applicationId,
+      user_version: userVersion,
       schema,
       rows: readRows(db, input, selectedTable, { encoding, budget }),
       limitations,

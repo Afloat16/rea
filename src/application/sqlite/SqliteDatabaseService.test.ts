@@ -117,17 +117,16 @@ it("preserves completed observed evidence when cancellation arrives after provid
   const service = new SqliteDatabaseService({
     inspect: () => Promise.resolve(ok(execution(value))),
   });
-  expect(await service.inspect({ path: "/selected.db" })).toMatchObject({
-    ok: true,
-    value: {
-      confidence: "observed",
-      subject: {
-        local_path: "/selected.db",
-        digest: { sha256: "a".repeat(64) },
-      },
-      normalized_result: value,
+  const result = await service.inspect({ path: "/selected.db" });
+  if (!result.ok) throw result.error;
+  expect(result.value).toMatchObject({
+    confidence: "observed",
+    subject: {
+      local_path: "/selected.db",
+      digest: { sha256: "a".repeat(64) },
     },
   });
+  expect(result.value.normalized_result).toEqual(value);
   const controller = new AbortController();
   const cancelled = new SqliteDatabaseService({
     inspect: () => {

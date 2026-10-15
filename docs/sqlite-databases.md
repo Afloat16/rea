@@ -78,6 +78,13 @@ the WAL identity is also necessary to interpret pending committed data. The
 SQLite engine version is reported with the observed result. Neither digest is
 a claim that the database is healthy, complete or trusted.
 
+`application_id` and `user_version` retain the application's signed 32-bit
+header values from that same database/WAL snapshot. Zero remains an observed
+value. New inspections include both fields; they are optional when reading
+older retained reports, so absence does not acquire an invented default.
+These application-controlled values do not by themselves identify a vendor
+or establish schema migration compatibility.
+
 ## Source files and failures
 
 REA copies the selected database and existing sibling WAL to an owned private

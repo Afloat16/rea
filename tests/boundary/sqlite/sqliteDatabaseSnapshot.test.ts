@@ -46,6 +46,38 @@ const fixture = async (wal = false) => {
   return { workspace, database, root, capture };
 };
 
+it.runIf(SQLITE_NATIVE_LIMITS_AVAILABLE)(
+  "reads application metadata from the frozen committed WAL rather than the main-file header",
+  async () => {
+    const { database, capture } = await fixture(true);
+    const writer = new DatabaseSync(database.path);
+    try {
+      writer.exec(
+        "PRAGMA application_id=-2147483648; PRAGMA user_version=2147483647;",
+      );
+    } finally {
+      writer.close();
+    }
+    const files = [
+      database.path,
+      `${database.path}-wal`,
+      `${database.path}-shm`,
+    ];
+    const before = await Promise.all(files.map((path) => readFile(path)));
+    expect(before[0]?.readInt32BE(68)).toBe(0);
+    expect(before[0]?.readInt32BE(60)).toBe(0);
+    const snapshot = await capture();
+    expect(
+      inspectSqliteDatabaseSnapshot(snapshot.snapshotPath, {
+        path: database.path,
+      }),
+    ).toMatchObject({ application_id: -2147483648, user_version: 2147483647 });
+    expect(await Promise.all(files.map((path) => readFile(path)))).toEqual(
+      before,
+    );
+  },
+);
+
 it.runIf(SQLITE_NATIVE_LIMITS_AVAILABLE).each(["PERSIST", "TRUNCATE"])(
   "inspects a committed %s journal without modifying the source file set",
   async (mode) => {

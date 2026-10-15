@@ -24,6 +24,28 @@ const createDatabase = async (sql: string): Promise<string> => {
   return path;
 };
 
+it.each([
+  { application_id: 0, user_version: 0 },
+  { application_id: -2147483648, user_version: 2147483647 },
+  { application_id: 2147483647, user_version: -2147483648 },
+])(
+  "retains signed application metadata without modifying the snapshot: %j",
+  async (metadata) => {
+    const path = await createDatabase(`
+    CREATE TABLE items(value INTEGER);
+    PRAGMA application_id=${metadata.application_id};
+    PRAGMA user_version=${metadata.user_version};
+  `);
+    const before = await readFile(path);
+    expect(before.readInt32BE(68)).toBe(metadata.application_id);
+    expect(before.readInt32BE(60)).toBe(metadata.user_version);
+    expect(inspectSqliteDatabaseSnapshot(path, { path })).toMatchObject(
+      metadata,
+    );
+    expect(await readFile(path)).toEqual(before);
+  },
+);
+
 it("preserves negative-zero REAL values through JSON separately from positive and integer zero", async () => {
   const path = await createDatabase(`
     CREATE TABLE numbers(value);

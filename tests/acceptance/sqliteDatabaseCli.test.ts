@@ -349,6 +349,7 @@ cliTest
       cwd: root,
       environment: {
         REA_LOG_LEVEL: "silent",
+        TMPDIR: root,
         REA_ANALYSIS_PROVIDER: "ghidra",
         REA_GHIDRA_HOME: "/unconfigured/ghidra",
       },
@@ -361,6 +362,8 @@ cliTest
       normalized_result: {
         artifact: { path, sha256: digest(original), bytes: original.length },
         wal: null,
+        application_id: 0,
+        user_version: 0,
         schema: {
           completeness: "complete",
           tables: expect.arrayContaining([
@@ -432,7 +435,7 @@ cliTest
         },
       },
     });
-    const { call } = await connectLocalToolsMcp();
+    const { call } = await connectLocalToolsMcp({ TMPDIR: root });
     const response = await call("inspect_sqlite_database", {
       path,
       table: 'odd " table',
@@ -453,7 +456,7 @@ cliTest.runIf(SQLITE_NATIVE_LIMITS_AVAILABLE)(
     const database = new DatabaseSync(path);
     onTestFinished(() => database.close());
     database.exec(
-      "PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0; CREATE TABLE committed(value TEXT); INSERT INTO committed VALUES('only in WAL');",
+      "PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0; CREATE TABLE committed(value TEXT); PRAGMA application_id=-2147483648; PRAGMA user_version=2147483647; INSERT INTO committed VALUES('only in WAL');",
     );
     const files = [path, `${path}-wal`, `${path}-shm`];
     const before = await Promise.all(files.map(sourceState));
@@ -461,6 +464,8 @@ cliTest.runIf(SQLITE_NATIVE_LIMITS_AVAILABLE)(
     const wal = before[1];
     expect(db).toBeDefined();
     expect(wal).toBeDefined();
+    expect(db?.bytes.readInt32BE(68)).toBe(0);
+    expect(db?.bytes.readInt32BE(60)).toBe(0);
     const result = await cli.run({
       arguments: [
         "inspect-sqlite-database",
@@ -469,12 +474,14 @@ cliTest.runIf(SQLITE_NATIVE_LIMITS_AVAILABLE)(
         "committed",
         "--json",
       ],
-      environment: { REA_LOG_LEVEL: "silent" },
+      environment: { REA_LOG_LEVEL: "silent", TMPDIR: root },
     });
     expect(result.exitCode, result.stdout + result.stderr).toBe(0);
     expect(result.json).toMatchObject({
       normalized_result: {
         artifact: { sha256: db === undefined ? "missing" : digest(db.bytes) },
+        application_id: -2147483648,
+        user_version: 2147483647,
         wal: {
           path: `${path}-wal`,
           sha256: wal === undefined ? "missing" : digest(wal.bytes),
@@ -494,7 +501,7 @@ cliTest.runIf(SQLITE_NATIVE_LIMITS_AVAILABLE)(
         },
       },
     });
-    const { call } = await connectLocalToolsMcp();
+    const { call } = await connectLocalToolsMcp({ TMPDIR: root });
     const response = await call("inspect_sqlite_database", {
       path,
       table: "committed",

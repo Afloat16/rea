@@ -15,6 +15,7 @@ export const SQLITE_ROW_LIMIT_DEFAULT = 20;
 const nonnegative = z.number().int().nonnegative();
 const hex = z.string().regex(/^(?:[0-9a-f]{2})*$/);
 const encoding = z.enum(["UTF-8", "UTF-16le", "UTF-16be"]);
+const headerInteger = z.number().int().min(-2147483648).max(2147483647);
 const artifactSchema = z.strictObject({
   path: z.string().min(1),
   sha256: z.string().regex(/^[0-9a-f]{64}$/),
@@ -115,6 +116,16 @@ export const sqliteDatabaseSchema = z
       version: z.string().min(1),
     }),
     database_encoding: encoding,
+    application_id: headerInteger
+      .optional()
+      .describe(
+        "Observed signed 32-bit application-controlled ID from the database/WAL snapshot; zero is retained. Omitted only in older retained reports, not inferred from engine version.",
+      ),
+    user_version: headerInteger
+      .optional()
+      .describe(
+        "Observed signed 32-bit application-controlled version from the database/WAL snapshot; zero is retained. Omitted only in older retained reports; it does not establish migration compatibility.",
+      ),
     schema: z.strictObject({
       scope: z.enum(["inventory", "selected_table", "database"]),
       completeness: z
