@@ -59,6 +59,103 @@ describe("CLI output argument boundary", () => {
   });
 });
 
+describe("CLI token-window integer bounds", () => {
+  it("validates the effective count and offset before formatting", () => {
+    for (const flag of ["--token-limit", "--token-offset"]) {
+      for (const value of ["-1", "1.5", "9007199254740992"])
+        expect(
+          validateCliOutputArguments(["providers", flag, value]),
+        ).toMatchObject({
+          ok: false,
+          code: "INVALID_TOKEN_WINDOW",
+          message: expect.stringContaining(flag),
+        });
+      for (const value of ["0", "1", String(Number.MAX_SAFE_INTEGER)])
+        expect(validateCliOutputArguments(["providers", flag, value])).toEqual({
+          ok: true,
+        });
+    }
+    expect(
+      validateCliOutputArguments([
+        "providers",
+        "--token-limit",
+        "-1",
+        "--token-limit",
+        "5",
+        "--token-offset",
+        "1.5",
+        "--token-offset",
+        "0",
+      ]),
+    ).toEqual({ ok: true });
+    for (const value of ["NaN", "Infinity", "not-a-number"])
+      expect(
+        validateCliOutputArguments(["providers", "--token-limit", value]),
+      ).toEqual({ ok: true });
+  });
+
+  workspaceCliTest(
+    "rejects invalid integer windows before command execution across output forms",
+    async ({ cli }) => {
+      for (const [format, control] of [
+        ["toon", ["--token-limit", "-1"]],
+        ["md", ["--token-offset=1.5"]],
+        ["yaml", ["--token-limit", "9007199254740992"]],
+        ["json", ["--token-offset=-1"]],
+        ["jsonl", ["--token-limit=1.5"]],
+        ["toon", ["--token-offset", "9007199254740992"]],
+      ] as const) {
+        const result = await cli.run({
+          arguments: [
+            "analyze",
+            "/absent/token-window-target",
+            "--format",
+            format,
+            ...control,
+          ],
+        });
+        expect(result.exitCode).toBe(1);
+        expect(result.stdout).toContain("INVALID_TOKEN_WINDOW");
+        expect(result.stdout).toContain("integer from 0");
+        expect(result.stdout).not.toContain("token-window-target");
+        expect(result.stdout).not.toContain("[truncated:");
+        expect(result.stderr).toBe("");
+        if (format !== "yaml")
+          expect(result.json).toMatchObject({
+            ok: false,
+            error: { code: "INVALID_TOKEN_WINDOW" },
+          });
+      }
+    },
+    CLI_INTEGRATION_TIMEOUT_MS,
+  );
+
+  workspaceCliTest(
+    "preserves zero and repeated valid token-window selections",
+    async ({ cli }) => {
+      const zero = await cli.run({
+        arguments: ["capabilities", "--token-limit=0", "--token-offset", "0"],
+      });
+      expect(zero.exitCode).toBe(0);
+      expect(zero.stdout).toMatch(/showing tokens 0–0 of \d+/u);
+      const repeated = await cli.run({
+        arguments: [
+          "capabilities",
+          "--token-limit",
+          "-1",
+          "--token-limit=5",
+          "--token-offset=1.5",
+          "--token-offset",
+          "0",
+        ],
+      });
+      expect(repeated.exitCode).toBe(0);
+      expect(repeated.stdout).toMatch(/showing tokens 0–5 of \d+/u);
+    },
+    CLI_INTEGRATION_TIMEOUT_MS,
+  );
+});
+
 describe("CLI output flag value forms", () => {
   it("splits only the equals forms of valued output flags", () => {
     expect(

@@ -321,6 +321,11 @@ redirected, which keeps large results smaller for agents and scripts; pipe
 through `jq .` for indented files. Output selection and formatting do not change
 operation status.
 
+`--token-limit` and `--token-offset` require integer values from 0 through
+9007199254740991 (`Number.MAX_SAFE_INTEGER`). Negative or fractional numbers
+and integers above this limit fail with `INVALID_TOKEN_WINDOW` before the
+command runs. Zero remains a valid count or offset.
+
 For `cutter-command`, `--json-output` requests command-specific JSON from
 Cutter when available. This is separate from `--format json`, which selects the
 CLI result representation; the global `--json` flag selects that same CLI
