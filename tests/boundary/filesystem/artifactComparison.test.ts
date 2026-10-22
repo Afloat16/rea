@@ -740,6 +740,13 @@ describe("duplicate archive occurrence ownership", () => {
     expect(comparison.limitations).toContain(
       "Duplicate logical paths cannot be paired across inventories; comparisons for those paths are unknown.",
     );
+    // Occurrences on the unknown duplicate path are never counted unchanged.
+    // The archives differ, so the root changes and only neighbor.txt remains.
+    expect(comparison.summary).toMatchObject({ unchanged: 1, unknown: 1 });
+    expect(compareArtifacts(left, left).summary).toMatchObject({
+      unchanged: 2,
+      unknown: 1,
+    });
   });
 });
 
@@ -889,7 +896,7 @@ describe("ZIP non-entry coverage", () => {
       left.normalized_result,
     );
     expect(inventory.limitations).toContain(
-      "ZIP inventory lists central-directory entries only. Non-entry bytes, including an APK Signing Block before the central directory or a ZIP comment after it, are not occurrences.",
+      "ZIP inventory lists central-directory entries only. Non-entry bytes, including leading bytes before the first entry such as a self-extractor stub, an APK Signing Block before the central directory or a ZIP comment after it, are not occurrences.",
     );
     expect(
       inventory.occurrences.map(({ logical_path }) => logical_path).sort(),

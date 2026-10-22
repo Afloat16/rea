@@ -7,14 +7,17 @@ import {
   AnalysisUnsupportedTargetError,
 } from "../../domain/analysisErrorCore.js";
 import {
-  projectPlistValue,
+  binaryDatePrecisionOverlapLimitation,
+  negativeZeroRealLimitation,
+  nonFiniteRealLimitation,
   unknownDateLimitation,
+  unknownScalarLimitation,
 } from "../../domain/apple/plistValue.js";
 import { createPlistNumberProjection } from "../../domain/apple/plistNumbers.js";
 import {
-  binaryPlistNumberLiterals,
-  xmlPlistNumberLiterals,
-} from "./PlistNumberLiterals.js";
+  decodeBinaryPlistScalars,
+  scanBinaryPlistScalars,
+} from "./PlistScalars.js";
 import {
   omittedPrototypeKeysLimitation,
   parseXmlPropertyList,
@@ -34,7 +37,7 @@ import {
   hasBinaryPlistSignature,
   hasNibArchiveSignature,
 } from "../../domain/apple/appleArchiveFormat.js";
-import { estimateBinaryPlistExpansion } from "./InterfaceBuilderDecodeBudget.js";
+import { estimateBinaryPlistExpansion } from "./PropertyListDecodeBudget.js";
 
 const MAX_BYTES = 64 * 1024 * 1024;
 /** Decoded representation budget, the same 8:1 ratio Interface Builder uses. */
@@ -67,28 +70,36 @@ export const decodeKeyedArchiveBytes = (
               )
             : new RangeError(message),
         bounds: "decoder",
+        numberProjection: true,
       })
+    : undefined;
+  const binaryScalarMetadata = binary
+    ? scanBinaryPlistScalars(bytes, binaryExpansion)
     : undefined;
   const parsed =
     binaryExpansion !== undefined
       ? {
-          value: parseBinary(bytes),
+          value: parseBinary(
+            decodeBinaryPlistScalars(
+              bytes,
+              binaryScalarMetadata!,
+              binaryExpansion!,
+            ),
+          ),
+          numberLiterals: binaryScalarMetadata!.literals,
           omittedPrototypeKeys: binaryExpansion.binaryPrototypeKeyObserved
             ? null
             : 0,
         }
       : parseXmlPropertyList(xmlText ?? "");
   const {
-    value: plistValue,
-    unknownRealCount,
+    nonFiniteRealCount,
+    negativeZeroRealCount,
     unknownDateCount,
-  } = projectPlistValue(parsed.value);
-  const graph = projectKeyedArchive(plistValue, selection);
-  const numbers = createPlistNumberProjection(
-    binary
-      ? binaryPlistNumberLiterals(bytes)
-      : xmlPlistNumberLiterals(xmlText ?? ""),
-  );
+    unknownScalarCount,
+    ...graph
+  } = projectKeyedArchive(parsed.value, selection);
+  const numbers = createPlistNumberProjection(parsed.numberLiterals);
   // Classify the serialized graph before projecting values to typed decimals.
   // Numeric IDs, node kinds, references and pagination retain their original meaning.
   const roots = Object.fromEntries(
@@ -112,14 +123,26 @@ export const decodeKeyedArchiveBytes = (
       ...(parsed.omittedPrototypeKeys === 0
         ? []
         : [omittedPrototypeKeysLimitation(parsed.omittedPrototypeKeys)]),
-      ...(unknownRealCount === 0
+      ...(nonFiniteRealCount === 0
         ? []
-        : [
-            `${String(unknownRealCount)} non-finite real value(s) are reported as { "$plist_type": "real", "value": null } because JSON evidence cannot preserve NaN vs infinity.`,
-          ]),
+        : [nonFiniteRealLimitation(nonFiniteRealCount)]),
+      ...(negativeZeroRealCount === 0
+        ? []
+        : [negativeZeroRealLimitation(negativeZeroRealCount)]),
       ...(unknownDateCount === 0
         ? []
         : [unknownDateLimitation(unknownDateCount)]),
+      ...(binaryExpansion === undefined ||
+      binaryExpansion.datePrecisionOverlapCount === 0
+        ? []
+        : [
+            binaryDatePrecisionOverlapLimitation(
+              binaryExpansion.datePrecisionOverlapCount,
+            ),
+          ]),
+      ...(unknownScalarCount === 0
+        ? []
+        : [unknownScalarLimitation(unknownScalarCount)]),
     ],
   };
 };
@@ -142,7 +165,8 @@ const keyedArchiveKindRemediation = (
 /** Read exactly one regular, contained bundle entry without following symlinks. */
 export const inspectBundleKeyedArchive = async (input: {
   bundlePath: string;
-  targetSha256: string;
+  targetSha256: string | null;
+  resourceRoot?: import("../../domain/apple/bundleResourceRoot.js").BundleResourceRoot;
   parameters: unknown;
   signal?: AbortSignal;
   /** Host whose available workflows the remediation names. */
@@ -218,6 +242,9 @@ export const inspectBundleKeyedArchive = async (input: {
     try {
       return keyedArchiveResultSchema.parse({
         target_sha256: input.targetSha256,
+        ...(input.resourceRoot === undefined
+          ? {}
+          : { resource_root: input.resourceRoot }),
         archive_path: entry.path,
         archive_sha256: createHash("sha256").update(bytes).digest("hex"),
         ...decodeKeyedArchiveBytes(bytes, selected),

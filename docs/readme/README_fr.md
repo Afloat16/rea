@@ -1,7 +1,7 @@
 <div align="center">
 
 [English](../../README.md) · [简体中文](README_zh.md) · [繁體中文](README_zh-TW.md) · [日本語](README_ja.md) · [한국어](README_ko.md) · [Türkçe](README_tr.md) · [Русский](README_ru.md) · [Tiếng Việt](README_vi.md) · [ไทย](README_th.md) · [Deutsch](README_de.md) · [Español](README_es.md) · **Français** · [Українська](README_uk.md) · [Polski](README_pl.md) · [Português (Brasil)](README_pt-BR.md) · [العربية](README_ar.md) · [فارسی](README_fa.md) · [Bahasa Indonesia](README_id.md) · [Italiano](README_it.md)
-· [Ελληνικά](README_el.md)
+· [Ελληνικά](README_el.md) · [മലയാളം](README_ml.md)
 
 # REA : rétro-ingénierie de tout
 
@@ -146,15 +146,20 @@ REA nécessite Node.js 22.x (>=22.19), 24.x (>=24.11) ou 26+, ainsi que npm. Les
 | ---------------------------- | ----------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
 | Binaires natifs              | Pseudo-code, assembleur, chaînes, symboles, appels et références                                            | Hopper, Ghidra ou IDA ; [analyse native](../native-investigation.md)                                                              |
 | Structure ELF hors ligne     | Sections, segments, symboles et relocations d'origine, et protections statiques candidates                  | pwntools fourni par l'utilisateur sous Linux x64 ; [diagnostics binaires](../binary-diagnostics.md)                               |
+| PE certificates              | Authenticode WIN_CERTIFICATE entries and PKCS#7 signer/X.509 identity fields                                | Built-in static PE inspection; [PE certificates](../pe-certificates.md)                                                           |
 | Artefact WASM                | Validation, sections, formes WAT exactes d'import/export et WAT décodé                                      | WABT 1.0.42 fourni par l'utilisateur ; `inspect_wasm_artifact`                                                                    |
 | Bytecode EVM                 | Sélecteurs de dispatch, offsets en octets, arguments inférés et mutabilité                                  | Fichier local brut ou hexadécimal sous Linux x64 ; [guide EVM hors ligne](../evm-bytecode.md)                                     |
 | Rust binaries                | Embedded cargo-auditable dependency list                                                                    | [Rust binaries](../rust-binaries.md)                                                                                              |
+| ELF notes                    | PT_NOTE/SHT_NOTE owners, types, GNU build-id and ABI-tag fields                                             | Built-in static ELF inspection; [ELF notes](../elf-notes.md)                                                                      |
+| Erlang BEAM                  | IFF chunks, atoms, exports, and tables                                                                      | Built-in static BEAM inspection; [Erlang BEAM](../erlang-beam.md)                                                                 |
 | Crashs Linux enregistrés     | Notes brutes, registres et signaux de chaque thread enregistré, et correspondances de mappings facultatives | pwntools fourni par l'utilisateur sous Linux x64 ; GDB/pwndbg en option ; [crashs enregistrés](../recorded-crashes.md)            |
+| Installations de bureau      | Environnements candidats, fichiers justificatifs, composants et étapes suivantes                            | Inspection bornée des répertoires et en-têtes；[Applications de bureau](../desktop-applications.md)                               |
 | JavaScript / Electron        | Modules, imports, source maps, routes, IPC et relations avec les modules natifs                             | Node.js et npm ; [analyse d'applications](../javascript-application-workflows.md)                                                 |
 | Sites web                    | Structure des pages, scripts, observations réseau et captures d'écran demandées                             | Un navigateur de la famille Chrome ; [analyse du navigateur](../browser-observation.md)                                           |
 | Captures réseau enregistrées | Requêtes, réponses, payloads exposés et emplacements dans le code source                                    | HAR ; mitmdump sous Linux pour les captures mitmproxy natives ; [guide des captures](../web-network-captures.md)                  |
 | Captures de paquets          | Points de terminaison, DNS, TLS SNI, distribution des protocoles et requêtes HTTP                           | tshark et capinfos fournis par l'appelant ; [guide pcap](../pcap-analysis.md)                                                     |
 | Assemblys .NET               | Métadonnées, instructions CIL, dépendances natives déclarées et comparaisons de builds                      | Inspection statique ; [guide du code managé](../managed-code-analysis.md)                                                         |
+| PyInstaller                  | CArchive, PYZ, Python bytecode                                                                              | Static inspection; [Python packaged applications](../python-packaged-applications.md)                                             |
 | APK Android                  | Déclarations du manifeste, classes, méthodes décompilées et références                                      | JADX headless et un JDK complet sous Linux/macOS/Windows x64 ; [guide Android](../android-analysis.md)                            |
 | Appareils Android            | Appareils, paquets, processus, journaux, dumps, captures d'écran et transferts d'APK/fichiers               | adb fourni par l'appelant (émulateur ou appareil) ; [guide ADB](../adb-device-analysis.md)                                        |
 | Projets JEB                  | Unités de projet fournies par le moteur, condensés d'artefacts et pseudo-code de types/méthodes             | Un client JEB démarré par l'appelant servant MCP, sélectionné via REA_JEB_MCP_URL ; [guide JEB](../jeb-analysis.md)               |
@@ -170,7 +175,7 @@ L'inspection statique JavaScript et .NET lit les fichiers fournis sans exécuter
 
 <a id="choosing-a-deep-analysis-provider"></a>
 
-Les formats natifs et les hôtes pris en charge varient selon le fournisseur. Consultez [la configuration de Hopper et Ghidra](../installation.md#hopper), le [guide IDA](../ida-provider.md) et [la prise en charge expérimentale de Ghidra sous Windows](../windows-ghidra-p0.md). Ghidra prend aussi en charge [l'analyse DOS 16 bits](../ghidra-dos.md). Pour les gros binaires, augmentez son délai de démarrage avec `REA_GHIDRA_STARTUP_TIMEOUT_MS`. Pour le choix du fournisseur, consultez le [guide CLI](../cli.md#choose-a-provider). Vérifiez la [disponibilité dans les versions publiées](../installation.md#released-package-and-main) pour les fonctionnalités ajoutées depuis la dernière version npm.
+Les formats natifs et les hôtes pris en charge varient selon le fournisseur. Consultez [la configuration de Hopper et Ghidra](../installation.md#hopper), le [guide IDA](../ida-provider.md), [Kuna](../kuna-provider.md) et [la prise en charge expérimentale de Ghidra sous Windows](../windows-ghidra-p0.md). Ghidra prend aussi en charge [l'analyse DOS 16 bits](../ghidra-dos.md). Pour les gros binaires, augmentez son délai de démarrage avec `REA_GHIDRA_STARTUP_TIMEOUT_MS`. Pour le choix du fournisseur, consultez le [guide CLI](../cli.md#choose-a-provider). Vérifiez la [disponibilité dans les versions publiées](../installation.md#released-package-and-main) pour les fonctionnalités ajoutées depuis la dernière version npm.
 
 ## Études de cas
 
@@ -267,6 +272,8 @@ Commencez par les [guides pas à pas](https://rea.tools/fr/guides/) du site web.
 
 - [Installation et configuration](../installation.md) : enregistrement des agents, configuration des fournisseurs, mises à jour et désinstallation.
 - [Vérification et dépannage](../installation.md#check-readiness-for-your-task) : diagnostiquer un agent ou un moteur d'analyse donné.
+- [CUDA / HIP](../gpu-code-objects.md)
+- [GGUF / safetensors](../model-artifacts.md)
 - [CLI et Evidence](../cli.md) : commandes, choix du fournisseur, snapshots, import/export et codes de sortie.
 - [Contrats MCP](../mcp-contracts.md) et [prompts pour agents](../mcp-prompts.md) : résultats des outils, sessions et investigations guidées.
 - [Catalogue des outils](../mcp-contracts.md#generated-catalog) : inventaire des outils, fournisseurs et commandes CLI, généré lors du build.
@@ -276,7 +283,7 @@ Signalez les vulnérabilités via [SECURITY.md](../../SECURITY.md).
 
 ## Historique des étoiles
 
-🎉 **200 000 étoiles GitHub — merci !**
+🎉 **300 000 étoiles GitHub — merci !**
 
 Merci à toutes les personnes qui utilisent REA, signalent des bugs, proposent des fonctionnalités, testent les builds et contribuent des correctifs.
 

@@ -1,4 +1,3 @@
-import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   chmod,
@@ -11,7 +10,6 @@ import {
 } from "node:fs/promises";
 import { homedir } from "node:os";
 import { delimiter, dirname, join, resolve } from "node:path";
-import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 
@@ -26,6 +24,8 @@ import {
   summarizeFactualCorrectness,
 } from "../dist/evaluation/AgentEvaluationReport.js";
 import { PRODUCT_IDENTITY } from "../dist/identity.js";
+import { createAgentEvaluationCommands } from "./lib/agent-evaluation-commands.mjs";
+import { closeVerifierResources } from "./lib/verifier-cleanup.mjs";
 import { completeVerifierRun, createVerifierRun } from "./lib/verifier-run.mjs";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -68,6 +68,17 @@ const evaluationEnvironment = {
   PATH: `${dirname(process.execPath)}${delimiter}${process.env.PATH ?? ""}`,
 };
 
+const commands = createAgentEvaluationCommands({
+  codex,
+  evaluationRoot,
+  evaluationEnvironment,
+  optionalModel,
+  timeoutMs,
+  repositoryRoot,
+});
+const { runCodex, runProcess, readCommandVersion } = commands;
+
+let primaryError;
 try {
   const codexVersion = await readCommandVersion(codex);
   await Promise.all([
@@ -391,11 +402,26 @@ try {
     throw new Error(
       `Agent routing/workflow/answer checks failed: ${failed.map(({ id }) => id).join(", ")}`,
     );
+} catch (cause) {
+  primaryError = cause;
+  throw cause;
 } finally {
   // Even a deliberately retained fixture directory must never retain auth.
-  await rm(authPath, { force: true });
-  if (process.env.REA_AGENT_EVAL_KEEP_FIXTURES !== "true")
-    await rm(evaluationRoot, { recursive: true, force: true });
+  await closeVerifierResources(
+    [
+      async () => {
+        // A failed process cleanup retains both its exact owner and its files.
+        await commands.close();
+        await closeVerifierResources([
+          () => rm(authPath, { force: true }),
+          ...(process.env.REA_AGENT_EVAL_KEEP_FIXTURES === "true"
+            ? []
+            : [() => rm(evaluationRoot, { recursive: true, force: true })]),
+        ]);
+      },
+    ],
+    primaryError,
+  );
 }
 
 async function createTargets(root, includeManaged) {
@@ -475,138 +501,4 @@ function validTargetClarification(message) {
     if (cause instanceof SyntaxError) return false;
     throw cause;
   }
-}
-
-async function runCodex(prompt, approvedTools) {
-  const arguments_ = [
-    "--no-daemon",
-    "exec",
-    "--ephemeral",
-    "--skip-git-repo-check",
-    "--sandbox",
-    "read-only",
-    "--json",
-    "--color",
-    "never",
-    "-C",
-    evaluationRoot,
-    "-c",
-    'approval_policy="never"',
-    ...approvedTools.flatMap((name) => [
-      "-c",
-      `mcp_servers.rea.tools.${name}.approval_mode="approve"`,
-    ]),
-    ...(optionalModel === undefined ? [] : ["--model", optionalModel]),
-    prompt,
-  ];
-  const child = spawn(codex, arguments_, {
-    cwd: evaluationRoot,
-    env: evaluationEnvironment,
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  const events = [];
-  const stderr = [];
-  const lines = createInterface({ input: child.stdout });
-  const linesClosed = new Promise((resolveClose) =>
-    lines.once("close", resolveClose),
-  );
-  lines.on("line", (line) => {
-    try {
-      events.push(JSON.parse(line));
-    } catch {
-      stderr.push(`non-json stdout: ${line}`);
-    }
-  });
-  child.stderr.on("data", (chunk) => {
-    if (stderr.join("").length < 32_768) stderr.push(chunk.toString("utf8"));
-  });
-  const exitCode = await new Promise((resolveExit, reject) => {
-    const timeout = setTimeout(() => {
-      child.kill("SIGTERM");
-      reject(
-        new Error(`Codex evaluation timed out after ${String(timeoutMs)}ms`),
-      );
-    }, timeoutMs);
-    child.once("error", (cause) => {
-      clearTimeout(timeout);
-      reject(cause);
-    });
-    child.once("exit", (code) => {
-      clearTimeout(timeout);
-      resolveExit(code ?? 1);
-    });
-  });
-  await linesClosed;
-  return { events, exitCode, stderr: stderr.join("").slice(0, 32_768) };
-}
-
-async function runProcess(
-  command,
-  arguments_,
-  cwd,
-  timeout,
-  env = process.env,
-) {
-  const child = spawn(command, arguments_, {
-    cwd,
-    env,
-    stdio: ["ignore", "ignore", "pipe"],
-  });
-  let stderr = "";
-  child.stderr.on("data", (chunk) => {
-    if (stderr.length < 32_768) stderr += chunk.toString("utf8");
-  });
-  const code = await new Promise((resolveExit, reject) => {
-    const timer = setTimeout(() => {
-      child.kill("SIGTERM");
-      reject(new Error(`${command} timed out`));
-    }, timeout);
-    child.once("error", (cause) => {
-      clearTimeout(timer);
-      reject(cause);
-    });
-    child.once("exit", (value) => {
-      clearTimeout(timer);
-      resolveExit(value ?? 1);
-    });
-  });
-  if (code !== 0)
-    throw new Error(`${command} failed with ${String(code)}: ${stderr}`);
-}
-
-async function readCommandVersion(command) {
-  const child = spawn(command, ["--version"], {
-    cwd: repositoryRoot,
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  let stdout = "";
-  let stderr = "";
-  child.stdout.on("data", (chunk) => {
-    if (stdout.length < 4096) stdout += chunk.toString("utf8");
-  });
-  child.stderr.on("data", (chunk) => {
-    if (stderr.length < 4096) stderr += chunk.toString("utf8");
-  });
-  const code = await new Promise((resolveExit, reject) => {
-    const timer = setTimeout(() => {
-      child.kill("SIGTERM");
-      reject(new Error(`${command} --version timed out`));
-    }, 10_000);
-    child.once("error", (cause) => {
-      clearTimeout(timer);
-      reject(cause);
-    });
-    child.once("exit", (value) => {
-      clearTimeout(timer);
-      resolveExit(value ?? 1);
-    });
-  });
-  if (code !== 0)
-    throw new Error(
-      `${command} --version failed with ${String(code)}: ${stderr}`,
-    );
-  const version = stdout.trim();
-  if (version.length === 0)
-    throw new Error(`${command} --version returned empty output`);
-  return version;
 }

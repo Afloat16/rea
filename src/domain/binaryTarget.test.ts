@@ -17,6 +17,7 @@ describe("executable header parsing", () => {
   it.each([
     [elf(1, 1, 62), "elf", "x86_64"],
     [elf(2, 2, 183), "elf", "arm64"],
+    [elf(1, 1, 164), "elf", "hexagon"],
     [thinMach(0xfeedfacf, 0x0100000c), "mach-o", "arm64"],
     [thinMach(0xcefaedfe, 0x01000007), "mach-o", "x86_64"],
     [pe(0x8664), "pe", "x86_64"],
@@ -191,7 +192,9 @@ describe("executable header completeness", () => {
     expect(reason(bytes, 4100)).toBe(
       "FAT architecture 1 slice range extends beyond the file",
     );
-    expect(reason(bytes, 4160)).toBeNull();
+    expect(reason(bytes, 4160)).toBe(
+      "FAT slice identity is outside the bounded prefix",
+    );
     expect(parseExecutableHeader(bytes, "x64", 4100)).toMatchObject({
       ok: false,
       error: "FAT architecture 1 slice range extends beyond the file",

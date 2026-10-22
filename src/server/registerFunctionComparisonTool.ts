@@ -1,3 +1,4 @@
+import { resolvePairedEvidenceRequest } from "../application/EvidenceInputResolver.js";
 import type { EvidenceMcpServer } from "./EvidenceMcpServer.js";
 
 import type { BinarySessionPort } from "../application/binary/BinarySessionPort.js";
@@ -7,6 +8,7 @@ import {
   parseEvidence,
   type Evidence,
 } from "../domain/evidence.js";
+import { FUNCTION_COMPARISON_PROVIDER } from "../domain/comparisonEvidenceIdentity.js";
 import { EvidenceIntegrityError } from "../domain/evidenceErrors.js";
 import { err } from "../domain/result.js";
 import { jsonValueSchema } from "../domain/jsonValue.js";
@@ -14,7 +16,6 @@ import type { RecordUnknownInput } from "../domain/residualUnknown.js";
 import { recordDerivedEvidence } from "./recordDerivedEvidence.js";
 import { recordSessionEvidenceSources } from "./sessionEvidence.js";
 import { runDerivedOperation } from "./runDerivedOperation.js";
-import { FUNCTION_COMPARISON_PROVIDER } from "../application/InvestigationProviders.js";
 import { toolRegistrationOptions } from "./toolRegistrationOptions.js";
 import { withAdmittedAnalysis } from "./analysisAdmission.js";
 import { runAdmittedToolOperation } from "./admittedToolOperation.js";
@@ -38,11 +39,18 @@ export const registerFunctionComparisonTool = (
         contract.name,
         context.mcpReq.signal,
         async () => {
+          const resolved = resolvePairedEvidenceRequest(
+            input,
+            (id) =>
+              session.evidenceForAnalysis?.(id) ?? session.evidenceById(id),
+          );
+          if (!resolved.ok)
+            return server.delivery.toCallToolResult(resolved, contract);
           let leftEvidence: Evidence;
           let rightEvidence: Evidence;
           try {
-            leftEvidence = parseEvidence(input.left);
-            rightEvidence = parseEvidence(input.right);
+            leftEvidence = parseEvidence(resolved.value.left);
+            rightEvidence = parseEvidence(resolved.value.right);
           } catch (cause: unknown) {
             return server.delivery.toCallToolResult(
               err(

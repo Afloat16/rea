@@ -10,9 +10,14 @@ import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { afterAll, describe, expect, it } from "vitest";
 import { z } from "zod";
 
+import { closeVerifierResources } from "../../../scripts/lib/verifier-cleanup.mjs";
 import { javascriptApplicationAnalysisResultSchema } from "../../../src/domain/javascript/javascriptApplicationAnalysis.js";
 import { javaScriptExportShapeComparisonResultSchema } from "../../../src/domain/javascript/javascriptExportShapeComparisonSchemas.js";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
+import {
+  startCompiledCliSession,
+  type CompiledCliSession,
+} from "../../support/cli/compiledCliSession.js";
 
 const execute = promisify(execFile);
 const requireFixture = createRequire(import.meta.url);
@@ -22,8 +27,11 @@ const comparisonEnvelope = z.object({
 const applicationEnvelope = z.object({
   normalized_result: javascriptApplicationAnalysisResultSchema,
 });
-// Source semantics use the real stdio workflow throughout the matrix. The
-// missing-export and count-change cases also check compiled CLI adapter parity.
+let cliSession: CompiledCliSession | undefined;
+
+// Source semantics use one real stdio MCP session. Cases that also check the
+// compiled CLI adapter share one warm process: it loads the production command
+// runtime once and serves the same JSON commands as scripts/rea.mjs.
 let mcpConnection:
   | {
       readonly client: Client;
@@ -33,17 +41,24 @@ let mcpConnection:
   | undefined;
 
 afterAll(async () => {
-  if (mcpConnection === undefined) return;
-  try {
-    await mcpConnection.ready;
-  } catch {
-    // Keep the failed connection owned until both resources are closed below.
+  if (mcpConnection !== undefined) {
+    try {
+      await mcpConnection.ready;
+    } catch {
+      // Keep the failed connection owned until both resources are closed below.
+    }
   }
-  try {
-    await mcpConnection.client.close();
-  } finally {
-    await mcpConnection.transport.close();
-  }
+  await closeVerifierResources([
+    async () => {
+      await mcpConnection?.client.close();
+    },
+    async () => {
+      await mcpConnection?.transport.close();
+    },
+    async () => {
+      await cliSession?.close();
+    },
+  ]);
 });
 
 describe("exported function binding resolution through stdio MCP and CLI", () => {
@@ -1192,15 +1207,8 @@ const expectCountChange = (
 };
 
 const runCli = async (args: readonly string[]): Promise<unknown> => {
-  const { stdout } = await execute(
-    process.execPath,
-    [resolve("scripts/rea.mjs"), ...args],
-    {
-      maxBuffer: 16 * 1024 * 1024,
-      env: { ...process.env, REA_LOG_LEVEL: "silent" },
-    },
-  );
-  return JSON.parse(stdout);
+  cliSession ??= startCompiledCliSession();
+  return cliSession.run(args);
 };
 
 const analyzeVersions = async (

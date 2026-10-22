@@ -11,6 +11,7 @@ import {
 } from "../../../../src/domain/analysisErrorCore.js";
 import type { AnalysisError } from "../../../../src/domain/analysisErrorBase.js";
 import { EvidenceIntegrityError } from "../../../../src/domain/evidenceErrors.js";
+import { nativeCallPartialObservationSchema } from "../../../../src/domain/native/nativeCallPartialObservation.js";
 import { nativeCallObservationResultSchema } from "../../../../src/domain/native/nativeCallObservation.js";
 import { err, ok, type Result } from "../../../../src/domain/result.js";
 import type {
@@ -258,7 +259,7 @@ describe("observe_native_calls projection: reports partial observation coverage"
       unresolved_breakpoints: [],
     });
     expect(result.limitations).toContain(
-      "Resolved breakpoint locations exceeded the aggregate 8 MiB metadata budget; omitted locations are counted in location_count. This metadata limit does not change the process outcome.",
+      "Resolved breakpoint locations exceeded the aggregate 8388608-byte (8 MiB) metadata budget; omitted locations are counted in location_count. This metadata limit does not change the process outcome. This release has no runtime override.",
     );
     expect(result.limitations.join(" ")).not.toContain("process was killed");
   });
@@ -313,7 +314,7 @@ describe("observe_native_calls projection: reports partial observation coverage"
       expect.arrayContaining([
         "Observation stopped at max_events (1); later calls were not recorded and the process was killed.",
         "Breakpoints 1 matched no code in any image loaded while observing; their calls could not be observed.",
-        "Target output beyond 1 MiB per stream is counted but not kept.",
+        "Target output beyond 1048576 bytes (1 MiB) per stream is counted but not kept. This release has no runtime override.",
         "REA could not confirm that process 4242 exited; check for it before relying on host state.",
       ]),
     );
@@ -461,5 +462,40 @@ describe("observe_native_calls failures", () => {
     expect(!cancelled.ok && cancelled.error).toBeInstanceOf(
       AnalysisCancelledError,
     );
+  });
+});
+
+it("retains completed call facts when cancellation arrives with the tracer result", async () => {
+  const controller = new AbortController();
+  const reason = { caller: "completed-trace-consumption" };
+  const recorded = new FixtureTracer();
+  const result = await observe(
+    {
+      trace: async (request) => {
+        const result = await recorded.trace(request);
+        controller.abort(reason);
+        return result;
+      },
+      close: () => recorded.close(),
+    },
+    { breakpoints: BREAKPOINTS },
+    undefined,
+    controller.signal,
+  );
+  expect(result.ok).toBe(false);
+  if (result.ok) throw new Error("Expected completion cancellation");
+  expect(result.error).toMatchObject({
+    _tag: "AnalysisCancelledError",
+    cause: reason,
+  });
+  const partial = nativeCallPartialObservationSchema.parse(
+    result.error.partialObservation,
+  );
+  expect(partial.events).toHaveLength(1);
+  expect(partial.process.stdout?.text).toBe("hello\n");
+  expect(partial.process.terminated).toBe(true);
+  expect(partial.coverage).toMatchObject({
+    status: "partial",
+    reason: "cancelled",
   });
 });

@@ -6,12 +6,12 @@ import { withCommandCancellation } from "./cli/commandCancellation.js";
 import { CLI_COMMANDS } from "./cliCommandNames.js";
 import { parseCliJsonInput, resolveCliJsonPaths } from "./cliJsonInput.js";
 import { logCliCommand } from "./cliLogging.js";
-import { AnalysisInputError } from "./domain/analysisErrorCore.js";
 import { AnalysisError } from "./domain/analysisErrorBase.js";
 import { projectAnalysisError } from "./domain/analysisErrorProjection.js";
 import { BrowserObservationError } from "./domain/browserObservationError.js";
-import { projectInputIssues } from "./domain/inputIssueProjection.js";
+import { analysisInputErrorFromIssues } from "./domain/inputIssueProjection.js";
 import { browserScenarioSchema } from "./domain/browserScenario.js";
+import type { BrowserScenarioCapturePort } from "./application/BrowserScenarioCapturePort.js";
 import type { JsonValue } from "./domain/jsonValue.js";
 import type { Logger } from "pino";
 
@@ -22,6 +22,11 @@ export const registerBrowserScenarioCommands = (
   cli: ReturnType<typeof Cli.create>,
   logger: Logger,
   environment: Readonly<Record<string, string | undefined>>,
+  options: {
+    readonly createProvider?: (
+      environment: Readonly<Record<string, string | undefined>>,
+    ) => BrowserScenarioCapturePort;
+  } = {},
 ): void => {
   cli.command(CLI_COMMANDS.captureBrowserScenario, {
     description:
@@ -41,16 +46,21 @@ export const registerBrowserScenarioCommands = (
           );
           if (!scenario.success)
             return cliError(
-              new AnalysisInputError(
+              analysisInputErrorFromIssues(
                 OPERATION,
+                scenario.error.issues,
+                input.value,
                 { cause: scenario.error },
-                projectInputIssues(scenario.error.issues, input.value),
               ),
             );
           // Load Playwright only for this command, not during CLI startup.
-          const { createBrowserScenarioProvider } =
-            await import("./composition/browserScenario.js");
-          const provider = createBrowserScenarioProvider(environment);
+          const provider =
+            options.createProvider === undefined
+              ? await import("./composition/browserScenario.js").then(
+                  ({ createBrowserScenarioProvider }) =>
+                    createBrowserScenarioProvider(environment),
+                )
+              : options.createProvider(environment);
           let result:
             | Awaited<ReturnType<typeof captureBrowserScenario>>
             | undefined;

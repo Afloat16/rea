@@ -25,6 +25,87 @@ import { ProviderSelectionError } from "./providerSelectionError.js";
 import { analysisErrorProjectionSchema } from "../contracts/errorSchemas.js";
 import { nativeCallPartialObservationSchema } from "./native/nativeCallPartialObservation.js";
 
+describe("agent recovery metadata", () => {
+  it("does not mark deterministic input validation as retryable", () => {
+    const projected = projectAnalysisError(
+      new AnalysisInputError("extract_firmware", undefined, [
+        { path: ["range", "length"], reason: "missing_argument" },
+      ]),
+    );
+
+    expect(projected).toMatchObject({
+      code: "invalid_request",
+      retryable: false,
+      remediation: {
+        action: expect.stringContaining("Do not repeat the unchanged call."),
+      },
+    });
+    expect(analysisErrorProjectionSchema.parse(projected)).toEqual(projected);
+  });
+
+  it("keeps retryability for transient conflicts and provider timeouts", () => {
+    expect(
+      projectAnalysisError(new UnknownRegistryError("revision-conflict")),
+    ).toMatchObject({ code: "revision_conflict", retryable: true });
+    expect(
+      projectAnalysisError(
+        new AnalysisTimeoutError("inspect_binary_layout", 2500),
+      ),
+    ).toMatchObject({ code: "provider_timeout", retryable: true });
+  });
+
+  it("names the input contract for malformed analysis arguments", () => {
+    const projected = projectAnalysisError(
+      new AnalysisInputError("inspect_analysis_view", undefined, [
+        {
+          path: ["view", "kind"],
+          reason: "invalid_value",
+          expected: ["summary", "module"],
+        },
+      ]),
+    );
+
+    expect(projected).toMatchObject({
+      recovery: {
+        kind: "inspect_input_contract",
+        operation: "inspect_analysis_view",
+      },
+      remediation: {
+        action:
+          "Read the declared input schema or CLI usage for inspect_analysis_view; if using MCP and the catalog may be stale, call tools/list. Correct the listed fields, then retry. Do not repeat the unchanged call.",
+      },
+    });
+    expect(analysisErrorProjectionSchema.parse(projected)).toEqual(projected);
+  });
+
+  it("separates timeout-state inspection from client deadline recovery", () => {
+    const projected = projectAnalysisError(
+      new AnalysisTimeoutError("inspect_binary_layout", 2_500),
+    );
+
+    expect(projected).toMatchObject({
+      code: "provider_timeout",
+      recovery: {
+        kind: "inspect_timeout_state",
+        operation: "inspect_binary_layout",
+        timeout_ms: 2_500,
+      },
+      message: expect.stringContaining("server/provider deadline"),
+      remediation: {
+        action: expect.stringContaining("provider diagnostics"),
+      },
+    });
+    expect(projected.message).toContain("not a client-side timeout");
+    expect(projected.remediation.action).not.toContain(
+      "raise its tool deadline",
+    );
+    expect(projected.remediation.action).not.toMatch(
+      /declared timeout controls|larger server\/provider budget/u,
+    );
+    expect(analysisErrorProjectionSchema.parse(projected)).toEqual(projected);
+  });
+});
+
 describe("capability failure retry disposition", () => {
   it.each([
     { options: {}, retryable: false, category: "unsupported_provider" },
@@ -444,6 +525,83 @@ describe("analysis error projection: browser provider failures", () => {
       },
     });
   });
+
+  it("keeps producer facts when a browser failure is attributed to another operation", () => {
+    const partial = { kind: "browser-test-partial" } as never;
+    const original = new BrowserObservationError(
+      "inspect_web_page",
+      "cleanup_failed",
+      {
+        detail: "Target page-1 closed while REA released its session.",
+        remediationAction: "Release session page-1, then retry.",
+        cleanup: { reason: "socket close failed", resources: ["page-1"] },
+        diagnostics: { endpoint: "loopback" },
+        partialObservation: partial,
+        cause: new AggregateError([
+          new BrowserObservationError("inspect_web_page", "target_changed"),
+          new Error("socket close failed"),
+        ]),
+      },
+    );
+    const relabelled = original.forOperation("capture_web_screenshot");
+
+    expect(relabelled).toMatchObject({
+      operation: "capture_web_screenshot",
+      reason: "cleanup_failed",
+      cause: original.cause,
+      diagnostics: { endpoint: "loopback" },
+      partialObservation: partial,
+    });
+    const { details, ...projected } = projectAnalysisError(relabelled);
+    const { details: originalDetails, ...originalProjected } =
+      projectAnalysisError(original);
+    expect(projected).toEqual(originalProjected);
+    expect(projected).toMatchObject({
+      code: "cleanup_incomplete",
+      message: "Target page-1 closed while REA released its session.",
+      remediation: { action: "Release session page-1, then retry." },
+    });
+    expect(details).toEqual({
+      ...originalDetails,
+      operation: "capture_web_screenshot",
+    });
+    expect(details).toMatchObject({
+      resources: ["page-1"],
+      primary_reason: "target_changed",
+    });
+  });
+
+  it("derives default browser guidance for the attributed operation", () => {
+    const original = new BrowserObservationError(
+      "inspect_web_page",
+      "target_not_found",
+    );
+    expect(original.forOperation("inspect_web_page")).toBe(original);
+
+    const relabelled = original.forOperation("discover_webmcp_tools");
+    const projected = projectAnalysisError(relabelled);
+    expect(projected).toMatchObject({
+      code: "target_unavailable",
+      message: expect.stringMatching(/^discover_webmcp_tools could not find/),
+      details: {
+        operation: "discover_webmcp_tools",
+        reason: "target_not_found",
+      },
+    });
+    expect(projected.message).not.toContain("inspect_web_page");
+    expect(
+      projectAnalysisError(
+        new BrowserObservationError("inspect_web_page", "timeout").forOperation(
+          "observe_web_session",
+        ),
+      ),
+    ).toMatchObject({
+      code: projectAnalysisError(
+        new BrowserObservationError("observe_web_session", "timeout"),
+      ).code,
+      details: { operation: "observe_web_session", reason: "timeout" },
+    });
+  });
 });
 
 describe("analysis error projection: Hopper provider failures", () => {
@@ -839,7 +997,9 @@ describe("analysis error projection: evidence files", () => {
 });
 
 it("retains the primary failure and both cleanup reports after a secondary failure", () => {
+  const callerReason = { caller: "stop" };
   const primary = new AnalysisCancelledError("execute_rizin_command", {
+    cause: callerReason,
     capturedOutput: {
       stdout: "partial",
       stderr: "diagnostic",
@@ -855,6 +1015,8 @@ it("retains the primary failure and both cleanup reports after a secondary failu
   });
   expect(enriched).toBe(primary);
   expect(enriched._tag).toBe("AnalysisCancelledError");
+  expect(enriched.cause).toBe(callerReason);
+  expect(enriched.secondaryFailures).toEqual([secondary]);
   expect(projectAnalysisError(enriched)).toMatchObject({
     code: "cleanup_incomplete",
     details: {
@@ -866,3 +1028,40 @@ it("retains the primary failure and both cleanup reports after a secondary failu
     },
   });
 });
+
+it("retains secondary failures when the primary error has no cause", () => {
+  const primary = new AnalysisCancelledError("execute_rizin_command");
+  const secondary = new AnalysisOutputError("open_binary", "cannot rebind");
+
+  primary.retainSecondaryFailure(secondary, {});
+
+  expect(primary.cause).toBeUndefined();
+  expect(primary.secondaryFailures).toEqual([secondary]);
+});
+
+it.each([false, true])(
+  "preserves producer capability recovery with retryable=%s",
+  (retryable) => {
+    const recovery =
+      "Choose an explicit disposition, then retry the same session.";
+    const projected = projectAnalysisError(
+      new AnalysisCapabilityUnavailableError("fixture", "close", "live state", {
+        retryable,
+        remediationAction: recovery,
+      }),
+    );
+    expect(projected).toMatchObject({
+      code: "capability_unavailable",
+      retryable,
+      remediation: { action: recovery },
+      details: {
+        provider_id: "fixture",
+        operation: "close",
+        reason: "live state",
+      },
+    });
+    expect(analysisErrorProjectionSchema.safeParse(projected).success).toBe(
+      true,
+    );
+  },
+);

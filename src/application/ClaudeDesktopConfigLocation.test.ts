@@ -12,6 +12,7 @@ import {
   packagePrivateStorageFamily,
   redirectedWriteBlocker,
   type MsixPackageView,
+  windowsAppDataRoots,
 } from "./MsixPackageStorage.js";
 
 const home = join("/profile", "a");
@@ -37,6 +38,24 @@ const file = { isFile: () => true };
 const privateDirectory = dirname(privateConfig);
 const privatePreferences = join(privateDirectory, "Preferences");
 const appDataDirectory = dirname(appDataConfig);
+
+it.each([undefined, ""])(
+  "uses default AppData roots only for unset or empty values: %s",
+  (value) => {
+    expect(
+      windowsAppDataRoots(home, { APPDATA: value, LOCALAPPDATA: value }),
+    ).toEqual({ roaming: env.APPDATA, local: env.LOCALAPPDATA });
+  },
+);
+
+it.each([" root with trailing space ", "   "])(
+  "preserves a nonempty AppData root literally: %j",
+  (value) => {
+    expect(
+      windowsAppDataRoots(home, { APPDATA: value, LOCALAPPDATA: value }),
+    ).toEqual({ roaming: value, local: value });
+  },
+);
 
 /** Package storage holding `privateFiles`; realpath decides the process view. */
 const packagedFileSystem = (
@@ -153,6 +172,40 @@ describe("Claude Desktop MSIX process view", () => {
 });
 
 describe("unresolved Claude Desktop package identity", () => {
+  it.each(["AnthropicPBC.Claude_fnn82j28hfe8t", "Claude_fnn82j28hfe8t"])(
+    "refuses an unrecognized package deployment %s instead of selecting AppData",
+    (name) => {
+      const location = resolveWindowsClaudeDesktopLocation(home, env, {
+        readdir: () => [name],
+        lstat: () => file,
+        realpath: (path) => path,
+      });
+      expect(location).toMatchObject({
+        ok: false,
+        error: {
+          path: join(packages, name),
+          message: expect.stringContaining("does not fall back"),
+        },
+      });
+    },
+  );
+
+  it.each([
+    "Notes.AnthropicPBC.Claude_fnn82j28hfe8t",
+    "AnthropicPBC.Claude_fnn82j28hfe8t.backup",
+    "AnthropicPBCxClaude_fnn82j28hfe8t",
+  ])("does not treat %s as a Claude package family", (name) => {
+    const location = resolveWindowsClaudeDesktopLocation(home, env, {
+      readdir: () => [name],
+      lstat: () => file,
+      realpath: (path) => path,
+    });
+    expect(location).toEqual({
+      ok: true,
+      value: { configPath: appDataConfig, markerPath: appDataDirectory },
+    });
+  });
+
   it("reports unreadable package storage instead of assuming AppData", () => {
     const location = resolveWindowsClaudeDesktopLocation(home, env, {
       readdir: () => {

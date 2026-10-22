@@ -26,7 +26,11 @@ it("executes the advertised export presence example with matching analyzed Evide
   );
   if (example === undefined)
     throw new Error("Missing advertised presence example");
-  const { client, close } = await createApplicationMcpHarness();
+  const { client, close } = await createApplicationMcpHarness({
+    serverOptions: {
+      environment: { ...process.env, REA_MCP_INPUT_SCHEMA_PROFILE: "full" },
+    },
+  });
   onTestFinished(close);
   const listing = await client.listTools();
   const advertised = listing.tools.find(
@@ -154,9 +158,6 @@ describe("application workflow MCP parity", () => {
     ]);
     if (!left.ok) throw left.error;
     if (!right.ok) throw right.error;
-    const leftAnalysis = javascriptApplicationAnalysisResultSchema.parse(
-      left.value.normalized_result,
-    );
     const harness = await createApplicationMcpHarness();
     const { client, session } = harness;
     const selectors = {
@@ -166,16 +167,22 @@ describe("application workflow MCP parity", () => {
       right_export_name: "default",
     };
     try {
+      const relativePath = relative(process.cwd(), leftRoot);
       const relativeApplication = await client.callTool({
         name: "analyze_javascript_application",
-        arguments: { input_path: relative(process.cwd(), leftRoot) },
+        arguments: { input_path: relativePath },
       });
       expect(relativeApplication.isError).not.toBe(true);
-      expect(relativeApplication.structuredContent).toMatchObject({
-        evidence_id: left.value.evidence_id,
-        normalized_result: { input_path: leftAnalysis.input_path },
-        subject: { local_path: left.value.subject?.local_path },
-      });
+      const relativeEvidence = parseEvidence(
+        relativeApplication.structuredContent,
+      );
+      expect(relativeEvidence.parameters.input_path).toBe(relativePath);
+      expect(left.value.parameters.input_path).toBe(leftRoot);
+      expect(relativeEvidence.normalized_result).toEqual(
+        left.value.normalized_result,
+      );
+      expect(relativeEvidence.subject).toEqual(left.value.subject);
+      expect(relativeEvidence.evidence_id).not.toBe(left.value.evidence_id);
       const full = await client.callTool({
         name: "compare_javascript_export_shapes",
         arguments: { left: left.value, right: right.value, ...selectors },

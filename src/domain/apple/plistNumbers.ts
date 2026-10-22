@@ -6,9 +6,43 @@ export interface PlistNumberLiterals {
   readonly reals: ReadonlySet<number>;
   /** Integer literals in the original serialized plist, not decoded graph slots. */
   readonly unsafeIntegerLiterals: number;
-  /** Supplemental byte metadata was not completely observable. */
+  /** Source numeric facts could not all be established. */
   readonly incomplete: boolean;
 }
+
+export const incompletePlistNumberLimitation =
+  "Property-list number metadata could not be completely observed; decoded numbers may lose integer precision and exact integer/real association is unavailable.";
+
+/** Collect facts at the decoder boundary before integer values are rounded. */
+export const createPlistNumberCollector = () => {
+  const integers = new Map<number, Set<string>>();
+  const reals = new Set<number>();
+  let unsafeIntegerLiterals = 0;
+  return {
+    integer: (exact: bigint) => {
+      if (
+        exact >= BigInt(Number.MIN_SAFE_INTEGER) &&
+        exact <= BigInt(Number.MAX_SAFE_INTEGER)
+      )
+        return;
+      unsafeIntegerLiterals++;
+      const rounded = Number(exact);
+      integers.set(
+        rounded,
+        (integers.get(rounded) ?? new Set()).add(exact.toString()),
+      );
+    },
+    real: (value: number) => {
+      reals.add(value);
+    },
+    result: (incomplete = false): PlistNumberLiterals => ({
+      integers,
+      reals,
+      unsafeIntegerLiterals,
+      incomplete,
+    }),
+  };
+};
 
 /** Preserve unambiguous exact integers; disclose rounded or unclassified numbers. */
 export const createPlistNumberProjection = (literals: PlistNumberLiterals) => {
@@ -66,11 +100,7 @@ export const createPlistNumberProjection = (literals: PlistNumberLiterals) => {
   return {
     project: map,
     limitations: () => [
-      ...(literals.incomplete
-        ? [
-            "Original archive number metadata could not be completely observed; decoded numbers may lose integer precision and exact integer/real association is unavailable.",
-          ]
-        : []),
+      ...(literals.incomplete ? [incompletePlistNumberLimitation] : []),
       ...(literals.unsafeIntegerLiterals === 0
         ? []
         : [

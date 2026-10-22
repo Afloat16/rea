@@ -12,7 +12,8 @@ import {
 import type { AnalysisError } from "../../domain/analysisErrorBase.js";
 import { createEvidence, type Evidence } from "../../domain/evidence.js";
 import { jsonObjectSchema } from "../../domain/jsonValue.js";
-import { err, ok, type Result } from "../../domain/result.js";
+import { err, type Result } from "../../domain/result.js";
+import { completeProviderEvidence } from "../ProviderOperationExecution.js";
 
 /** Shared CLI/MCP admission, execution and Evidence composition for Android. */
 export class AndroidAnalysisService {
@@ -25,7 +26,9 @@ export class AndroidAnalysisService {
     options?: ExecutionOptions,
   ): Promise<Result<Evidence, AnalysisError>> {
     if (options?.signal?.aborted === true)
-      return err(new AnalysisCancelledError(operation));
+      return err(
+        new AnalysisCancelledError(operation, { cause: options.signal.reason }),
+      );
     const request = androidRequestSchema.safeParse({ operation, input });
     if (!request.success)
       return err(new AnalysisInputError(operation, { cause: request.error }));
@@ -41,17 +44,24 @@ export class AndroidAnalysisService {
     );
     if (!executed.ok) return executed;
     const execution = executed.value;
-    return ok(
-      createEvidence(execution.subject ?? target.value, execution.provider, {
-        operation,
-        parameters: jsonObjectSchema.parse(request.data.input),
-        result: execution.result,
-        rawResult: execution.rawResult,
-        limitations: execution.limitations,
-        locations: execution.locations,
-        confidence:
-          operation === "inspect_android_method" ? "derived" : "observed",
-      }),
+    return completeProviderEvidence(
+      createEvidence(
+        execution.subject === undefined
+          ? target.value
+          : (execution.subject ?? undefined),
+        execution.provider,
+        {
+          operation,
+          parameters: jsonObjectSchema.parse(request.data.input),
+          result: execution.result,
+          rawResult: execution.rawResult,
+          limitations: execution.limitations,
+          locations: execution.locations,
+          confidence:
+            operation === "inspect_android_method" ? "derived" : "observed",
+        },
+      ),
+      options?.signal,
     );
   }
 }

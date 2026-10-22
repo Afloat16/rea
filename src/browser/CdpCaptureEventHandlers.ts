@@ -1,13 +1,14 @@
 import type { WebPageInspection } from "../domain/browserObservationSchemas.js";
 import { sanitizeBrowserUrl } from "../domain/browserObservation.js";
 import { inferJsonShape } from "../domain/jsonShape.js";
+import { paddedBase64ByteLength } from "../domain/paddedBase64.js";
 import { safeResponseMetadata } from "./CdpSafeMetadata.js";
 import {
   allowedSanitizedUrl,
   isHttpUrl,
   numberValue,
+  admitRecords,
   recordValue,
-  recordsValue,
   scriptMetadataValues,
   cdpStringValue,
   type UnknownRecord,
@@ -18,14 +19,13 @@ import {
 } from "./CdpCaptureEventBodyShapes.js";
 import {
   consolePrimitive,
-  decodeBase64,
   exclusionReasonForUrl,
   executionContextKey,
-  firstCallFrame,
   initiatorLocation,
   integerOrNull,
   isJsonMediaType,
-  isMainFrameNavigation,
+  cdpFrameIdentity,
+  topCallFrame,
 } from "./CdpCaptureEventHelpers.js";
 import type { CdpCaptureEventsState } from "./CdpCaptureEventState.js";
 import {
@@ -89,7 +89,6 @@ export const handleScriptParsed = (
     url: sanitized.url,
     origin: sanitized.origin,
     ...scriptMetadataValues(params),
-    language: cdpStringValue(params.scriptLanguage) ?? null,
     executionContextKey: executionContext,
     frameId:
       executionContext === null
@@ -305,7 +304,10 @@ export const handleRequestWillBeSent = (
       });
     }
   }
-  const initiatorFrame = initiatorLocation(initiator);
+  const location = initiatorLocation(initiator);
+  if (!location.ok)
+    state.completeness.exclude("network_initiators", "invalid_protocol_value");
+  const initiatorFrame = location.ok ? location.value : undefined;
   const rawInitiatorUrl = cdpStringValue(initiatorFrame?.url);
   const initiatorUrl = allowedSanitizedUrl(
     rawInitiatorUrl,
@@ -438,7 +440,12 @@ export const handleConsoleAPICalled = (
   state: CdpCaptureEventsState,
   params: UnknownRecord,
 ): void => {
-  const frame = firstCallFrame(recordValue(params.stackTrace));
+  const topFrame = topCallFrame(params.stackTrace);
+  if (!topFrame.ok) {
+    state.completeness.exclude("console_events", "invalid_protocol_value");
+    return;
+  }
+  const frame = topFrame.value;
   if (frame === undefined) {
     state.completeness.exclude("console_events", "unattributed_origin");
     return;
@@ -451,13 +458,26 @@ export const handleConsoleAPICalled = (
     );
     return;
   }
-  const arguments_ = recordsValue(params.args);
+  // Malformed elements keep their position so retained siblings keep their
+  // CDP argument indices; a missing inventory is unknown, not empty.
+  const arguments_ = admitRecords(params.args)?.map((argument) =>
+    recordValue(argument),
+  );
+  const argumentTypes = arguments_?.map((argument) =>
+    cdpStringValue(argument?.type),
+  );
+  const timestamp = numberValue(params.timestamp);
+  if (
+    timestamp === undefined ||
+    argumentTypes === undefined ||
+    argumentTypes.includes(undefined)
+  )
+    state.completeness.exclude("console_events", "invalid_protocol_value");
   state.console.push({
     type: cdpStringValue(params.type) ?? "unknown",
-    timestamp: numberValue(params.timestamp) ?? 0,
-    argument_types: arguments_.map(
-      (argument) => cdpStringValue(argument.type) ?? "unknown",
-    ),
+    timestamp: timestamp ?? null,
+    argument_types:
+      argumentTypes?.map((argumentType) => argumentType ?? "unknown") ?? null,
     url: source.url,
     line: integerOrNull(frame.lineNumber),
     column: integerOrNull(frame.columnNumber),
@@ -467,7 +487,7 @@ export const handleConsoleAPICalled = (
 
 const captureConsoleText = (
   state: CdpCaptureEventsState,
-  arguments_: readonly UnknownRecord[],
+  arguments_: readonly (UnknownRecord | undefined)[] | undefined,
 ): WebPageInspection["console"]["events"][number]["text_capture"] => {
   if (!state.input.include_console_text)
     return {
@@ -475,10 +495,17 @@ const captureConsoleText = (
       values: [],
       retained_bytes: 0,
     };
+  if (arguments_ === undefined)
+    return {
+      status: "unavailable",
+      values: [],
+      retained_bytes: 0,
+    };
   const values: WebPageInspection["console"]["events"][number]["text_capture"]["values"] =
     [];
   let retainedBytes = 0;
   for (const [argumentIndex, argument] of arguments_.entries()) {
+    if (argument === undefined) continue;
     const primitive = consolePrimitive(argument);
     if (primitive === undefined) continue;
     const text = primitive.text;
@@ -506,27 +533,41 @@ export const handleWebSocketFrame = (
   const connection = state.webSocketConnectionsById.get(requestId);
   if (connection === undefined) return;
   const response = recordValue(params.response);
-  const payload = cdpStringValue(response?.payloadData) ?? "";
-  const opcode = Math.max(0, Math.trunc(numberValue(response?.opcode) ?? 0));
-  const decoded = opcode === 1 ? undefined : decodeBase64(payload);
-  if (opcode !== 1 && decoded === undefined)
+  const opcodeValue = numberValue(response?.opcode);
+  // RFC 6455 encodes opcodes in four bits; keep reserved values as observed data.
+  const opcode =
+    opcodeValue !== undefined &&
+    Number.isInteger(opcodeValue) &&
+    opcodeValue >= 0 &&
+    opcodeValue <= 15
+      ? opcodeValue
+      : null;
+  const payload = cdpStringValue(response?.payloadData);
+  const payloadBytes =
+    opcode === null || payload === undefined
+      ? null
+      : opcode === 1
+        ? Buffer.byteLength(payload)
+        : (paddedBase64ByteLength(payload) ?? null);
+  if (opcode === null || payloadBytes === null)
     state.completeness.exclude("websocket_frames", "invalid_protocol_value");
   connection.events.push({
     direction,
     opcode,
-    payload_bytes:
-      opcode === 1 ? Buffer.byteLength(payload) : (decoded?.byteLength ?? null),
+    payload_bytes: payloadBytes,
     payload_shape: captureWebSocketShape(state, payload, opcode),
   });
 };
 
 const captureWebSocketShape = (
   state: CdpCaptureEventsState,
-  payload: string,
-  opcode: number,
+  payload: string | undefined,
+  opcode: number | null,
 ): WebPageInspection["network"]["websocket_connections"][number]["events"][number]["payload_shape"] => {
   if (!state.input.include_websocket_shapes) return null;
+  if (opcode === null) return null;
   if (opcode !== 1) return { format: "binary", json_shape: null };
+  if (payload === undefined) return null;
   const shape = inferJsonShape(payload);
   return {
     format: shape === null ? "text" : "json",
@@ -590,25 +631,47 @@ export const handleWebSocketCreated = (
 
 export const handleFrameNavigated = (
   state: CdpCaptureEventsState,
-  params: UnknownRecord,
+  params: unknown,
 ): void => {
-  const frame = recordValue(params.frame);
   if (state.mainFrameId === undefined) return;
-  if (
-    !isMainFrameNavigation(
-      { method: "Page.frameNavigated", params },
-      state.mainFrameId,
+  const identity = cdpFrameIdentity(
+    { method: "Page.frameNavigated", params },
+    state.mainFrameId,
+  );
+  if (identity.identityIssue !== null || identity.parentIssue !== null) {
+    state.completeness.exclude("frames", "invalid_protocol_value");
+    if (
+      identity.selection === "unknown" &&
+      identity.parentRelation === "child" &&
+      identity.identityIssue !== null
     )
-  )
+      return;
+    state.unknownRootIdentity = true;
     return;
+  }
+  if (identity.selection === "other" && identity.parentRelation === "child")
+    return;
+  if (identity.selection === "unknown") {
+    state.completeness.exclude("frames", "invalid_protocol_value");
+    state.unknownRootIdentity = true;
+    return;
+  }
+  if (identity.selection === "other" && !identity.isRootReplacement) {
+    state.completeness.exclude("frames", "invalid_protocol_value");
+    state.unknownRootIdentity = true;
+    return;
+  }
+  const frame = recordValue(recordValue(params)?.frame);
   const rawUrl = cdpStringValue(frame?.url);
   const loaderId = cdpStringValue(frame?.loaderId);
   // `frameNavigated` re-fires for a document already reported (same URL and
   // loader). Treating that as a navigation aborted a valid capture with
   // `target_changed`, which is a false claim that the target moved.
-  const document = `${String(loaderId ?? "")}\0${String(rawUrl ?? "")}`;
+  const document = `${String(identity.frameId ?? "")}\0${String(loaderId ?? "")}\0${String(rawUrl ?? "")}`;
   if (state.committedDocument === document) return;
   state.committedDocument = document;
+  if (identity.isRootReplacement)
+    state.mainFrameId = identity.frameId ?? undefined;
   state.navigationDuringCapture = true;
   if (
     isHttpUrl(rawUrl) &&

@@ -1,3 +1,4 @@
+import { assertArtifactReadActive } from "../artifacts/ArtifactFileOperation.js";
 import type { BigIntStats } from "node:fs";
 import { lstat, readlink } from "node:fs/promises";
 import { basename, dirname, isAbsolute, sep } from "node:path";
@@ -46,7 +47,7 @@ export const resolveElectronFuseTarget = async (
   selectedPath: string,
   signal?: AbortSignal,
 ): Promise<ResolvedElectronFuseTarget> => {
-  signal?.throwIfAborted();
+  assertArtifactReadActive(signal);
   const metadata = await lstat(selectedPath, { bigint: true });
   let file: ResolvedElectronFuseFile;
   if (metadata.isSymbolicLink())
@@ -129,7 +130,7 @@ const resolveDirectorySuffix = async (
   const pending: string[] = [];
   const nodes: ElectronFusePathNode[] = [];
   while (true) {
-    signal?.throwIfAborted();
+    assertArtifactReadActive(signal);
     const name = basename(path);
     // lstat("link/") follows a link; inspect the named component itself.
     if (name !== "") while (path.endsWith(sep)) path = path.slice(0, -1);
@@ -187,7 +188,7 @@ const resolveInside = async (
   let hops = 0;
   let last: "file" | "directory" | undefined;
   while (pending.length > 0) {
-    signal?.throwIfAborted();
+    assertArtifactReadActive(signal);
     const segment = pending.shift() ?? "";
     if (segment === ".") continue;
     if (segment === "..") {
@@ -210,8 +211,17 @@ const resolveInside = async (
       hops += 1;
       if (hops > MAX_SYMLINK_HOPS) return { kind: "loop" };
       const target = await readlink(absolute);
-      if (isAbsolute(target)) return { kind: "escapes" };
-      pending.unshift(...target.split("/").filter((part) => part !== ""));
+      // Lexical only: another alias of this root (/tmp vs /private/tmp)
+      // is still an escape. Later hops stay lstat- and containment-checked.
+      const absoluteTarget = isAbsolute(target);
+      const relativeTarget = absoluteTarget
+        ? relativeInside(root, target)
+        : target;
+      if (relativeTarget === null) return { kind: "escapes" };
+      if (absoluteTarget) resolved.length = 0;
+      pending.unshift(
+        ...relativeTarget.split("/").filter((part) => part !== ""),
+      );
       continue;
     }
     if (metadata.isDirectory()) {

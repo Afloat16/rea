@@ -2,11 +2,11 @@ import { relationshipCoverageLimitations } from "./relationshipCoverage.js";
 import {
   callPathInputSchema,
   callPathResultSchema,
-  parseCallPathAddress,
   type CallPathInput,
   type CallPathResult,
   type OutputCallPath,
 } from "./callPathSchemas.js";
+import { parseNativeAddress } from "./native/nativeAddress.js";
 import {
   parseFunctionEvidence,
   type FunctionSnapshot,
@@ -33,10 +33,6 @@ class CallGraph {
 
   hasNode(node: string): boolean {
     return this.successors.has(node);
-  }
-
-  outDegree(node: string): number {
-    return this.successors.get(node)?.size ?? 0;
   }
 
   outNeighbors(node: string): string[] {
@@ -72,7 +68,12 @@ const distancesToGoal = (
 interface SearchState {
   readonly graph: CallGraph;
   readonly snapshots: ReadonlyMap<string, FunctionSnapshot>;
-  readonly reached: ReadonlyMap<string, number>;
+  /**
+   * Forward-search extent, counted where the search does its work: functions
+   * discovered (including unexpanded terminals), direct-callee edges examined
+   * while expanding non-goal functions, and the greatest discovery depth.
+   */
+  readonly explored: CallPathResult["explored"];
   readonly exhaustive: boolean;
   readonly limitations: readonly string[];
 }
@@ -105,7 +106,7 @@ export const buildCallPath = (input: CallPathInput): CallPathResult => {
   const resultContext = {
     start: parsed.start.address,
     goal: parsed.goal.address,
-    explored: summarizeSearch(graph, search.reached),
+    explored: search.explored,
     evidence_links: uniqueEvidence(snapshots.values()),
     limitations: [...new Set(limitations)].sort(compareUnicodeCodePoints),
   };
@@ -127,21 +128,6 @@ export const buildCallPath = (input: CallPathInput): CallPathResult => {
   });
 };
 
-const summarizeSearch = (
-  graph: CallGraph,
-  reached: ReadonlyMap<string, number>,
-) => ({
-  nodes: reached.size,
-  edges: [...reached.keys()].reduce(
-    (count, node) => count + (graph.hasNode(node) ? graph.outDegree(node) : 0),
-    0,
-  ),
-  depth_reached: [...reached.values()].reduce(
-    (maximum, depth) => Math.max(maximum, depth),
-    0,
-  ),
-});
-
 const prepareCallGraph = (input: CallPathInput) => {
   const snapshots = parseSnapshots(input.functions);
   assertCompatible(snapshots);
@@ -158,9 +144,9 @@ const parseSnapshots = (
   const snapshots = new Map<string, FunctionSnapshot>();
   for (const group of groups) {
     const snapshot = parseFunctionEvidence(group);
-    const address = parseCallPathAddress(snapshot.dossier.procedure.address);
+    const address = parseNativeAddress(snapshot.dossier.procedure.address);
     for (const callee of snapshot.dossier.callees)
-      parseCallPathAddress(callee.address);
+      parseNativeAddress(callee.address);
     if (snapshots.has(address))
       throw new TypeError(`Duplicate function Evidence for ${address}`);
     snapshots.set(address, snapshot);
@@ -197,7 +183,7 @@ const createGraph = (
   for (const [address, snapshot] of snapshots) {
     graph.mergeNode(address);
     for (const callee of snapshot.dossier.callees) {
-      const calleeAddress = parseCallPathAddress(callee.address);
+      const calleeAddress = parseNativeAddress(callee.address);
       graph.mergeNode(calleeAddress);
       graph.mergeDirectedEdge(address, calleeAddress);
     }
@@ -222,7 +208,7 @@ const inspectSearch = ({
     return {
       graph,
       snapshots,
-      reached: new Map(),
+      explored: { nodes: 0, edges: 0, depth_reached: 0 },
       exhaustive: false,
       limitations: [
         `No analyze_function Evidence was supplied for start ${start}`,
@@ -232,10 +218,13 @@ const inspectSearch = ({
   const queue = [start];
   const limitations: string[] = [];
   let incompleteExpandedCoverage = false;
+  let expandedEdges = 0;
+  let depthReached = 0;
   for (let index = 0; index < queue.length; index += 1) {
     const node = queue[index];
     if (node === undefined) continue;
     const depth = reached.get(node) ?? 0;
+    depthReached = Math.max(depthReached, depth);
     const snapshot = snapshots.get(node);
     if (snapshot !== undefined) {
       const coverage = snapshot.evidence.relationship_coverage;
@@ -280,6 +269,9 @@ const inspectSearch = ({
       continue;
     }
     const neighbors = graph.outNeighbors(node).sort(compareUnicodeCodePoints);
+    // Count only edges this expansion examines; a terminal goal's outgoing
+    // relationships never reach this point and so never count as explored.
+    expandedEdges += neighbors.length;
     for (const neighbor of neighbors)
       if (!reached.has(neighbor)) {
         reached.set(neighbor, depth + 1);
@@ -289,7 +281,11 @@ const inspectSearch = ({
   return {
     graph,
     snapshots,
-    reached,
+    explored: {
+      nodes: reached.size,
+      edges: expandedEdges,
+      depth_reached: depthReached,
+    },
     exhaustive: !incompleteExpandedCoverage,
     limitations,
   };

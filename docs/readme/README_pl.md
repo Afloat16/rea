@@ -1,7 +1,7 @@
 <div align="center">
 
 [English](../../README.md) · [简体中文](README_zh.md) · [繁體中文](README_zh-TW.md) · [日本語](README_ja.md) · [한국어](README_ko.md) · [Türkçe](README_tr.md) · [Русский](README_ru.md) · [Tiếng Việt](README_vi.md) · [ไทย](README_th.md) · [Deutsch](README_de.md) · [Español](README_es.md) · [Français](README_fr.md) · [Українська](README_uk.md) · **Polski** · [Português (Brasil)](README_pt-BR.md) · [العربية](README_ar.md) · [فارسی](README_fa.md) · [Bahasa Indonesia](README_id.md) · [Italiano](README_it.md)
-· [Ελληνικά](README_el.md)
+· [Ελληνικά](README_el.md) · [മലയാളം](README_ml.md)
 
 # REA: Reverse Engineer Anything
 
@@ -143,14 +143,19 @@ REA wymaga Node.js 22.x (>=22.19), 24.x (>=24.11) lub 26+ oraz npm. Dodatkowe na
 | --------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
 | Natywne pliki binarne                   | Pseudokod, kod asemblera, ciągi znaków, symbole, wywołania i odwołania                                                | Hopper, Ghidra lub IDA; [analiza kodu natywnego](../native-investigation.md)                                                         |
 | Układ pliku ELF w trybie offline        | Sekcje, segmenty, oryginalne symbole/relokacje i potencjalne mechanizmy zabezpieczeń wskazane przez analizę statyczną | pwntools dostarczone przez użytkownika w systemie Linux x64; [diagnostyka plików binarnych](../binary-diagnostics.md)                |
+| PE certificates                         | Authenticode WIN_CERTIFICATE entries and PKCS#7 signer/X.509 identity fields                                          | Built-in static PE inspection; [PE certificates](../pe-certificates.md)                                                              |
 | Kod bajtowy EVM                         | Selektory wywołań, przesunięcia bajtowe, wywnioskowane argumenty i mutowalność                                        | Lokalny plik z surowymi bajtami lub zapisem szesnastkowym w systemie Linux x64; [przewodnik EVM offline](../evm-bytecode.md)         |
 | Rust binaries                           | Embedded cargo-auditable dependency list                                                                              | [Rust binaries](../rust-binaries.md)                                                                                                 |
+| ELF notes                               | PT_NOTE/SHT_NOTE owners, types, GNU build-id and ABI-tag fields                                                       | Built-in static ELF inspection; [ELF notes](../elf-notes.md)                                                                         |
+| Erlang BEAM                             | IFF chunks, atoms, exports, and tables                                                                                | Built-in static BEAM inspection; [Erlang BEAM](../erlang-beam.md)                                                                    |
 | Zarejestrowane awarie systemu Linux     | Surowe rekordy note, rejestry/sygnały każdego zarejestrowanego wątku i opcjonalni kandydaci na mapowania              | pwntools dostarczone przez użytkownika w systemie Linux x64; opcjonalnie GDB/pwndbg; [zarejestrowane awarie](../recorded-crashes.md) |
+| Instalacje desktopowe                   | Kandydaci środowisk uruchomieniowych, pliki źródłowe dowodów, komponenty i dalsze kroki                               | Ograniczona inspekcja katalogów i nagłówków；[Aplikacje desktopowe](../desktop-applications.md)                                      |
 | JavaScript / Electron                   | Moduły, importy, mapy źródeł, trasy, IPC i powiązania z natywnymi dodatkami                                           | Node.js i npm; [analiza aplikacji](../javascript-application-workflows.md)                                                           |
 | Strony internetowe                      | Struktura strony, skrypty, obserwacje sieciowe i zamówione zrzuty ekranu                                              | Przeglądarka z rodziny Chrome; [analiza w przeglądarce](../browser-observation.md)                                                   |
 | Zapisane przechwycenia ruchu sieciowego | Żądania, odpowiedzi, dostępne dane przesyłane i lokalizacje źródłowe                                                  | HAR; mitmdump w systemie Linux dla natywnych przechwyceń mitmproxy; [przewodnik przechwytywania](../web-network-captures.md)         |
 | Przechwytywanie pakietów                | Punkty końcowe, DNS, TLS SNI, dystrybucja protokołów i żądania HTTP                                                   | Dostarczone przez wywołującego tshark i capinfos; [przewodnik pcap](../pcap-analysis.md)                                             |
 | Zestawy .NET                            | Metadane, instrukcje CIL, zadeklarowane zależności natywne i porównania kompilacji                                    | Analiza statyczna; [przewodnik kodu zarządzanego](../managed-code-analysis.md)                                                       |
+| PyInstaller                             | CArchive, PYZ, Python bytecode                                                                                        | Static inspection; [Python packaged applications](../python-packaged-applications.md)                                                |
 | Pakiety APK dla Androida                | Deklaracje manifestu, klasy, zdekompilowane metody i odwołania                                                        | JADX bez interfejsu graficznego i pełny JDK w systemach Linux/macOS/Windows x64; [przewodnik Androida](../android-analysis.md)       |
 | Urządzenia z Androidem                  | Urządzenia, pakiety, procesy, logi, zrzuty, zrzuty ekranu oraz transfery APK/plików                                   | adb dostarczony przez wywołującego (emulator lub urządzenie); [przewodnik ADB](../adb-device-analysis.md)                            |
 | Projekty JEB                            | Jednostki projektu obsługiwane przez silnik, skróty artefaktów i pseudokod typów/metod                                | Uruchomiony przez wywołującego klient JEB udostępniający MCP, wybrany przez REA_JEB_MCP_URL; [przewodnik JEB](../jeb-analysis.md)    |
@@ -166,7 +171,7 @@ Statyczna analiza JavaScript i .NET odczytuje dostarczone pliki bez uruchamiania
 
 <a id="choosing-a-deep-analysis-provider"></a>
 
-Obsługiwane formaty natywne i platformy zależą od dostawcy analizy. Zobacz [konfigurację Hoppera i Ghidry](../installation.md#hopper), [przewodnik IDA](../ida-provider.md) oraz [eksperymentalną obsługę Ghidry w systemie Windows](../windows-ghidra-p0.md). Ghidra obsługuje też [analizę 16-bitowego DOS-a](../ghidra-dos.md). Wybór dostawcy opisuje [przewodnik CLI](../cli.md#choose-a-provider). Sprawdź [dostępność w wydaniach](../installation.md#released-package-and-main) dla funkcji dodanych po najnowszym wydaniu npm.
+Obsługiwane formaty natywne i platformy zależą od dostawcy analizy. Zobacz [konfigurację Hoppera i Ghidry](../installation.md#hopper), [przewodnik IDA](../ida-provider.md), [Kuna](../kuna-provider.md) oraz [eksperymentalną obsługę Ghidry w systemie Windows](../windows-ghidra-p0.md). Ghidra obsługuje też [analizę 16-bitowego DOS-a](../ghidra-dos.md). Wybór dostawcy opisuje [przewodnik CLI](../cli.md#choose-a-provider). Sprawdź [dostępność w wydaniach](../installation.md#released-package-and-main) dla funkcji dodanych po najnowszym wydaniu npm.
 
 ## Przykłady zastosowań
 
@@ -263,6 +268,8 @@ Zacznij od [przewodników z przykładami](https://rea.tools/pl/guides/) na stron
 
 - [Instalacja i konfiguracja](../installation.md): rejestracja agentów, konfiguracja dostawców analizy, aktualizacje i odinstalowanie.
 - [Gotowość i rozwiązywanie problemów](../installation.md#check-readiness-for-your-task): diagnostyka jednego agenta lub silnika analizy.
+- [CUDA / HIP](../gpu-code-objects.md)
+- [GGUF / safetensors](../model-artifacts.md)
 - [CLI i Evidence](../cli.md): polecenia, wybór dostawcy, migawki, import/eksport i kody zakończenia.
 - [Kontrakty MCP](../mcp-contracts.md) i [prompty dla agentów](../mcp-prompts.md): wyniki narzędzi, sesje i prowadzone analizy.
 - [Katalog narzędzi](../mcp-contracts.md#generated-catalog): generowany podczas kompilacji wykaz narzędzi, dostawców i poleceń CLI.
@@ -272,7 +279,7 @@ Zgłaszaj podatności zgodnie z [SECURITY.md](../../SECURITY.md).
 
 ## Historia gwiazdek
 
-🎉 **200 000 gwiazdek na GitHubie — dziękujemy!**
+🎉 **300 000 gwiazdek na GitHubie — dziękujemy!**
 
 Dziękujemy wszystkim, którzy używają REA, zgłaszają błędy, proponują nowe funkcje, testują kompilacje i przesyłają poprawki.
 

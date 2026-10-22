@@ -5,7 +5,7 @@ import { join } from "node:path";
 
 import { afterEach, expect, it as test, onTestFinished, vi } from "vitest";
 
-import { inspectKunaInstallation } from "../../../../src/kuna/KunaInstallation.js";
+import { inspectKunaInstallationOwned as inspectKunaInstallation } from "./kunaResourceScope.js";
 import { KunaProjectCache } from "../../../../src/kuna/KunaProjectCache.js";
 import type { KunaExportStatus } from "../../../../src/kuna/KunaProjectExport.js";
 import { createTestTempDirectory } from "../../../fixtures/temporaryDirectory.js";
@@ -130,7 +130,9 @@ it.each([true, false])(
       if (!closed.ok) throw closed.error;
     });
     await expect
-      .poll(() => actual.readdir(listing.directory).catch(() => []))
+      .poll(() => actual.readdir(listing.directory).catch(() => []), {
+        timeout: 10_000,
+      })
       .toHaveLength(2);
     listing.names = await actual.readdir(listing.directory);
     releaseListing();
@@ -248,5 +250,42 @@ it("keeps a shared progress callback registered for the remaining waiter", async
       ({ argv }) => argv[0] === "decompile-project",
     ),
   ).toHaveLength(1);
+  expect(await cache.close()).toEqual({ ok: true, value: null });
+});
+
+it("lets a joining request cancel from the status replayed to it", async () => {
+  const { cache, request } = await fixture();
+  const input = await request("program");
+  const decompiling = barrier();
+  const first = cache.build({
+    ...input,
+    onStatus: (status) => {
+      if (status.phase === "decompiling") decompiling.release();
+    },
+  });
+  let firstSettled = false;
+  void first.then(() => {
+    firstSettled = true;
+  });
+  await decompiling.promise;
+
+  const leaving = new AbortController();
+  const replayed: KunaExportStatus[] = [];
+  const second = await cache.build({
+    ...input,
+    signal: leaving.signal,
+    onStatus: (status) => {
+      replayed.push(status);
+      leaving.abort();
+    },
+  });
+  expect(replayed.map(({ phase }) => phase)).toEqual(["decompiling"]);
+  expect(second).toMatchObject({
+    ok: false,
+    error: { _tag: "AnalysisCancelledError" },
+  });
+  // The second request left without waiting for, or stopping, the first.
+  expect(firstSettled).toBe(false);
+  expect((await first).ok).toBe(true);
   expect(await cache.close()).toEqual({ ok: true, value: null });
 });

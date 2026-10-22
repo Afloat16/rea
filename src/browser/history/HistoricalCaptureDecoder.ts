@@ -1,7 +1,13 @@
 import {
+  decodeCaptureProtobuf,
+  prepareCaptureProtobuf,
+} from "./protobuf/ProtobufCapture.js";
+import { CaptureFormatError } from "./CaptureFormatError.js";
+import {
   CAPTURE_PROCESS_MEMORY_LIMIT_REASON,
   historicalCaptureFailure,
   captureMemoryFailure,
+  withCaptureReaderCleanup,
 } from "./CaptureFailures.js";
 import {
   NODE_CAPTURE_HEAP_ENFORCED,
@@ -17,13 +23,18 @@ import { z } from "zod";
 import type { ExecutionOptions } from "../../application/AnalysisProvider.js";
 import { readStableArtifact } from "../../artifacts/readStableArtifact.js";
 import { ArtifactReaderFailure } from "../../artifacts/ArtifactReader.js";
-import { ArtifactResourceScope } from "../../artifacts/ArtifactResourceScope.js";
+import {
+  ArtifactResourceScope,
+  type ArtifactCleanupAttempt,
+} from "../../artifacts/ArtifactResourceScope.js";
+import { AnalysisCleanupLeaseGroup } from "../../artifacts/AnalysisCleanupLease.js";
 import type { AnalysisError } from "../../domain/analysisErrorBase.js";
 import {
   AnalysisCapabilityUnavailableError,
   AnalysisCancelledError,
   AnalysisInputError,
   AnalysisOutputError,
+  AnalysisResourceConstraintError,
 } from "../../domain/analysisErrorCore.js";
 import { ProviderAdapterError } from "../../domain/providerAdapterError.js";
 import { ProviderCleanupError } from "../../domain/providerCleanupError.js";
@@ -31,6 +42,7 @@ import { analysisErrorWithCleanupFailure } from "../../domain/analysisErrorClean
 import { err, ok, type Result } from "../../domain/result.js";
 import {
   WEB_NETWORK_CAPTURE_LIMITS,
+  selectedWebNetworkCaptureTimeoutMs,
   webNetworkCapturePayloadSchema,
   type InspectWebNetworkCaptureInput,
   type WebNetworkCapture,
@@ -99,7 +111,7 @@ export class HistoricalCaptureDecoder {
       );
       return err(
         redactExplicitFailure(
-          this.withReaderCleanup(error, cause),
+          withCaptureReaderCleanup(error, cause),
           input.sensitive_values,
         ),
       );
@@ -113,6 +125,7 @@ export class HistoricalCaptureDecoder {
     let runtime: Pick<PrivateRuntimeRoot, "path" | "close"> | undefined;
     let result: Result<WebNetworkCapture, AnalysisError>;
     let phase: "capture-read" | "decoder" = "capture-read";
+    let encodedReplyBytes = 0;
     try {
       const adapter = this.adapters.find(
         (candidate) => candidate.format === input.format,
@@ -163,7 +176,9 @@ export class HistoricalCaptureDecoder {
           hostEnvironment: environment,
         },
         {
-          timeoutMs: WEB_NETWORK_CAPTURE_LIMITS.timeoutMs,
+          timeoutMs: selectedWebNetworkCaptureTimeoutMs(
+            input.capture_timeout_ms,
+          ),
           diagnosticBytes: 1024 * 1024,
         },
         options?.signal === undefined ? {} : { signal: options.signal },
@@ -181,15 +196,19 @@ export class HistoricalCaptureDecoder {
           undefined,
           this.#resources,
         );
+        encodedReplyBytes = replyFile.bytes.length;
         reply = replySchema.parse(JSON.parse(replyFile.bytes.toString("utf8")));
       } catch (cause: unknown) {
+        if (cause instanceof ArtifactReaderFailure) throw cause;
         if (
-          cause instanceof ArtifactReaderFailure &&
-          cause.cleanup !== undefined
+          options?.signal?.aborted === true &&
+          (cause === options.signal.reason ||
+            (cause instanceof Error &&
+              cause.name === "AbortError" &&
+              "code" in cause &&
+              cause.code === "ABORT_ERR"))
         )
           throw cause;
-        if (options?.signal?.aborted)
-          throw new AnalysisCancelledError(OPERATION);
         throw new AnalysisOutputError(
           OPERATION,
           `Owned capture decoder reply failed for ${input.capture_path}: ${replyFailureReason(cause)}`,
@@ -269,7 +288,7 @@ export class HistoricalCaptureDecoder {
           "This is retained producer evidence, without live browser transaction IDs, scenario provenance, execution attribution or deployment authenticity. Recorded URLs are never fetched.",
           "Every record is decoded before selection; no partial success is returned on malformed input or a resource limit.",
           "Known authentication headers/cookies and explicitly marked literal values are excluded. Unknown extension names do not establish sensitivity.",
-          `A 32 MiB input, 96 MiB reply and 64-level nesting budget bound complete evidence. ${nodeMemoryLimitation()}; mitmproxy decoding uses a 768 MiB Linux address-space limit. Each owned command has a 30-second deadline with independent cleanup.`,
+          `Complete evidence is bounded by a ${String(WEB_NETWORK_CAPTURE_LIMITS.inputBytes)}-byte input budget, a ${String(WEB_NETWORK_CAPTURE_LIMITS.outputBytes)}-byte reply budget, and a ${String(WEB_NETWORK_CAPTURE_LIMITS.depth)}-level nesting cap. Those have no runtime override. capture_timeout_ms is ${String(selectedWebNetworkCaptureTimeoutMs(input.capture_timeout_ms))} ms (omitted means ${String(WEB_NETWORK_CAPTURE_LIMITS.timeoutMs)}). ${nodeMemoryLimitation()}; mitmproxy decoding uses a 768 MiB Linux address-space limit.`,
         ],
       };
       if (input.format === "qlog") {
@@ -287,75 +306,115 @@ export class HistoricalCaptureDecoder {
           );
         result = ok({ ...reply.value, ...common, format: input.format });
       }
+      if (result.ok) {
+        let safePartialSource = false;
+        try {
+          const prepared = await prepareCaptureProtobuf(
+            result.value,
+            input,
+            options?.signal,
+          );
+          safePartialSource = true;
+          await decodeCaptureProtobuf(
+            result.value,
+            input,
+            this.#resources,
+            prepared,
+            options?.signal,
+            encodedReplyBytes + Buffer.byteLength(JSON.stringify(common)) + 16,
+          );
+        } catch (cause) {
+          const error =
+            cause instanceof CaptureFormatError && cause.reason === "limit"
+              ? new AnalysisResourceConstraintError(
+                  OPERATION,
+                  "capacity",
+                  cause.message,
+                  {
+                    maximum_encoded_capture_bytes:
+                      WEB_NETWORK_CAPTURE_LIMITS.outputBytes,
+                  },
+                  {
+                    retryable: false,
+                    remediationAction:
+                      "Select smaller records, or inspect the retained original source bytes.",
+                  },
+                )
+              : cause instanceof CaptureFormatError
+                ? new AnalysisInputError(OPERATION, undefined, [
+                    {
+                      path: ["protobuf"],
+                      reason: "invalid_format",
+                      message: cause.message,
+                    },
+                  ])
+                : historicalCaptureFailure(input, cause, phase, options);
+          if (safePartialSource) error.retainPartialObservation(result.value);
+          throw error;
+        }
+      }
     } catch (cause: unknown) {
       const error = historicalCaptureFailure(input, cause, phase, options);
       result = err(
         redactExplicitFailure(
-          this.withReaderCleanup(error, cause),
+          withCaptureReaderCleanup(error, cause),
           input.sensitive_values,
         ),
       );
     }
+    const completedCapture = result.ok ? result.value : undefined;
+    let cleanupFailure:
+      | Extract<ArtifactCleanupAttempt, { readonly kind: "failed" }>
+      | undefined;
     if (runtime !== undefined) {
       const cleanup = await this.#resources.release({
         kind: "private-runtime-root",
         resource: runtime.path,
         root: runtime,
       });
-      if (cleanup.kind === "failed") {
-        return err(
-          redactExplicitFailure(
-            new ProviderCleanupError(
-              input.format,
-              [runtime.path],
-              {
-                capture_path: input.capture_path,
-                previous_error: result.ok
-                  ? null
-                  : projectAnalysisError(result.error),
-                reason:
-                  cleanup.cause instanceof Error
-                    ? cleanup.cause.message
-                    : String(cleanup.cause),
-              },
-              { operation: OPERATION, cause: cleanup.cause },
-            ),
-            input.sensitive_values,
-          ),
-        );
-      }
+      if (cleanup.kind === "failed") cleanupFailure = cleanup;
     }
-    return result.ok && options?.signal?.aborted
-      ? err(new AnalysisCancelledError(OPERATION))
-      : result;
-  }
-
-  private withReaderCleanup(
-    primary: AnalysisError,
-    cause: unknown,
-  ): AnalysisError {
-    if (
-      !(cause instanceof ArtifactReaderFailure) ||
-      cause.cleanup === undefined
-    )
-      return primary;
-    if (cause.reason === "unavailable")
-      return new ProviderCleanupError(
-        "web-network-capture",
-        cause.cleanup.resources,
-        { reason: cause.cleanup.reason },
-        { operation: OPERATION, cause },
+    if (result.ok && options?.signal?.aborted)
+      result = err(
+        new AnalysisCancelledError(OPERATION, {
+          cause: options.signal.reason,
+        }),
       );
-    const cleanup = new ProviderCleanupError(
-      "web-network-capture",
-      cause.cleanup.resources,
-      {
-        reason: cause.cleanup.reason,
-        previous_error: projectAnalysisError(primary),
-      },
-      { operation: OPERATION, cause },
-    );
-    return analysisErrorWithCleanupFailure(primary, cleanup, OPERATION);
+    if (cleanupFailure !== undefined) {
+      const cleanupError = new ProviderCleanupError(
+        input.format,
+        [cleanupFailure.owner.resource],
+        {
+          capture_path: input.capture_path,
+          reason:
+            cleanupFailure.cause instanceof Error
+              ? cleanupFailure.cause.message
+              : String(cleanupFailure.cause),
+        },
+        {
+          operation: OPERATION,
+          cause: cleanupFailure.cause,
+        },
+      );
+      const failure = result.ok
+        ? cleanupError
+        : analysisErrorWithCleanupFailure(
+            result.error,
+            cleanupError,
+            OPERATION,
+          );
+      if (completedCapture !== undefined)
+        failure.retainPartialObservation(completedCapture);
+      new AnalysisCleanupLeaseGroup(cleanupError, [cleanupFailure.lease]);
+      const redacted = redactExplicitFailure(failure, input.sensitive_values);
+      if (!result.ok)
+        redacted.bindCleanupDependencies([result.error, cleanupError]);
+      new AnalysisCleanupLeaseGroup(redacted, [cleanupFailure.lease]);
+      return err(redacted);
+    }
+    if (!result.ok && completedCapture !== undefined)
+      result.error.retainPartialObservation(completedCapture);
+    return result;
   }
 }
 

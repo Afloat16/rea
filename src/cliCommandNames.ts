@@ -4,6 +4,7 @@ export const CLI_COMMANDS = Object.freeze({
   inspectPacketCapture: "inspect-packet-capture",
   inspectSignalDecoders: "inspect-signal-decoders",
   decodeSignalRecording: "decode-signal-recording",
+  matchNativeFunctions: "match-native-functions",
   compareWasmInterfaces: "compare-wasm-interfaces",
   inspectWasmArtifact: "inspect-wasm-artifact",
   inspectSqliteDatabase: "inspect-sqlite-database",
@@ -48,6 +49,7 @@ export const CLI_COMMANDS = Object.freeze({
   inspectAssetCatalog: "inspect-asset-catalog",
   inspectManagedArtifact: "inspect-managed-artifact",
   inspectRecordedCrash: "inspect-recorded-crash",
+  inspectByteEntropy: "inspect-byte-entropy",
   inspectBinaryLayout: "inspect-binary-layout",
   listCutterSessions: "list-cutter-sessions",
   cutterCommand: "cutter-command",
@@ -57,9 +59,17 @@ export const CLI_COMMANDS = Object.freeze({
   debugWithGdb: "debug-with-gdb",
   debugWithRizin: "debug-with-rizin",
 
+  inspectDesktopApplication: "inspect-desktop-application",
   inspectGoBinary: "inspect-go-binary",
+  inspectIl2cppMetadata: "inspect-il2cpp-metadata",
+  inspectModelArtifact: "inspect-model-artifact",
+  inspectGpuCodeObjects: "inspect-gpu-code-objects",
   inspectRustBinary: "inspect-rust-binary",
+  inspectErlangBeam: "inspect-erlang-beam",
   inspectPeResources: "inspect-pe-resources",
+  inspectPeCertificates: "inspect-pe-certificates",
+  inspectNativeExports: "inspect-native-exports",
+  inspectElfNotes: "inspect-elf-notes",
   inspectAnalysisView: "inspect-analysis-view",
   listFridaDevices: "list-frida-devices",
   listFridaProcesses: "list-frida-processes",
@@ -122,6 +132,8 @@ export const CLI_COMMANDS = Object.freeze({
   demangleSwift: "demangle-swift",
   evidenceImport: "evidence-import",
   evidenceExport: "evidence-export",
+  environmentServe: "environment-serve",
+  environmentExport: "environment-export",
   compare: "compare",
   captureProcess: "capture-process",
   compareProcessCaptures: "compare-process-captures",
@@ -187,6 +199,8 @@ export const CLI_COMMAND_TOOL_ALIASES = Object.freeze({
 
 /** MCP operations without a dedicated CLI command or direct command alias. */
 export const MCP_TOOLS_WITHOUT_DEDICATED_CLI = Object.freeze([
+  // MCP session control selects a resource root; CLI resource commands take paths directly.
+  "open_bundle_resources",
   "address_name",
   "comment",
   "current_address",

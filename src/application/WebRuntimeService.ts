@@ -7,7 +7,7 @@ import {
   AnalysisOutputError,
 } from "../domain/analysisErrorCore.js";
 import { createEvidence, type Evidence } from "../domain/evidence.js";
-import { jsonObjectSchema, jsonValueSchema } from "../domain/jsonValue.js";
+import { jsonObjectSchema } from "../domain/jsonValue.js";
 import { analysisInputErrorFromIssues } from "../domain/inputIssueProjection.js";
 import { err, ok, type Result } from "../domain/result.js";
 import {
@@ -18,6 +18,10 @@ import {
   inspectWebEventListenersInputSchema,
   webEventListenersSchema,
 } from "../domain/webEventListeners.js";
+import {
+  completeProviderEvidence,
+  keepIncompleteObservation,
+} from "./ProviderOperationExecution.js";
 
 /** Shared public workflows keep instrumentation and listener inspection independently selectable. */
 export class WebRuntimeService {
@@ -37,7 +41,19 @@ export class WebRuntimeService {
     );
     if (!parsed.ok) return parsed;
     const result = await this.provider.observeExecution(parsed.value, options);
-    if (!result.ok) return result;
+    if (!result.ok)
+      return this.retainRuntimePartial(
+        result.error,
+        operation,
+        "Provider retained a non-JSON incomplete execution observation.",
+        (partial) => {
+          if (!("instrumentation" in partial) || !("window" in partial))
+            return undefined;
+          const verified = webExecutionSchema.safeParse(partial);
+          if (!verified.success) return undefined;
+          return this.evidence(operation, parsed.value, verified.data);
+        },
+      );
     const verified = webExecutionSchema.safeParse(result.value);
     if (!verified.success)
       return err(new AnalysisOutputError(operation, verified.error.message));
@@ -71,7 +87,19 @@ export class WebRuntimeService {
       parsed.value,
       options,
     );
-    if (!result.ok) return result;
+    if (!result.ok)
+      return this.retainRuntimePartial(
+        result.error,
+        operation,
+        "Provider retained a non-JSON incomplete event-listener observation.",
+        (partial) => {
+          if (!("selected_node" in partial) || !("listeners" in partial))
+            return undefined;
+          const verified = webEventListenersSchema.safeParse(partial);
+          if (!verified.success) return undefined;
+          return this.evidence(operation, parsed.value, verified.data);
+        },
+      );
     const verified = webEventListenersSchema.safeParse(result.value);
     if (!verified.success)
       return err(new AnalysisOutputError(operation, verified.error.message));
@@ -88,6 +116,29 @@ export class WebRuntimeService {
     return this.evidence(operation, parsed.value, verified.data, options);
   }
 
+  /** Promote a schema-valid partial, or keep a JSON snapshot of an incomplete one. */
+  private retainRuntimePartial(
+    error: AnalysisError,
+    operation: string,
+    nonJsonReason: string,
+    promote: (
+      partial: NonNullable<AnalysisError["partialObservation"]>,
+    ) => Result<Evidence, AnalysisError> | undefined,
+  ): Result<Evidence, AnalysisError> {
+    const partial = error.partialObservation;
+    if (partial !== undefined && !("evidence_id" in partial)) {
+      const evidence = promote(partial);
+      if (evidence !== undefined) {
+        if (evidence.ok) {
+          error.partialObservation = evidence.value;
+          return err(error);
+        }
+        if (error instanceof AnalysisCancelledError) return evidence;
+      }
+    }
+    return err(keepIncompleteObservation(error, operation, nonJsonReason));
+  }
+
   private evidence(
     operation: string,
     input:
@@ -98,8 +149,6 @@ export class WebRuntimeService {
       | z.infer<typeof webEventListenersSchema>,
     options?: ExecutionOptions,
   ): Result<Evidence, AnalysisError> {
-    if (options?.signal?.aborted)
-      return err(new AnalysisCancelledError(operation));
     if (
       input.allowed_origins.length > 0 &&
       !input.allowed_origins.includes(result.target.origin)
@@ -110,16 +159,17 @@ export class WebRuntimeService {
           "Provider returned a document outside the selected origin scope.",
         ),
       );
-    return ok(
+    return completeProviderEvidence(
       createEvidence(undefined, this.provider.identity(), {
         predicateType: `rea.${operation.replaceAll("_", "-")}`,
         operation,
         parameters: jsonObjectSchema.parse(input),
-        result: jsonValueSchema.parse(result),
+        result,
         confidence: "observed",
         authority: "external-service",
         limitations: result.limitations,
       }),
+      options?.signal,
     );
   }
 }
@@ -131,7 +181,9 @@ const parseInput = <T>(
   options: ExecutionOptions | undefined,
 ): Result<T, AnalysisError> => {
   if (options?.signal?.aborted)
-    return err(new AnalysisCancelledError(operation));
+    return err(
+      new AnalysisCancelledError(operation, { cause: options.signal.reason }),
+    );
   const parsed = schema.safeParse(rawInput);
   return parsed.success
     ? ok(parsed.data)

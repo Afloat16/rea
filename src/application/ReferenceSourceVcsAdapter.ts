@@ -9,6 +9,7 @@ import {
   RegularFileCleanupFailure,
   retryRegularFileCleanup,
 } from "./RegularFileRead.js";
+import { referenceSourceResourceFailure } from "../reference/ReferenceSourceReaderErrors.js";
 import type { ReferenceSourceReaderError } from "../reference/ReferenceSourceReaderTypes.js";
 
 export type ReferenceSourceVcsInfo =
@@ -59,13 +60,7 @@ export const readReferenceSourceVcs = async (
     });
   } catch (cause: unknown) {
     if (!(cause instanceof ArtifactReaderFailure)) throw cause;
-    return err({
-      tag: "reference-source-reader",
-      code: cause.reason === "cancelled" ? "cancelled" : "io",
-      message: cause.message,
-      ...(cause.cleanup === undefined ? {} : { cleanup: cause.cleanup }),
-      cause,
-    });
+    return err(referenceSourceResourceFailure(cause));
   }
 };
 
@@ -88,8 +83,9 @@ const resolveSourceHead = async (
     try {
       return await readRegularFile(path, { signal });
     } catch (cause: unknown) {
+      if (signal?.aborted === true && cause === signal.reason) throw cause;
       if (!(cause instanceof RegularFileCleanupFailure)) throw cause;
-      const retry = await retryRegularFileCleanup(cause, resources);
+      const retry = await retryRegularFileCleanup(cause, resources, signal);
       if (
         retry.outcome.kind === "failed" &&
         errorCode(retry.outcome.cause) !== "ENOENT"

@@ -1,3 +1,4 @@
+import { analysisDetailSchema } from "./analysisDetail.js";
 import { z } from "zod";
 import { nativeFunctionAnnotationsInputSchema } from "../domain/native/nativeFunctionAnnotations.js";
 
@@ -17,6 +18,9 @@ import { nativeInstructionInputSchema } from "../domain/native/nativeInstruction
 import { functionInstructionInputSchema } from "./functionInstructionContract.js";
 import { HOPPER_MEMORY_TOOL_DEFINITIONS } from "./hopperMemoryContracts.js";
 import { analysisSearchInput } from "./analysisSearchContract.js";
+
+const hopperRegexDeadline =
+  "Hopper regex mode uses ECMAScript Unicode syntax in a cancellable worker. The matching deadline is REA_REGEX_MATCHING_DEADLINE_MS (a positive decimal integer of milliseconds from 1 to 2147483647, default 5000). Unset keeps the default. A deadline failure names the effective milliseconds, source (default or setting), the default, and the maximum, and leaves the API usable.";
 
 const official = <Name extends string, Schema extends z.ZodObject>(
   name: Name,
@@ -109,13 +113,17 @@ export const OFFICIAL_TOOL_CONTRACTS = [
   ),
   official(
     "list_names",
-    "List every analyzed memory and external symbol as address/value pairs. Provider metadata distinguishes Ghidra primary, dynamic, external, type, and source facts when available.",
-    z.object({ document, address: optionalAddress }),
+    "List every analyzed memory and external symbol as address/value pairs. Provider metadata distinguishes Ghidra primary, dynamic, external, type, and source facts when available. Select detail summary for counts and retained native-inventory pages; complete remains the default.",
+    z.object({
+      document,
+      address: optionalAddress,
+      detail: analysisDetailSchema,
+    }),
   ),
   official(
     "list_procedures",
-    "List every analyzed procedure as address/value pairs after provider analysis. Ghidra metadata distinguishes thunks and external functions; use returned addresses in later function operations.",
-    z.object({ document }),
+    "List every analyzed procedure as address/value pairs after provider analysis. Ghidra metadata distinguishes thunks and external functions; use returned addresses in later function operations. Select detail summary for counts and retained native-inventory pages; complete remains the default.",
+    z.object({ document, detail: analysisDetailSchema }),
   ),
   official(
     "list_segments",
@@ -124,8 +132,12 @@ export const OFFICIAL_TOOL_CONTRACTS = [
   ),
   official(
     "list_strings",
-    "List every provider-defined string object, or filter to one address, as address/value pairs with encoding, terminator status, and byte length when available. Hopper reads complete typed objects and retains its original display text as provider_value; long literals may span adjacent unterminated objects.",
-    z.object({ document, address: optionalAddress }),
+    "List every provider-reported string object or candidate, or filter to one address, as address/value pairs with encoding, terminator status, and byte length when available. Hopper reads complete typed objects and retains its original display text as provider_value; long literals may span adjacent unterminated objects. Kuna scans mapped printable sequences of at least five characters, including unterminated fragments; references are not computed. Select detail summary for counts and retained native-inventory pages; complete remains the default.",
+    z.object({
+      document,
+      address: optionalAddress,
+      detail: analysisDetailSchema,
+    }),
   ),
   official(
     "next_address",
@@ -191,13 +203,13 @@ export const OFFICIAL_TOOL_CONTRACTS = [
   ),
   official(
     "search_procedures",
-    "Search every analyzed procedure name using literal matching by default or regex when requested. Results are deterministic and complete. Hopper regex mode uses ECMAScript Unicode syntax in a cancellable worker; a matching deadline leaves its API usable.",
-    z.object(analysisSearchInput),
+    `Search every analyzed procedure name using literal matching by default or regex when requested. Results are deterministic and complete. ${hopperRegexDeadline} Select detail summary for counts and retained native-inventory pages; complete remains the default.`,
+    z.object({ ...analysisSearchInput, detail: analysisDetailSchema }),
   ),
   official(
     "search_strings",
-    "Search every provider-defined string object using literal matching by default or regex when requested. Results are deterministic and complete over those defined objects, not every text sequence in artifact bytes. Ghidra may omit packed or undefined literals, including Rust strings; an empty result does not prove text is absent. If an address is known, read_bytes and xrefs inspect its bytes and references. Hopper retains typed byte decoding, native display, and explicit decoding unknowns. Adjacent long-literal fragments match independently. Hopper regex mode uses ECMAScript Unicode syntax in a cancellable worker; a matching deadline leaves its API usable.",
-    z.object(analysisSearchInput),
+    `Search every provider-reported string object or candidate using literal matching by default or regex when requested. Results are deterministic and complete over that provider inventory, not every text sequence in artifact bytes. Kuna scans mapped sequences of at least five characters, including unterminated fragments, without computing references. Ghidra may omit packed or undefined literals, including Rust strings; an empty result does not prove text is absent. If an address is known, read_bytes and xrefs inspect its bytes and references. Hopper retains typed byte decoding, native display, and explicit decoding unknowns. Adjacent long-literal fragments match independently. ${hopperRegexDeadline} Select detail summary for counts and retained native-inventory pages; complete remains the default.`,
+    z.object({ ...analysisSearchInput, detail: analysisDetailSchema }),
   ),
   official(
     "set_address_name",
@@ -211,7 +223,7 @@ export const OFFICIAL_TOOL_CONTRACTS = [
   ),
   official(
     "set_bookmark",
-    "Create or replace a bookmark at a mapped hexadecimal address and report success. This mutates navigation metadata; bookmarks are analyst-authored navigation aids, not binary evidence.",
+    "Create or update a bookmark at a mapped hexadecimal address and report readback success. Omit name to preserve an existing name or create an unnamed bookmark; an empty string clears the bookmark name. This mutates navigation metadata; bookmarks are analyst-authored navigation aids, not binary evidence.",
     z.object({ address, name: z.string().optional(), document }),
   ),
   official(

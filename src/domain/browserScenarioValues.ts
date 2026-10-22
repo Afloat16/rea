@@ -1,9 +1,8 @@
 import { z } from "zod";
-import { isAbsolute } from "node:path";
 
 import { IDENTIFIER_PATTERN } from "./stringPatterns.js";
 
-import { localPathStringSchema } from "./localPath.js";
+import { absoluteLocalPathStringSchema } from "./localPath.js";
 import { browserNetworkContentSelectionSchema } from "./browserNetworkEvidence.js";
 import { browserScenarioEventFamilySchema } from "./browserScenarioCaptureValues.js";
 import {
@@ -18,10 +17,11 @@ import {
 
 export const scenarioIdentifierSchema = z.string().regex(IDENTIFIER_PATTERN);
 
-const browserExecutablePathSchema = localPathStringSchema.refine(isAbsolute, {
-  message:
-    "executable_path must be an absolute local filesystem path (for example /opt/chromium/chrome or C:\\chromium\\chrome.exe)",
-});
+/**
+ * Step identity the provider owns for the initial-state step. Callers cannot
+ * claim it, because two capture steps with one identity cannot be aligned.
+ */
+export const BROWSER_SCENARIO_START_STEP_ID = "scenario_start";
 
 const browserScenarioBaseUrlSchema = z
   .string()
@@ -77,7 +77,7 @@ export type BrowserScenarioUrl = z.infer<typeof browserScenarioUrlSchema>;
 export const browserScenarioBrowserSchema = z.discriminatedUnion("mode", [
   z.strictObject({
     mode: z.literal("launch"),
-    executable_path: browserExecutablePathSchema.describe(
+    executable_path: absoluteLocalPathStringSchema.describe(
       "Absolute local filesystem path for the browser executable; relative paths are rejected.",
     ),
     headless: z
@@ -98,8 +98,8 @@ export const browserScenarioEnvironmentSchema = z
   .strictObject({
     viewport: z
       .strictObject({
-        width: z.number().int().positive().default(1_280),
-        height: z.number().int().positive().default(720),
+        width: z.int().positive().default(1_280),
+        height: z.int().positive().default(720),
         device_scale_factor: z.number().positive().default(1),
       })
       .default({ width: 1_280, height: 720, device_scale_factor: 1 }),
@@ -107,7 +107,10 @@ export const browserScenarioEnvironmentSchema = z
       .string()
       .min(2)
       .regex(/^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$/u)
-      .default("en-US"),
+      .default("en-US")
+      .describe(
+        "Formatting locale. Launch also sets navigator.language(s) and Accept-Language; connect retains the caller's page and request languages and reports this limitation.",
+      ),
     timezone: z
       .string()
       .min(1)
@@ -160,12 +163,15 @@ const locatorSchema = z.discriminatedUnion("kind", [
   }),
 ]);
 
+// Playwright forwards these intervals to Node timers.
+const MAX_BROWSER_SCENARIO_TIMEOUT_MS = 2_147_483_647;
+
 const stepBase = {
   step_id: scenarioIdentifierSchema,
   timeout_ms: z
-    .number()
     .int()
     .min(1)
+    .max(MAX_BROWSER_SCENARIO_TIMEOUT_MS)
     .optional()
     .describe(
       "Optional action deadline in milliseconds; omitted means wait until completion or request cancellation.",
@@ -184,7 +190,7 @@ export const browserScenarioActionSchema = z.discriminatedUnion("action", [
     action: z.literal("click"),
     locator: locatorSchema,
     button: z.enum(["left", "middle", "right"]).default("left"),
-    click_count: z.number().int().positive().default(1),
+    click_count: z.int().positive().default(1),
   }),
   z.strictObject({
     ...stepBase,
@@ -219,9 +225,9 @@ export const browserScenarioActionSchema = z.discriminatedUnion("action", [
     step_id: scenarioIdentifierSchema,
     action: z.literal("wait_for_timeout"),
     duration_ms: z
-      .number()
       .int()
       .min(1)
+      .max(MAX_BROWSER_SCENARIO_TIMEOUT_MS)
       .describe(
         "Wait this many milliseconds; the wait ends early on cancellation.",
       ),

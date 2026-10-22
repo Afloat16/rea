@@ -12,16 +12,24 @@ import {
   parseAppleAssetCatalogRecords,
   projectAppleAssetCatalogPage,
 } from "../../domain/apple/appleAssetCatalog.js";
-import { execFileOutput } from "../../process/ExecFileOutput.js";
+import {
+  ExecFileOutputCancelledError,
+  execFileOutput,
+} from "../../process/ExecFileOutput.js";
 
 const ASSETUTIL = "/usr/bin/assetutil";
 const MAX_CATALOG_BYTES = 64 * 1024 * 1024;
 const MAX_TOTAL_METADATA_BYTES = 64 * 1024 * 1024;
 
+/** The command owner wraps the exact caller reason; do not replace it with the wrapper. */
+const cancellationCause = (cause: unknown, signal?: AbortSignal): unknown =>
+  cause instanceof ExecFileOutputCancelledError ? cause.cause : signal?.reason;
+
 /** Inspect compiled asset catalog metadata without extracting rendition bytes. */
 export const analyzeAppleAssetCatalogs = async (input: {
   readonly bundlePath: string;
-  readonly targetSha256: string;
+  readonly targetSha256: string | null;
+  readonly resourceRoot?: import("../../domain/apple/bundleResourceRoot.js").BundleResourceRoot;
   readonly environment: Readonly<NodeJS.ProcessEnv>;
   readonly page?: unknown;
   readonly signal?: AbortSignal;
@@ -46,6 +54,9 @@ export const analyzeAppleAssetCatalogs = async (input: {
   )({
     bundlePath: input.bundlePath,
     targetSha256: input.targetSha256,
+    ...(input.resourceRoot === undefined
+      ? {}
+      : { resourceRoot: input.resourceRoot }),
     signal:
       input.signal === undefined
         ? interfaceBuilderCancel.signal
@@ -71,6 +82,9 @@ export const analyzeAppleAssetCatalogs = async (input: {
   );
   const result = projectAppleAssetCatalogPage({
     targetSha256: input.targetSha256,
+    ...(input.resourceRoot === undefined
+      ? {}
+      : { resourceRoot: input.resourceRoot }),
     catalogs,
     offset: page.offset,
     limit: page.limit,
@@ -122,7 +136,9 @@ const collectAssetCatalogs = async (input: {
   let totalMetadataBytes = 0;
   try {
     for await (const entry of reader.entries(input.signal)) {
-      if (!entry.path.endsWith("Assets.car")) continue;
+      // Reader paths are `/`-separated; only an entry named exactly
+      // Assets.car is a compiled catalog, not e.g. NotAssets.car.
+      if (entry.path.split("/").at(-1) !== "Assets.car") continue;
       if (entry.kind !== "file") {
         uninspected.push(`${entry.path} (${entry.kind})`);
         continue;
@@ -258,6 +274,7 @@ const runAssetUtil = async (
         env: environment,
         timeout: 60_000,
         maxBuffer: MAX_CATALOG_BYTES,
+        stopSignal: "SIGTERM",
         ...(signal === undefined ? {} : { signal }),
       })
     ).stdout;
@@ -266,6 +283,7 @@ const runAssetUtil = async (
       throw new ArtifactReaderFailure(
         "cancelled",
         "Asset catalog inspection cancelled",
+        { cause: cancellationCause(cause, signal) },
       );
     const code =
       typeof cause === "object" && cause !== null && "code" in cause
@@ -301,6 +319,7 @@ const digestBounded = async (
       throw new ArtifactReaderFailure(
         "cancelled",
         "Asset catalog inspection cancelled",
+        { cause: signal.reason },
       );
     const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
     length += bytes.length;

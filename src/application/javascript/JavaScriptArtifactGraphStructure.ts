@@ -1,4 +1,5 @@
 import type { ArtifactInventorySnapshot } from "../../domain/artifactInventorySnapshot.js";
+import { isJsonModuleTarget } from "../../domain/javascript/javascriptModuleResolutionMode.js";
 import type { ApplicationNode } from "../../domain/javascript/javascriptApplicationGraphSchemas.js";
 import { htmlInlineScriptLimitation } from "./JavaScriptArtifactAnalysis.js";
 import {
@@ -6,6 +7,7 @@ import {
   partialApplicationCoverage,
 } from "../../domain/javascript/javascriptApplicationEvidenceSchemas.js";
 import type { JavaScriptModuleArtifactAnalysis } from "./JavaScriptArtifactAnalysisTypes.js";
+import { javascriptArtifactAnalysisScopes } from "./JavaScriptArtifactAnalysisTypes.js";
 import { jsonValueSchema } from "../../domain/jsonValue.js";
 import { freezeJsonSnapshot } from "../../domain/immutableJson.js";
 import type { JavaScriptSourceRange } from "../../domain/javascript/javascriptStaticAnalysisTypes.js";
@@ -14,8 +16,13 @@ import type {
   JavaScriptArtifactFile,
 } from "../../domain/javascript/javascriptArtifactFiles.js";
 import type { JavaScriptArtifactGraphAccumulator } from "./JavaScriptArtifactGraphAccumulator.js";
+import { isSkippedJavaScriptAnalysis } from "./JavaScriptArtifactAnalysisTypes.js";
 import {
   addArtifactContainsEdge,
+  applicationManifestPath,
+  applicationContainerIdentity,
+  addApplicationRootCandidate,
+  dependencyManifest,
   addUnavailableStaticParseScope,
   artifactFileNodeKind,
   artifactLocalIdentity,
@@ -34,8 +41,8 @@ import {
 import {
   artifactPathResolutionProperties,
   resolveArtifactPathByContext,
+  type ArtifactPathResolution,
 } from "./JavaScriptArtifactPathResolution.js";
-import { compareUnicodeCodePoints } from "../../domain/unicodeCodePointOrder.js";
 
 interface PackageRoleInput {
   readonly packageNode: ApplicationNode;
@@ -144,6 +151,7 @@ export const addJavaScriptArtifactFiles = (
       file,
       analyzed.javascript,
       jsonValue,
+      isSkippedJavaScriptAnalysis(analyzed),
     );
     if (
       analyzed.application_projection_failure !== undefined &&
@@ -211,11 +219,17 @@ export const addJavaScriptArtifactFiles = (
         }),
       });
     }
-    if (!file.text.included && file.text.reason === "outside-analysis-scope")
+    const analysisScope = javascriptArtifactAnalysisScopes[file.kind];
+    if (
+      !file.text.included &&
+      file.text.reason === "outside-analysis-scope" &&
+      analysisScope !== null
+    )
       addUnavailableStaticParseScope(context, {
         file,
         asset: target,
         operation: "select-javascript-sources",
+        authority: analysisScope.authority,
         limitation:
           "Source is outside the caller-selected source_paths; it was inventoried but not analyzed.",
       });
@@ -223,12 +237,13 @@ export const addJavaScriptArtifactFiles = (
       addUnavailableStaticParseScope(context, {
         file,
         asset: target,
-        operation: "analyze-javascript-source",
+        ...analyzed.analysis_failure.scope,
         limitation: analyzed.analysis_failure.reason,
         failure: analyzed.analysis_failure.error,
         limits: javaScriptAnalysisCoverageLimits(
           analyzed.analysis_failure.limits,
         ),
+        details: { analysis_status: analyzed.analysis_failure.status },
       });
     else if (
       file.kind === "javascript" &&
@@ -239,6 +254,7 @@ export const addJavaScriptArtifactFiles = (
         file,
         asset: target,
         operation: "parse-javascript",
+        authority: javascriptArtifactAnalysisScopes.javascript.authority,
         limitation: file.text.included
           ? "JavaScript syntax could not be parsed."
           : `JavaScript text was unavailable: ${file.text.reason}.`,
@@ -248,6 +264,7 @@ export const addJavaScriptArtifactFiles = (
         file,
         asset: target,
         operation: "project-javascript-application",
+        authority: javascriptArtifactAnalysisScopes.javascript.authority,
         limitation: analyzed.application_projection_failure.reason,
         failure: analyzed.application_projection_failure.error,
         limits: javaScriptAnalysisCoverageLimits(
@@ -259,14 +276,14 @@ export const addJavaScriptArtifactFiles = (
       addUnavailableStaticParseScope(context, {
         file,
         asset: target,
-        operation: "parse-package-json",
+        ...javascriptArtifactAnalysisScopes["package-json"],
         limitation: packageValue.limitation,
       });
     if (jsonValue !== undefined && jsonValue.status !== "included")
       addUnavailableStaticParseScope(context, {
         file,
         asset: target,
-        operation: "parse-json-module",
+        ...javascriptArtifactAnalysisScopes.json,
         limitation: jsonValue.limitation,
       });
     const sourceMap = sourceMapsByPath.get(file.path);
@@ -274,8 +291,35 @@ export const addJavaScriptArtifactFiles = (
       addUnavailableStaticParseScope(context, {
         file,
         asset: target,
-        operation: "parse-local-source-map",
+        ...javascriptArtifactAnalysisScopes["source-map"],
         limitation: sourceMap.limitation,
+        ...(sourceMap.external_sections === undefined &&
+        sourceMap.invalid_sections === undefined
+          ? {}
+          : {
+              details: {
+                ...(sourceMap.external_sections === undefined
+                  ? {}
+                  : {
+                      external_sections: sourceMap.external_sections.map(
+                        ({ section_path, url }) => ({
+                          section_path: [...section_path],
+                          url,
+                        }),
+                      ),
+                    }),
+                ...(sourceMap.invalid_sections === undefined
+                  ? {}
+                  : {
+                      invalid_sections: sourceMap.invalid_sections.map(
+                        ({ section_path, reason }) => ({
+                          section_path: [...section_path],
+                          reason,
+                        }),
+                      ),
+                    }),
+              },
+            }),
       });
     const inlineScripts = inlineScriptsByPath.get(file.path);
     if (inlineScripts !== undefined)
@@ -283,6 +327,7 @@ export const addJavaScriptArtifactFiles = (
         file,
         asset: target,
         operation: "parse-html-inline-scripts",
+        authority: javascriptArtifactAnalysisScopes.javascript.authority,
         limitation: htmlInlineScriptLimitation(inlineScripts),
         limits:
           inlineScripts.script_count > inlineScripts.scripts.length
@@ -467,6 +512,7 @@ export const addJavaScriptPackageNodes = (
             name: packageValue.name,
             version: packageValue.version,
             main: packageValue.main,
+            main_status: packageValue.main_status,
             renderer: packageValue.renderer,
             parse_status: packageValue.status,
           },
@@ -503,6 +549,24 @@ export const addJavaScriptPackageNodes = (
         operation: "inventory-package",
       });
     if (dependencyManifest(file.path)) continue;
+    if (
+      packageValue.status === "included" &&
+      packageValue.main_entrypoint === ""
+    ) {
+      registerPackageResolutionOwner(
+        context,
+        file,
+        resolveArtifactPathByContext({
+          declaredPath: packageValue.main_entrypoint,
+          sourcePath: file.path,
+          context: "package-entrypoint",
+          runtimePathKind: "node-entrypoint",
+          files: context.filesByPath,
+          directoryPaths: context.directoryPaths,
+          unanalyzedFiles: context.unanalyzedFiles,
+        }),
+      );
+    }
     addPackageRole(context, {
       packageNode: node,
       packageFile: file,
@@ -519,29 +583,12 @@ export const addJavaScriptPackageNodes = (
   return roots;
 };
 
-/** Dependency-only artifacts retain their inventory root. */
-const applicationManifestPath = (
-  context: JavaScriptArtifactGraphContext,
-): string | undefined =>
-  context.analysis.packages
-    .map(({ path }) => path)
-    .filter(
-      (path) => context.filesByPath.has(path) && !dependencyManifest(path),
-    )
-    .sort(
-      (left, right) =>
-        left.split("/").length - right.split("/").length ||
-        compareUnicodeCodePoints(left, right),
-    )[0];
-
-const dependencyManifest = (path: string): boolean =>
-  path.split("/").slice(0, -1).includes("node_modules");
-
 const createFileTarget = (
   context: JavaScriptArtifactGraphContext,
   file: JavaScriptArtifactFile,
   javascript: JavaScriptModuleArtifactAnalysis["files"][number]["javascript"],
   json: JavaScriptModuleArtifactAnalysis["json_modules"][number] | undefined,
+  skipped: boolean,
 ): ApplicationNode => {
   const kind = artifactFileNodeKind(file.kind);
   return context.accumulator.addNode({
@@ -561,7 +608,8 @@ const createFileTarget = (
           unpacked: file.unpacked,
           file_kind: file.kind,
           text_status: file.text.included ? "included" : file.text.reason,
-          parse_status: javascript?.parse_status ?? null,
+          parse_status:
+            javascript?.parse_status ?? (skipped ? "skipped" : null),
           json_parse_status: json?.status ?? null,
           json_top_level_keys: json?.top_level_keys ?? [],
           omitted_json_top_level_keys: json?.omitted_top_level_keys ?? 0,
@@ -630,10 +678,17 @@ const addPackageRole = (
     declaredPath: input.declaredPath,
     sourcePath: input.packageFile.path,
     context: "package-entrypoint",
+    // Launch main uses Node's filesystem lookup, independently of renderer
+    // metadata. Literal percent bytes are filename bytes at this boundary.
+    ...(input.kind === "electron-main"
+      ? { runtimePathKind: "node-entrypoint" as const }
+      : {}),
     files: context.filesByPath,
     directoryPaths: context.directoryPaths,
     unanalyzedFiles: context.unanalyzedFiles,
   });
+  if (input.kind === "electron-main")
+    registerPackageResolutionOwner(context, input.packageFile, resolution);
   const role = createElectronRoleNode(context, {
     kind: input.kind,
     anchor: input.packageFile,
@@ -668,6 +723,61 @@ const addPackageRole = (
     anchor: input.packageFile,
     resolution,
   });
+};
+
+const registerPackageResolutionOwner = (
+  context: JavaScriptArtifactGraphContext,
+  packageFile: JavaScriptArtifactFile,
+  resolution: ArtifactPathResolution,
+): void => {
+  if (resolution.resolution_status === "resolved")
+    registerPackageEntrypointOwner(
+      context,
+      packageFile,
+      resolution.resolved_path,
+    );
+  else if (
+    resolution.resolution_status === "unavailable" &&
+    !(
+      resolution.candidate_path !== undefined &&
+      isJsonModuleTarget(
+        resolution.candidate_path,
+        context.unanalyzedFiles?.get(resolution.candidate_path)?.kind,
+      )
+    )
+  )
+    registerPossiblePackageOwner(context, packageFile);
+};
+
+const registerPackageEntrypointOwner = (
+  context: JavaScriptArtifactGraphContext,
+  packageFile: JavaScriptArtifactFile,
+  sourcePath: string,
+): void => {
+  const roots =
+    context.applicationRootsBySource.get(sourcePath) ?? new Set<string>();
+  addApplicationRootCandidate(roots, packageRoot(packageFile));
+  context.applicationRootsBySource.set(sourcePath, roots);
+  if (
+    !context.applicationModuleReferencesRetained.has(sourcePath) &&
+    !isJsonModuleTarget(sourcePath, context.filesByPath.get(sourcePath)?.kind)
+  )
+    registerPossiblePackageOwner(context, packageFile);
+};
+
+const packageRoot = (file: JavaScriptArtifactFile): string =>
+  file.path.slice(0, -"package.json".length).replace(/\/$/u, "");
+
+const registerPossiblePackageOwner = (
+  context: JavaScriptArtifactGraphContext,
+  file: JavaScriptArtifactFile,
+): void => {
+  const container = applicationContainerIdentity(context.fileSet, file);
+  const roots =
+    context.applicationPossibleRootsByContainer.get(container) ??
+    new Set<string>();
+  addApplicationRootCandidate(roots, packageRoot(file));
+  context.applicationPossibleRootsByContainer.set(container, roots);
 };
 
 const containerProperties = (container: JavaScriptArtifactContainer) => ({

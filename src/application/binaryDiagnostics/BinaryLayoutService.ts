@@ -1,10 +1,8 @@
-import { isAbsolute } from "node:path";
 import type { ExecutionOptions } from "../AnalysisProvider.js";
 import type { BinaryLayoutPort } from "./BinaryLayoutPort.js";
 import type { AnalysisError } from "../../domain/analysisErrorBase.js";
 import {
   AnalysisCancelledError,
-  AnalysisInputError,
   AnalysisOutputError,
 } from "../../domain/analysisErrorCore.js";
 import { createEvidence, type Evidence } from "../../domain/evidence.js";
@@ -14,6 +12,7 @@ import {
 } from "../../domain/native/binaryLayout.js";
 import { analysisInputErrorFromIssues } from "../../domain/inputIssueProjection.js";
 import { err, ok, type Result } from "../../domain/result.js";
+import { completeProviderEvidence } from "../ProviderOperationExecution.js";
 
 const OPERATION = "inspect_binary_layout";
 
@@ -53,23 +52,17 @@ export class BinaryLayoutService {
     ) => ReturnType<BinaryLayoutPort["inspect"]>,
   ): Promise<Result<Evidence, AnalysisError>> {
     if (options?.signal?.aborted)
-      return err(new AnalysisCancelledError(OPERATION));
+      return err(
+        new AnalysisCancelledError(OPERATION, {
+          cause: options.signal.reason,
+        }),
+      );
     const input = inspectBinaryLayoutInputSchema.safeParse(rawInput);
     if (!input.success)
       return err(
         analysisInputErrorFromIssues(OPERATION, input.error.issues, rawInput, {
           cause: input.error,
         }),
-      );
-    if (!isAbsolute(input.data.path))
-      return err(
-        new AnalysisInputError(OPERATION, undefined, [
-          {
-            path: ["path"],
-            reason: "invalid_format",
-            message: "Expected an absolute filesystem path on this host.",
-          },
-        ]),
       );
     const inspected = await inspect(input.data);
     if (!inspected.ok) return inspected;
@@ -79,8 +72,6 @@ export class BinaryLayoutService {
     const outputOptions = diagnostics.success
       ? { capturedOutput: diagnostics.data }
       : undefined;
-    if (options?.signal?.aborted)
-      return err(new AnalysisCancelledError(OPERATION, outputOptions));
     const report = binaryLayoutSchema.safeParse(inspected.value);
     if (!report.success || report.data.artifact.path !== input.data.path)
       return err(
@@ -91,7 +82,7 @@ export class BinaryLayoutService {
         ),
       );
     const value = report.data;
-    return ok(
+    return completeProviderEvidence(
       createEvidence(
         {
           path: value.artifact.path,
@@ -102,7 +93,12 @@ export class BinaryLayoutService {
         this.provider.identity,
         {
           operation: OPERATION,
-          parameters: input.data,
+          parameters: {
+            path: input.data.path,
+            ...(input.data.pwntools_timeout_ms === undefined
+              ? {}
+              : { pwntools_timeout_ms: input.data.pwntools_timeout_ms }),
+          },
           result: value,
           // The decoded report is the only representation; do not repeat it.
           rawResult: null,
@@ -111,6 +107,8 @@ export class BinaryLayoutService {
           locations: [{ kind: "artifact-path", path: value.artifact.path }],
         },
       ),
+      options?.signal,
+      outputOptions?.capturedOutput,
     );
   }
 }

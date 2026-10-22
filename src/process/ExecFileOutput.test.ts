@@ -1,4 +1,5 @@
-import { access, readFile, rm } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { access, mkdir, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
@@ -105,10 +106,18 @@ describe("execFileOutput", () => {
       }),
     ).rejects.toMatchObject({ killed: true });
   });
+});
 
-  it.skipIf(process.platform === "win32")(
-    "stops an aborted process with the caller's signal and settles after it exits",
-    async () => {
+describe("execFileOutput cancellation lifecycle", () => {
+  it
+    .skipIf(process.platform === "win32")
+    .each([
+      null,
+      "stop after readiness",
+      new Error("stop after readiness"),
+    ] as const)(
+    "stops an aborted process with exact %s reason and settles after it exits",
+    async (reason) => {
       const directory = await createTestTempDirectory("rea-exec-stop-");
       const ready = join(directory, "ready");
       const stopped = join(directory, "stopped");
@@ -134,11 +143,18 @@ describe("execFileOutput", () => {
         }),
       );
       const readyObserved = await waitForFile(ready);
-      controller.abort();
+      controller.abort(reason);
       const outcome = await execution;
 
       expect(readyObserved).toBe(true);
-      expect(outcome?.cause).toMatchObject({ name: "AbortError" });
+      expect(outcome?.cause).toMatchObject({
+        name: "AbortError",
+        _tag: "ExecFileOutputCancelledError",
+      });
+      if (!(outcome?.cause instanceof Error))
+        throw new Error("Expected cancellation failure");
+      expect(outcome.cause.cause).toBe(reason);
+      expect(execFileOutputFailure(outcome.cause)).toBeDefined();
       expect(outcome?.stoppedBeforeSettling).toBe("SIGINT");
     },
   );
@@ -277,6 +293,114 @@ describe.skipIf(process.platform === "win32")(
   },
 );
 
+const descendantCommand = async (pid: number): Promise<string> => {
+  if (process.platform === "linux")
+    return readFile(`/proc/${pid}/cmdline`, "utf8").catch(() => "");
+  return new Promise((resolve) => {
+    execFile(
+      "ps",
+      ["-p", String(pid), "-o", "command="],
+      { encoding: "utf8" },
+      (error, stdout) => {
+        resolve(error ? "" : stdout);
+      },
+    );
+  });
+};
+
+/** Signal only a still-running descendant whose command line contains `marker`. */
+const stopOwnedDescendant = async (
+  pid: number,
+  marker: string,
+): Promise<unknown> => {
+  if (!Number.isInteger(pid) || pid <= 0 || pid === process.pid)
+    return undefined;
+  if (!(await descendantCommand(pid)).includes(marker)) return undefined;
+  try {
+    process.kill(pid, "SIGKILL");
+  } catch (cause: unknown) {
+    if (cause instanceof Error && "code" in cause && cause.code === "ESRCH")
+      return undefined;
+    return cause;
+  }
+  return undefined;
+};
+
+describe.skipIf(process.platform === "win32")(
+  "execFileOutput inherited pipes",
+  () => {
+    it("keeps scratch files until an inherited-pipe descendant closes them", async () => {
+      const directory = await createTestTempDirectory("rea-exec-inherited-");
+      const scratch = join(directory, "scratch");
+      const finished = join(directory, "finished.json");
+      const pidPath = join(directory, "child.pid");
+      await mkdir(scratch);
+      const childSource = [
+        'const fs = require("node:fs");',
+        "setTimeout(() => {",
+        `  fs.writeFileSync(${JSON.stringify(finished)}, JSON.stringify({ scratchExists: fs.existsSync(${JSON.stringify(scratch)}) }));`,
+        "  process.exit(0);",
+        "}, 7000);",
+      ].join("\n");
+      const script = [
+        'const { spawn } = require("node:child_process");',
+        'const fs = require("node:fs");',
+        `const child = spawn(process.execPath, ["-e", ${JSON.stringify(childSource)}], { stdio: "inherit" });`,
+        `fs.writeFileSync(${JSON.stringify(pidPath)}, String(child.pid));`,
+        "process.exit(0);",
+      ].join("\n");
+      const settled = execFileOutput(process.execPath, ["-e", script], {
+        timeout: 200,
+        stopSignal: "SIGTERM",
+      })
+        .finally(async () => {
+          await rm(scratch, { recursive: true, force: true });
+        })
+        .then(
+          () => ({ ok: true as const }),
+          (cause: unknown) => ({ ok: false as const, cause }),
+        );
+      let killFailure: unknown;
+      let descendantSettled = false;
+      try {
+        const deadline = Date.now() + 15_000;
+        let text: string | undefined;
+        while (Date.now() < deadline) {
+          text = await readFile(finished, "utf8").then(
+            (value) => value,
+            (cause: unknown) => {
+              if (
+                cause instanceof Error &&
+                "code" in cause &&
+                cause.code === "ENOENT"
+              )
+                return undefined;
+              throw cause;
+            },
+          );
+          if (text !== undefined) break;
+          await new Promise((resolve) => setTimeout(resolve, 20));
+        }
+        expect(text).toBeDefined();
+        expect(JSON.parse(text ?? "")).toEqual({ scratchExists: true });
+        const outcome = await settled;
+        descendantSettled = true;
+        expect(outcome).toMatchObject({
+          ok: false,
+          cause: { code: "ETIMEDOUT", killed: true },
+        });
+      } finally {
+        if (!descendantSettled) {
+          const pid = Number(await readFile(pidPath, "utf8").catch(() => ""));
+          killFailure = await stopOwnedDescendant(pid, finished);
+        }
+        await settled;
+      }
+      if (killFailure !== undefined) throw killFailure;
+    });
+  },
+);
+
 describe("execFileOutput failure metadata", () => {
   it("preserves raw byte counts on a failed command with invalid UTF-8", async () => {
     const failure: unknown = await execFileOutput(process.execPath, [
@@ -313,3 +437,71 @@ describe("execFileOutput failure metadata", () => {
     });
   });
 });
+
+describe("execFileOutput cancellation provenance", () => {
+  it.each([null, "caller stopped", new Error("caller stopped")] as const)(
+    "retains producer cancellation and exact %s reason",
+    async (reason) => {
+      const controller = new AbortController();
+      controller.abort(reason);
+      const failure: unknown = await execFileOutput(
+        "/must-not-start-after-cancellation",
+        [],
+        {
+          signal: controller.signal,
+          stopSignal: "SIGTERM",
+        },
+      ).catch((cause: unknown) => cause);
+      expect(failure).toMatchObject({
+        _tag: "ExecFileOutputCancelledError",
+        code: "ABORT_ERR",
+        name: "AbortError",
+      });
+      if (!(failure instanceof Error))
+        throw new Error("Expected owned cancellation");
+      expect(failure.cause).toBe(reason);
+    },
+  );
+  it("keeps a completed command failure when its consumer later aborts", async () => {
+    const controller = new AbortController();
+    const failure: unknown = await execFileOutput(
+      process.execPath,
+      ["-e", "process.exitCode=7"],
+      {
+        signal: controller.signal,
+        stopSignal: "SIGTERM",
+      },
+    ).catch((cause: unknown) => {
+      controller.abort(null);
+      return cause;
+    });
+    expect(failure).toMatchObject({ code: 7 });
+    expect(failure).not.toHaveProperty("_tag", "ExecFileOutputCancelledError");
+  });
+});
+
+it.each([
+  null,
+  "native callback stopped",
+  new Error("native callback stopped"),
+] as const)(
+  "normalizes Node callback cancellation with exact %s reason",
+  async (reason) => {
+    const controller = new AbortController();
+    controller.abort(reason);
+    const failure: unknown = await execFileOutput(
+      process.execPath,
+      ["-e", "process.exit(0)"],
+      {
+        signal: controller.signal,
+      },
+    ).catch((cause: unknown) => cause);
+    expect(failure).toMatchObject({
+      _tag: "ExecFileOutputCancelledError",
+      code: "ABORT_ERR",
+    });
+    if (!(failure instanceof Error))
+      throw new Error("Expected Node callback cancellation");
+    expect(failure.cause).toBe(reason);
+  },
+);

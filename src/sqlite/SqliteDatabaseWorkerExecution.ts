@@ -1,3 +1,8 @@
+import {
+  bindArtifactFileCleanup,
+  ArtifactFileCleanupFailure,
+  artifactFileCancellationCause,
+} from "../artifacts/ArtifactFileOperation.js";
 import { randomUUID } from "node:crypto";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -30,10 +35,11 @@ const operation = "inspect_sqlite_database";
 const {
   artifact: _artifactSchema,
   wal: _walSchema,
+  worker_timeout_ms: _workerTimeoutSchema,
   ...inspectionShape
 } = sqliteDatabaseSchema.shape;
 const inspectionSchema = z.strictObject(inspectionShape);
-const replySchema = z.discriminatedUnion("ok", [
+const replySchema = z.union([
   z.strictObject({ ok: z.literal(true), inspection: inspectionSchema }),
   z.strictObject({
     ok: z.literal(false),
@@ -47,6 +53,12 @@ const replySchema = z.discriminatedUnion("ok", [
       "memory",
     ]),
     message: z.string(),
+  }),
+  z.strictObject({
+    ok: z.literal(false),
+    reason: z.literal("column-evaluation"),
+    message: z.string(),
+    readable_columns: z.array(z.string()),
   }),
 ]);
 /** Replaceable launcher retains the shared owned-process supervision boundary. */
@@ -64,6 +76,7 @@ const rejectedArgument = {
 
 const rejectedReply = (
   reply: z.output<typeof replySchema> & { ok: false },
+  selectedPath: string,
   capturedOutput: AnalysisCapturedOutput,
 ) => {
   if (reply.reason === "unavailable")
@@ -73,6 +86,23 @@ const rejectedReply = (
       reply.message,
       { capturedOutput, userMessage: reply.message },
     );
+  if (reply.reason === "column-evaluation") {
+    const readable = reply.readable_columns;
+    return new AnalysisCapabilityUnavailableError(
+      "sqlite",
+      operation,
+      reply.message,
+      {
+        capturedOutput,
+        userMessage: reply.message,
+        remediationAction: `The database is readable; only the listed column values failed. REA's SQLite connection loads no extensions or application functions and disables schema trust. ${
+          readable.length === 0
+            ? "No other readable column was found"
+            : `Select columns whose values were read: columns: ${JSON.stringify(readable)} (CLI: one --column per name)`
+        }; omit table and use schema_scope: database to read the stored declarations without evaluating rows. Obtaining the failed values needs a SQLite connection able to evaluate them. Do not repeat the unchanged request.`,
+      },
+    );
+  }
   if (reply.reason === "memory")
     return new AnalysisResourceConstraintError(
       operation,
@@ -92,13 +122,23 @@ const rejectedReply = (
         sqlite_value_or_record_bytes: SQLITE_DATABASE_LIMITS.outputBytes,
         worker_reply_bytes: SQLITE_DATABASE_LIMITS.outputBytes,
       },
-      { capturedOutput },
+      {
+        capturedOutput,
+        retryable: false,
+        remediationAction:
+          "The SQLite value/record and worker JSON reply allowances are fixed at 16 MiB; worker_timeout_ms and client deadlines do not raise them. If it preserves the requested facts, select exact columns, reduce row_limit, or use schema_scope: inventory instead of database. This worker refusal leaves no completed Evidence to retrieve. Do not repeat the unchanged request or truncate required database bytes.",
+      },
     );
+  const argument = rejectedArgument[reply.reason];
   return new AnalysisInputError(operation, { capturedOutput }, [
     {
-      path: [rejectedArgument[reply.reason]],
+      path: [argument],
       reason: "invalid_format",
-      message: reply.message,
+      // The worker sees only the private snapshot, so name the caller's selection here.
+      message:
+        argument === "path"
+          ? `Selected SQLite database is invalid (${reply.message}): ${selectedPath}`
+          : reply.message,
     },
   ]);
 };
@@ -108,6 +148,7 @@ export const executeSqliteDatabaseWorker = async (request: {
   readonly input: InspectSqliteDatabaseInput;
   readonly root: string;
   readonly snapshotPath: string;
+  readonly timeoutMs: number;
   readonly environment: Readonly<NodeJS.ProcessEnv>;
   readonly resourceScope: ArtifactResourceScope;
   readonly launcher?: SqliteWorkerLauncher;
@@ -145,7 +186,7 @@ export const executeSqliteDatabaseWorker = async (request: {
       hostEnvironment: environment,
     },
     {
-      timeoutMs: SQLITE_DATABASE_LIMITS.timeoutMs,
+      timeoutMs: request.timeoutMs,
       diagnosticBytes: SQLITE_DATABASE_LIMITS.diagnosticBytes,
     },
     {
@@ -176,14 +217,31 @@ export const executeSqliteDatabaseWorker = async (request: {
         ? { cleanup: cause.cleanup }
         : {}),
     };
-    if (request.signal?.aborted)
-      throw new AnalysisCancelledError(operation, options);
-    throw new AnalysisOutputError(
+    if (
+      cause instanceof ArtifactReaderFailure &&
+      (cause.reason === "cancelled" ||
+        (cause instanceof ArtifactFileCleanupFailure &&
+          cause.fileCleanupFailure.outcome.kind === "completed" &&
+          request.signal?.aborted))
+    ) {
+      const error = new AnalysisCancelledError(operation, {
+        ...options,
+        cause:
+          cause.reason === "cancelled"
+            ? artifactFileCancellationCause(cause)
+            : request.signal?.reason,
+      });
+      bindArtifactFileCleanup(cause, error);
+      throw error;
+    }
+    const error = new AnalysisOutputError(
       operation,
       `Owned SQLite worker reply is missing or malformed: ${cause instanceof Error ? cause.message : String(cause)}`,
       options,
     );
+    bindArtifactFileCleanup(cause, error);
+    throw error;
   }
-  if (!reply.ok) throw rejectedReply(reply, capturedOutput);
+  if (!reply.ok) throw rejectedReply(reply, request.input.path, capturedOutput);
   return reply.inspection;
 };

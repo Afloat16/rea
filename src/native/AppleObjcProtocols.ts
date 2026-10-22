@@ -1,10 +1,10 @@
 import type { ObjcSwiftMetadata } from "../domain/native/objcSwiftMetadata.js";
-import type { SwiftMetadataReaders } from "./AppleSwiftVtables.js";
+import type { SwiftNominalReaders } from "./AppleSwiftNominalTypes.js";
 
 /** Read protocol lists and absolute protocol method declarations with cycle-safe identities. */
 export const createObjcProtocolReader = (input: {
   readers: Pick<
-    SwiftMetadataReaders,
+    SwiftNominalReaders,
     "u32" | "string" | "location" | "evidence" | "admit"
   > & {
     pointer(address: bigint): bigint;
@@ -18,7 +18,7 @@ export const createObjcProtocolReader = (input: {
   const { readers: read, result, failures } = input;
   const visited = new Set<bigint>();
   const name = (address: bigint) => read.string(read.pointer(address + 8n));
-  const list = (address: bigint): string[] => {
+  const list = (address: bigint, onTruncated?: () => void): string[] => {
     if (address === 0n) return [];
     // `count` is plain uintptr_t data, not a pointer fixup.
     const count = read.u64(address);
@@ -26,14 +26,24 @@ export const createObjcProtocolReader = (input: {
       throw new RangeError("Protocol list exceeds 20000 entries");
     const names: string[] = [];
     for (let index = 0n; index < count; index++) {
-      if (!read.admit()) break;
+      if (!read.admit()) {
+        onTruncated?.();
+        break;
+      }
       const protocol = read.pointer(address + 8n + index * 8n);
       names.push(name(protocol));
       record(protocol);
     }
     return names;
   };
-  const methods = (address: bigint, required: boolean, instance: boolean) => {
+  const methods = (
+    address: bigint,
+    required: boolean,
+    instance: boolean,
+    /** Entries skipped for an empty selector, reported by the declaring protocol. */
+    emptySelectors: string[],
+    onTruncated?: () => void,
+  ) => {
     const output: ObjcSwiftMetadata["objc_protocols"][number]["methods"] = [];
     if (address === 0n) return output;
     const flags = read.u32(address),
@@ -43,15 +53,27 @@ export const createObjcProtocolReader = (input: {
     if (stride !== (relative ? 12 : 24))
       throw new TypeError("Unsupported Objective-C protocol method entry size");
     for (let index = 0; index < count; index++) {
-      if (!read.admit()) break;
+      if (!read.admit()) {
+        onTruncated?.();
+        break;
+      }
       const entry = address + 8n + BigInt(index * stride);
       let selector = relative
         ? entry + BigInt(read.i32(entry))
         : read.pointer(entry);
       if (relative && (flags & 0x40000000) === 0)
         selector = read.pointer(selector);
+      // One empty selector is reported on its own, so the protocol and its
+      // other method declarations keep their decoded records.
+      const selectorName = read.string(selector);
+      if (selectorName.length === 0) {
+        emptySelectors.push(
+          `${required ? "required" : "optional"} ${instance ? "instance" : "class"} method ${String(index)} at 0x${entry.toString(16)} has an empty selector`,
+        );
+        continue;
+      }
       output.push({
-        selector: read.string(selector),
+        selector: selectorName,
         method_type: instance ? "instance" : "class",
         address: null,
         is_required: required,
@@ -67,14 +89,55 @@ export const createObjcProtocolReader = (input: {
       if (read.u32(address + 64n) < 72)
         throw new RangeError("Truncated Objective-C protocol declaration");
       const protocolName = name(address);
-      const adopted = list(read.pointer(address + 16n));
+      // Adopted protocols are independent declarations; decode them before
+      // rejecting a parent whose own name is empty.
+      let budgetTruncated = false;
+      const onTruncated = () => {
+        budgetTruncated = true;
+      };
+      const adopted = list(read.pointer(address + 16n), onTruncated);
+      if (protocolName.length === 0)
+        throw new TypeError("Objective-C protocol has an empty name");
+      const skipped: string[] = [];
       const required = [
-        ...methods(read.pointer(address + 24n), true, true),
-        ...methods(read.pointer(address + 32n), true, false),
+        ...methods(
+          read.pointer(address + 24n),
+          true,
+          true,
+          skipped,
+          onTruncated,
+        ),
+        ...methods(
+          read.pointer(address + 32n),
+          true,
+          false,
+          skipped,
+          onTruncated,
+        ),
       ];
       const optional = [
-        ...methods(read.pointer(address + 40n), false, true),
-        ...methods(read.pointer(address + 48n), false, false),
+        ...methods(
+          read.pointer(address + 40n),
+          false,
+          true,
+          skipped,
+          onTruncated,
+        ),
+        ...methods(
+          read.pointer(address + 48n),
+          false,
+          false,
+          skipped,
+          onTruncated,
+        ),
+      ];
+      for (const message of skipped)
+        failures.push(
+          `Protocol 0x${address.toString(16)}: Objective-C protocol ${protocolName} ${message}`,
+        );
+      const decodeReasons = [
+        ...(skipped.length === 0 ? [] : ["protocol_method_selector_empty"]),
+        ...(budgetTruncated ? ["max_records_reached"] : []),
       ];
       result.objc_protocols.push({
         name: protocolName,
@@ -88,7 +151,10 @@ export const createObjcProtocolReader = (input: {
         methods: required,
         optional_methods: optional,
         location: read.location(address),
-        decode: { status: "decoded", reason: null },
+        decode:
+          decodeReasons.length === 0
+            ? { status: "decoded", reason: null }
+            : { status: "partial", reason: decodeReasons.join("; ") },
         evidence: read.evidence(
           address,
           "Objective-C protocol declaration and encoded method lists; IMP fields are not handler targets",

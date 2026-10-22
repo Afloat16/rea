@@ -50,13 +50,22 @@ const observation = (completionStatus: "complete" | "unknown") =>
 const runObjdump = async (
   service: Partial<ReverseEngineeringService>,
   path = "/tmp/sample",
+  selection: {
+    operation?: string;
+    symbol?: string;
+    commandTimeoutMs?: number;
+  } = {},
 ) => {
   const commands = new Map<
     string,
     {
       run(input: {
         args: { path: string; operation: string };
-        options: { followDebugLinks: boolean };
+        options: {
+          followDebugLinks: boolean;
+          symbol?: string;
+          commandTimeoutMs?: number;
+        };
       }): Promise<unknown>;
     }
   >();
@@ -66,7 +75,11 @@ const runObjdump = async (
       definition: {
         run(input: {
           args: { path: string; operation: string };
-          options: { followDebugLinks: boolean };
+          options: {
+            followDebugLinks: boolean;
+            symbol?: string;
+            commandTimeoutMs?: number;
+          };
         }): Promise<unknown>;
       },
     ) => {
@@ -85,10 +98,53 @@ const runObjdump = async (
   if (command === undefined)
     throw new Error("objdump CLI command was not registered");
   return command.run({
-    args: { path, operation: "file_headers" },
-    options: { followDebugLinks: false },
+    args: { path, operation: selection.operation ?? "file_headers" },
+    options: {
+      followDebugLinks: false,
+      ...(selection.symbol === undefined ? {} : { symbol: selection.symbol }),
+      ...(selection.commandTimeoutMs === undefined
+        ? {}
+        : { commandTimeoutMs: selection.commandTimeoutMs }),
+    },
   });
 };
+
+it("forwards the selected native symbol to the shared workflow", async () => {
+  const inspectWithObjdump = vi.fn(async (_input: unknown) =>
+    ok(observation("complete")),
+  );
+  await runObjdump(
+    { inspectWithObjdump, close: async () => undefined },
+    "/tmp/sample",
+    { operation: "disassemble", symbol: "_Z3foov@@VERSION_1" },
+  );
+  expect(inspectWithObjdump.mock.calls[0]?.[0]).toEqual({
+    path: "/tmp/sample",
+    operation: "disassemble",
+    follow_debug_links: false,
+    symbol: "_Z3foov@@VERSION_1",
+  });
+});
+
+it("forwards a selected objdump command deadline and omits the field otherwise", async () => {
+  const inspectWithObjdump = vi.fn(async (_input: unknown) =>
+    ok(observation("complete")),
+  );
+  const service = { inspectWithObjdump, close: async () => undefined };
+  await runObjdump(service, "/tmp/sample", { commandTimeoutMs: 5_000 });
+  expect(inspectWithObjdump.mock.calls[0]?.[0]).toEqual({
+    path: "/tmp/sample",
+    operation: "file_headers",
+    follow_debug_links: false,
+    command_timeout_ms: 5_000,
+  });
+  await runObjdump(service, "/tmp/sample");
+  expect(inspectWithObjdump.mock.calls[1]?.[0]).toEqual({
+    path: "/tmp/sample",
+    operation: "file_headers",
+    follow_debug_links: false,
+  });
+});
 
 it("lists objdump architectures without inventing an artifact path", async () => {
   const evidence = observation("complete");
@@ -129,7 +185,7 @@ it("lists objdump architectures without inventing an artifact path", async () =>
   if (command === undefined)
     throw new Error("architecture command was not registered");
 
-  const result = await command.run({});
+  const result = await command.run({ options: { detail: "complete" } });
 
   expect(result).toEqual(evidence);
   expect(inspectWithObjdump).toHaveBeenCalledWith(
@@ -311,6 +367,20 @@ it("does not project cancellation cleanup as incomplete after a successful retry
   expect(projectAnalysisError(error).details).toMatchObject({
     cleanup: "complete",
   });
+});
+
+it("returns cancellation with the completed observation when the caller interrupts service close", async () => {
+  const service = {
+    inspectWithObjdump: vi.fn(async () => ok(observation("complete"))),
+    close: vi.fn(async () => {
+      process.emit("SIGINT");
+    }),
+  };
+
+  const result = await runObjdump(service);
+
+  expect(result).toMatchObject({ code: "cancelled" });
+  expect(process.exitCode).toBe(130);
 });
 
 it("parses the Rizin inferior TTY as an option and passes it to the manager", async () => {

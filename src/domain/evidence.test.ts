@@ -2,8 +2,16 @@ import { fc, it } from "@fast-check/vitest";
 import { describe, expect } from "vitest";
 
 import { createAnalysisProfile } from "./analysisProfile.js";
-import type { BinaryTarget } from "./binaryTargetTypes.js";
-import { createEvidence, evidenceSchema, parseEvidence } from "./evidence.js";
+import {
+  RAW_ONLY_ARCHITECTURES,
+  type BinaryTarget,
+} from "./binaryTargetTypes.js";
+import {
+  createEvidence,
+  evidenceSchema,
+  parseEvidence,
+  immutableEvidence,
+} from "./evidence.js";
 import { MAX_JSON_DEPTH, type JsonValue } from "./jsonValue.js";
 import { createEvidenceBundle } from "./evidenceBundle.js";
 import { freezeJsonSnapshot } from "./immutableJson.js";
@@ -22,7 +30,6 @@ const TARGET: BinaryTarget = {
 };
 const PROVIDER = { id: "fixture", name: "Fixture provider", version: "1" };
 const PROFILE = createAnalysisProfile(PROVIDER, { loader: "default" });
-
 it("preserves historical empty and nonempty file-offset ranges and identifiers", () => {
   for (const record of HISTORICAL_ORDERED_FILE_OFFSET_RECORDS) {
     expect(parseEvidence(structuredClone(record))).toEqual(record);
@@ -59,32 +66,35 @@ it("rejects reversed file-offset ranges before creating or authenticating Eviden
   ).toThrow("File-offset range end must be greater than or equal to start");
 });
 
-it("rejects a detected Evidence subject with the raw-only 6502 architecture", () => {
-  const selected = {
-    path: TARGET.path,
-    sha256: TARGET.sha256,
-    format: "raw-binary" as const,
-    architecture: "6502" as const,
-  };
-  expect(
-    createEvidence(selected, PROVIDER, {
-      operation: "inspect",
-      parameters: {},
-      result: null,
-    }).subject,
-  ).toMatchObject({ format: "raw-binary", architecture: "6502" });
-  const malformed = {
-    ...selected,
-    format: "pe" as const,
-  };
-  expect(() =>
-    createEvidence(malformed, PROVIDER, {
-      operation: "inspect",
-      parameters: {},
-      result: null,
-    }),
-  ).toThrow();
-});
+it.each(RAW_ONLY_ARCHITECTURES)(
+  "rejects a detected Evidence subject with the raw-only %s architecture",
+  (architecture) => {
+    const selected = {
+      path: TARGET.path,
+      sha256: TARGET.sha256,
+      format: "raw-binary" as const,
+      architecture,
+    };
+    expect(
+      createEvidence(selected, PROVIDER, {
+        operation: "inspect",
+        parameters: {},
+        result: null,
+      }).subject,
+    ).toMatchObject({ format: "raw-binary", architecture });
+    const malformed = {
+      ...selected,
+      format: "pe" as const,
+    };
+    expect(() =>
+      createEvidence(malformed, PROVIDER, {
+        operation: "inspect",
+        parameters: {},
+        result: null,
+      }),
+    ).toThrow();
+  },
+);
 
 it("preserves omitted relationship diagnostics and authenticates reported diagnostics", () => {
   const observation = {
@@ -637,4 +647,20 @@ it("preserves prototype-named raw and normalized results with aligned identity",
     rawResult: { constructor: "ordinary" },
   });
   expect(stripped.evidence_id).not.toBe(evidence.evidence_id);
+});
+
+it("borrows a previously sealed envelope only after authenticating all semantic fields", () => {
+  const original = freezeJsonSnapshot(
+    createEvidence(TARGET, PROVIDER, {
+      operation: "inspect",
+      parameters: {},
+      result: { fact: 1 },
+    }),
+  );
+  expect(immutableEvidence(original)).toBe(original);
+  const changed = freezeJsonSnapshot({
+    ...original,
+    normalized_result: { fact: 2 },
+  });
+  expect(() => immutableEvidence(changed)).toThrow();
 });

@@ -9,7 +9,7 @@ import { firmwareResultSchemas } from "../../../src/domain/firmware/firmwareAnal
 import { FirmwareAnalysisService } from "../../../src/application/firmware/FirmwareAnalysisService.js";
 import { FirmwareProvider } from "../../../src/firmware/FirmwareProvider.js";
 import { projectAnalysisError } from "../../../src/domain/analysisErrorProjection.js";
-import { ProviderCleanupError } from "../../../src/domain/providerCleanupError.js";
+import { AnalysisError } from "../../../src/domain/analysisErrorBase.js";
 import { toolContract } from "../../../src/contracts/toolContracts.js";
 import { ToolResultDelivery } from "../../../src/server/toolResult.js";
 import { SafeOutputTree } from "../../../src/artifacts/SafeOutputTree.js";
@@ -171,6 +171,7 @@ it("retains a setup-failed publication tree for provider cleanup retry", async (
   const fixture = await firmwareFixture();
   const createTree = SafeOutputTree.create.bind(SafeOutputTree);
   let cleanupAttempts = 0;
+  let retained: AnalysisError | undefined;
   const create = vi
     .spyOn(SafeOutputTree, "create")
     .mockImplementationOnce(async (outputRoot, platform) => {
@@ -197,19 +198,22 @@ it("retains a setup-failed publication tree for provider cleanup retry", async (
       ok: false,
       error: {
         cleanupIncomplete: true,
-        diagnostics: {
-          previous_error: expect.stringContaining(
-            "injected post-acquisition setup failure",
-          ),
-        },
+        cleanupResources: expect.arrayContaining([fixture.output]),
       },
     });
+    if (result.ok) throw new Error("Expected retained publication cleanup");
+    retained = result.error;
+    expect(projectAnalysisError(retained).code).toBe("cleanup_incomplete");
+    expect(JSON.stringify(projectAnalysisError(retained))).toContain(
+      "injected post-acquisition setup failure",
+    );
     await expect(access(fixture.output)).resolves.toBeUndefined();
   } finally {
     create.mockRestore();
   }
   await fixture.close();
   expect(cleanupAttempts).toBe(2);
+  expect(retained?.cleanupIncomplete).toBe(false);
   await expect(access(fixture.output)).rejects.toMatchObject({
     code: "ENOENT",
   });
@@ -240,6 +244,7 @@ it("returns firmware output after a transient published-directory close failure"
 
 it("retains the complete firmware result when published output cleanup stays uncertain", async () => {
   const fixture = await firmwareFixture();
+  let retained: AnalysisError | undefined;
   const closeFailure = injectPublishedDirectoryCloseFailure(true);
   try {
     const result = await fixture.service.execute("extract_firmware", {
@@ -266,7 +271,8 @@ it("retains the complete firmware result when published output cleanup stays unc
       },
     });
     if (result.ok) throw new Error("Expected unresolved descriptor cleanup");
-    expect(result.error).toBeInstanceOf(ProviderCleanupError);
+    expect(result.error).toBeInstanceOf(AnalysisError);
+    retained = result.error;
     expect(projectAnalysisError(result.error)).toMatchObject({
       code: "cleanup_incomplete",
       details: {
@@ -284,6 +290,7 @@ it("retains the complete firmware result when published output cleanup stays unc
     closeFailure.restore();
   }
   await fixture.close();
+  expect(retained?.cleanupIncomplete).toBe(false);
   expect(await readFile(`${fixture.output}/rootfs/config`, "utf8")).toBe(
     "firmware=true\n",
   );
@@ -723,7 +730,7 @@ it("retains startup stderr when Unblob exits 1 without a report", async () => {
       diagnostics: {
         exit_code: 1,
         stderr: expect.stringContaining("Landlock sandbox is not available"),
-        report_failure: expect.stringContaining("ENOENT"),
+        report_state: "missing",
       },
     },
   });
@@ -733,25 +740,51 @@ it("retains startup stderr when Unblob exits 1 without a report", async () => {
   await assertFirmwareCleanup(fixture.launches);
 });
 
-it("distinguishes a successful process with missing output from startup failure", async () => {
-  const fixture = await firmwareFixture("missing-report");
-  const result = await fixture.service.execute("extract_firmware", {
-    path: fixture.path,
-    output_directory: fixture.output,
-  });
-  expect(result).toMatchObject({
-    ok: false,
-    error: {
-      _tag: "AnalysisOutputError",
-      reason: expect.stringContaining("expected complete report"),
-    },
-  });
-  if (result.ok) throw new Error("Expected missing-output failure");
-  expect(projectAnalysisError(result.error)).toMatchObject({
-    details: { reason: expect.stringContaining("Producer forgot its report") },
-  });
-  await assertFirmwareCleanup(fixture.launches);
-});
+it.each([
+  { operation: "inspect_firmware_regions", engine: "binwalk" },
+  { operation: "extract_firmware", engine: "unblob" },
+] as const)(
+  "keeps $engine's missing report after exit 0 distinct from an empty result",
+  async ({ operation, engine }) => {
+    const fixture = await firmwareFixture("missing-report");
+    const result = await fixture.service.execute(operation, {
+      path: fixture.path,
+      ...(operation === "extract_firmware"
+        ? { output_directory: fixture.output }
+        : {}),
+    });
+    if (result.ok) throw new Error("Expected missing-report failure");
+    const error = {
+      code: "unreadable_output",
+      retryable: false,
+      message: expect.stringContaining("not an empty or complete result"),
+      details: {
+        reason: `${engine} exited 0 without a usable report: Report was not created`,
+        diagnostics: {
+          report_state: "missing",
+          report_path: expect.stringMatching(/report\.json$/),
+          command: expect.any(String),
+          args: expect.any(Array),
+          exit_code: 0,
+          signal: null,
+          stderr: "Producer forgot its report\n",
+        },
+      },
+      remediation: {
+        action: expect.stringContaining("did not retry or substitute"),
+      },
+    };
+    expect(projectAnalysisError(result.error)).toMatchObject(error);
+    expect(projectAnalysisError(result.error).message).not.toContain(
+      "rea doctor",
+    );
+    expect(
+      delivery.toCallToolResult(result, toolContract(operation))
+        .structuredContent,
+    ).toMatchObject({ error });
+    await assertFirmwareCleanup(fixture.launches);
+  },
+);
 
 it("cancels an owned active process and permits the next queued operation", async () => {
   const fixture = await firmwareFixture("stall");

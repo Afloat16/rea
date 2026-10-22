@@ -1,20 +1,19 @@
 import { createHash } from "node:crypto";
 
-import canonicalize from "canonicalize";
 import { z } from "zod";
 
 import { evidenceSchema, type Evidence } from "../evidence.js";
 import {
   cliMetadataGuidSchema,
+  managedMetadataTokenSchema,
   managedMemberInspectionSchema,
   type ManagedMemberInspection,
 } from "./managedArtifact.js";
-import type { JsonValue } from "../jsonValue.js";
+import { digestCanonicalValue } from "../canonicalDigest.js";
 import { digestSchema, prefixedDigestSchema } from "../digests.js";
 import { parseManagedInspectionEvidence } from "./managedInspectionEvidence.js";
 
 const evidenceIdSchema = prefixedDigestSchema("ev");
-const tokenSchema = z.string().regex(/^0x[0-9a-f]{8}$/u);
 const textSchema = z.string().min(1);
 
 const decompilerSchema = z.strictObject({
@@ -26,7 +25,7 @@ const decompilerSchema = z.strictObject({
 });
 
 const managedReconstructionMethodInputSchema = z.strictObject({
-  token: tokenSchema,
+  token: managedMetadataTokenSchema,
   signature_sha256: digestSchema,
   normalized_il_sha256: digestSchema.nullable(),
   reconstruction: z.strictObject({
@@ -35,8 +34,8 @@ const managedReconstructionMethodInputSchema = z.strictObject({
     text: textSchema,
     text_sha256: digestSchema.optional(),
     source_path: textSchema.nullable().optional(),
-    start_line: z.number().int().min(1).nullable().optional(),
-    end_line: z.number().int().min(1).nullable().optional(),
+    start_line: z.int().min(1).nullable().optional(),
+    end_line: z.int().min(1).nullable().optional(),
   }),
 });
 
@@ -52,23 +51,23 @@ export const managedReconstructionImportInputSchema = z.strictObject({
 });
 
 const importedMethodSchema = z.strictObject({
-  token: tokenSchema,
+  token: managedMetadataTokenSchema,
   declaring_type: z.string().nullable(),
   name: z.string(),
   signature_sha256: digestSchema,
   normalized_il_sha256: digestSchema.nullable(),
   body_sha256: digestSchema.nullable(),
-  il_size: z.number().int().min(0),
+  il_size: z.int().min(0),
   reconstruction: z.strictObject({
     kind: z.enum(["decompiled-csharp", "decompiled-il", "semantic-pseudocode"]),
     language: z.enum(["csharp", "il", "pseudocode"]),
     text: textSchema,
     text_sha256: digestSchema,
-    text_length: z.number().int().min(1),
-    line_count: z.number().int().min(1),
+    text_length: z.int().min(1),
+    line_count: z.int().min(1),
     source_path: textSchema.nullable(),
-    start_line: z.number().int().min(1).nullable(),
-    end_line: z.number().int().min(1).nullable(),
+    start_line: z.int().min(1).nullable(),
+    end_line: z.int().min(1).nullable(),
   }),
   validation: z.strictObject({
     matched_static_member: z.literal(true),
@@ -86,7 +85,7 @@ export const managedReconstructionImportResultSchema = z.strictObject({
     evidence_id: evidenceIdSchema,
     artifact_sha256: digestSchema,
     artifact_path: z.string().min(1),
-    byte_length: z.number().int().min(0),
+    byte_length: z.int().min(0),
     module_name: z.string().nullable(),
     mvid: cliMetadataGuidSchema.nullable(),
     metadata_status: z.enum(["absent", "complete", "partial", "malformed"]),
@@ -95,11 +94,11 @@ export const managedReconstructionImportResultSchema = z.strictObject({
     options_sha256: digestSchema,
   }),
   summary: z.strictObject({
-    imported_methods: z.number().int().min(1),
-    decompiled_csharp_methods: z.number().int().min(0),
-    decompiled_il_methods: z.number().int().min(0),
-    pseudocode_methods: z.number().int().min(0),
-    total_text_bytes: z.number().int().min(1),
+    imported_methods: z.int().min(1),
+    decompiled_csharp_methods: z.int().min(0),
+    decompiled_il_methods: z.int().min(0),
+    pseudocode_methods: z.int().min(0),
+    total_text_bytes: z.int().min(1),
   }),
   methods: z.array(importedMethodSchema).min(1),
   notes: z.array(textSchema),
@@ -121,13 +120,6 @@ type StaticObservation =
 
 const sha256Text = (value: string): string =>
   createHash("sha256").update(value).digest("hex");
-
-const sha256Json = (value: JsonValue): string => {
-  const serialized = canonicalize(value);
-  if (serialized === undefined)
-    throw new TypeError("Managed reconstruction canonicalization failed");
-  return createHash("sha256").update(serialized).digest("hex");
-};
 
 const countLines = (text: string): number =>
   text.length === 0 ? 0 : text.split(/\r\n|\r|\n/u).length;
@@ -227,7 +219,10 @@ const buildDecompilerRecord = (
   decompiler: ManagedReconstructionImportInput["decompiler"],
 ): ManagedReconstructionImportResult["decompiler"] => ({
   ...decompiler,
-  options_sha256: sha256Json(decompiler.options),
+  options_sha256: digestCanonicalValue(
+    decompiler.options,
+    "Managed reconstruction",
+  ),
 });
 
 const RECONSTRUCTION_LIMITATIONS = [
@@ -282,6 +277,9 @@ export const importManagedReconstruction = (
   );
   return managedReconstructionImportResultSchema.parse({
     ...withoutId,
-    reconstruction_id: `mre_${sha256Json(withoutId)}`,
+    reconstruction_id: `mre_${digestCanonicalValue(
+      withoutId,
+      "Managed reconstruction",
+    )}`,
   });
 };

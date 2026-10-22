@@ -1,14 +1,27 @@
+import { projectAnalysisError } from "../domain/analysisErrorProjection.js";
+import { AnalysisError } from "../domain/analysisErrorBase.js";
+import { AnalysisCancelledError } from "../domain/analysisErrorCore.js";
+import { ProviderCleanupError } from "../domain/providerCleanupError.js";
+import { analysisErrorWithCleanupFailure } from "../domain/analysisErrorCleanup.js";
+import { bindArtifactFileCleanup } from "../artifacts/ArtifactFileOperation.js";
+import { ArtifactReaderFailure } from "../artifacts/ArtifactReader.js";
+import { AnalysisCleanupLease } from "../artifacts/AnalysisCleanupLease.js";
+import { STARTUP_OWNER_CLOSED } from "../process/SharedStartupAttempt.js";
 import { constants } from "node:fs";
 import { access, readdir, stat } from "node:fs/promises";
 import { ArtifactResourceScope } from "../artifacts/ArtifactResourceScope.js";
+import type { RetainedResourceScope } from "./AnalysisProvider.js";
+import { nativeAnalysisConfigurationError } from "../config/parseConfig.js";
 import { homeDirectoryFromEnvironment } from "../config/homeDirectory.js";
+import type { ConfigurationSettingIssue } from "../domain/configurationErrors.js";
+import { snapshotEnvironment } from "../process/snapshotEnvironment.js";
 import { join } from "node:path";
 
 import { analysisErrorRemediationAction } from "../domain/analysisErrorPresentation.js";
 import { BinaryTargetError } from "../domain/configurationErrors.js";
 import { parseBinaryTarget } from "./BinaryTargetResolver.js";
 import { execFileOutput } from "../process/ExecFileOutput.js";
-import type { JsonValue } from "../domain/jsonValue.js";
+import { jsonValueSchema, type JsonValue } from "../domain/jsonValue.js";
 import {
   javaScriptRuntime,
   type JavaScriptRuntime,
@@ -32,7 +45,7 @@ import {
   type InstalledSkillIdentity,
   type SkillPathIssue,
 } from "./SetupSkill.js";
-import { CATALOG_IDENTITY } from "../catalogIdentity.js";
+import { DEFAULT_CATALOG_IDENTITY } from "../catalogIdentity.js";
 import { PRODUCT_IDENTITY, SDK_IDENTITY } from "../identity.js";
 import {
   readClientRegistrationStatuses,
@@ -92,11 +105,18 @@ export interface DoctorProviderInspection {
 }
 /** Read-only host capabilities required by diagnostics. */
 export interface DoctorHost {
+  readonly signal?: AbortSignal;
   readonly platform: NodeJS.Platform;
   readonly architecture: NodeJS.Architecture;
   readonly runtime: JavaScriptRuntime;
   readonly homeDirectory: string;
   readonly configuredHopperPath?: string;
+  readonly configuredHopperStartupTimeout?: string;
+  /**
+   * Settings `parseConfig` rejects before native analysis starts.
+   * Undefined means this host did not run that admission.
+   */
+  readonly configurationIssues?: readonly ConfigurationSettingIssue[];
   readonly configuredIlspyCmdPath?: string;
   macosVersion(): Promise<string | undefined>;
   linuxDistribution(): Promise<LinuxDistribution | undefined>;
@@ -158,7 +178,8 @@ interface DoctorIdentity {
   readonly cli_package_version: string;
   readonly expected_skill_version: string;
   readonly sdk: typeof SDK_IDENTITY;
-  readonly catalog: typeof CATALOG_IDENTITY;
+  /** Package default advertisement; the active server reports its selected profile. */
+  readonly catalog: typeof DEFAULT_CATALOG_IDENTITY;
   readonly live_server: {
     readonly state: "unknown";
     readonly remediation: string;
@@ -202,15 +223,36 @@ export const runDoctorOwned = async (
     report = await inspectDoctor(target, host, requestedScope);
   } catch (cause: unknown) {
     const cleanup = await closeDoctorHost(host);
+    if (cleanup !== undefined && cause instanceof AnalysisError) {
+      const cleanupError =
+        typeof cleanup === "string"
+          ? new ProviderCleanupError(
+              "rea",
+              [],
+              { reason: cleanup },
+              { operation: "doctor" },
+            )
+          : cleanup;
+      throw analysisErrorWithCleanupFailure(
+        cause,
+        cleanupError,
+        "doctor",
+      ).bindCleanupDependencies([cause, cleanupError]);
+    }
     if (cleanup !== undefined)
       throw new AggregateError(
-        [cause, new Error(cleanup)],
+        [cause, typeof cleanup === "string" ? new Error(cleanup) : cleanup],
         "Doctor failed and its resource cleanup remains incomplete.",
         { cause },
       );
     throw cause;
   }
   const cleanup = await closeDoctorHost(host);
+  if (cleanup === undefined && report.healthy && host.signal?.aborted)
+    throw new AnalysisCancelledError("doctor", {
+      cause: host.signal.reason,
+      diagnostics: { doctor_report: jsonValueSchema.parse(report) },
+    });
   return cleanup === undefined
     ? report
     : doctorReportWithCleanup(report, cleanup);
@@ -221,6 +263,8 @@ const inspectDoctor = async (
   host: DoctorHost,
   requestedScope?: DoctorScope,
 ): Promise<DoctorReport> => {
+  if (host.signal?.aborted)
+    throw new AnalysisCancelledError("doctor", { cause: host.signal.reason });
   const scope = normalizeDoctorScope(requestedScope, target);
   const {
     checks: diagnosticChecks,
@@ -282,23 +326,30 @@ const registrationAdvisoryChecks = (
 
 const closeDoctorHost = async (
   host: DoctorHost,
-): Promise<string | undefined> => {
+): Promise<string | AnalysisError | undefined> => {
   try {
     return await host.close?.();
   } catch (cause: unknown) {
+    if (cause instanceof AnalysisError) return cause;
     return `Doctor host cleanup failed: ${cause instanceof Error ? cause.message : String(cause)}`;
   }
 };
 
 const doctorReportWithCleanup = (
   report: DoctorReport,
-  detail: string,
+  cleanup: string | AnalysisError,
 ): DoctorReport => {
   const check: DoctorCheck = {
     name: "doctor-resource-cleanup",
     ok: false,
     classification: "config_drift",
-    detail,
+    detail:
+      typeof cleanup === "string"
+        ? cleanup
+        : `${cleanup.message} ${cleanup.cleanupResources.join(", ")}`,
+    ...(typeof cleanup === "string"
+      ? {}
+      : { details: { cleanup_failure: projectAnalysisError(cleanup) } }),
     remediation: "Resolve the reported cleanup failure, then rerun rea doctor.",
   };
   return {
@@ -339,7 +390,10 @@ const collectDoctorIdentity = async (
       cli_package_version: PRODUCT_IDENTITY.packageVersion,
       expected_skill_version: PRODUCT_IDENTITY.skillVersion,
       sdk: SDK_IDENTITY,
-      catalog: CATALOG_IDENTITY,
+      catalog: {
+        counts: DEFAULT_CATALOG_IDENTITY.counts,
+        digests: DEFAULT_CATALOG_IDENTITY.digests,
+      },
       live_server: {
         state: "unknown",
         remediation:
@@ -369,7 +423,7 @@ const skillIdentityAligned = (
   identity: InstalledSkillIdentity | undefined,
 ): boolean =>
   identity?.version === PRODUCT_IDENTITY.skillVersion &&
-  identity.toolCount === CATALOG_IDENTITY.counts.mcp_tools &&
+  identity.toolCount === DEFAULT_CATALOG_IDENTITY.counts.mcp_tools &&
   identity.canonical;
 
 const skillIdentityState = (
@@ -429,17 +483,24 @@ const installationState = (
 
 /** Optional outer-adapter diagnostics composed without reversing dependencies. */
 export interface SystemDoctorHostOptions {
+  readonly signal?: AbortSignal;
   readonly platform?: NodeJS.Platform;
   readonly architecture?: NodeJS.Architecture;
   readonly environment?: NodeJS.ProcessEnv;
   readonly execFileOutput?: typeof execFileOutput;
-  readonly providerInspections?: () => Promise<
-    readonly DoctorProviderInspection[]
-  >;
+  readonly providerInspections?: (
+    resourceScope: RetainedResourceScope,
+    signal: AbortSignal,
+  ) => Promise<readonly DoctorProviderInspection[]>;
   readonly providerRegistrationEnvironment?: () => Readonly<
     Record<string, string>
   >;
-  readonly resolveProviderRequestBudget?: ProviderRequestBudgetResolver;
+  readonly resolveProviderRequestBudget?: (
+    provider: Parameters<ProviderRequestBudgetResolver>[0],
+    environment: Parameters<ProviderRequestBudgetResolver>[1],
+    resources: RetainedResourceScope,
+    signal: AbortSignal,
+  ) => ReturnType<ProviderRequestBudgetResolver>;
   readonly linuxDemoRuntimeCheck?: () => Promise<DoctorCheck>;
 }
 
@@ -448,13 +509,44 @@ export const systemDoctorHost = (
   options: SystemDoctorHostOptions = {},
 ): DoctorHost => {
   const resources = new ArtifactResourceScope();
+  const controller = new AbortController();
+  const inspectionSignal =
+    options.signal === undefined
+      ? controller.signal
+      : AbortSignal.any([options.signal, controller.signal]);
   const platform = options.platform ?? process.platform;
   const architecture = options.architecture ?? process.arch;
   const environment = options.environment ?? process.env;
+  const configurationError = nativeAnalysisConfigurationError(
+    snapshotEnvironment(environment, platform),
+  );
   const hostExecFileOutput = options.execFileOutput ?? execFileOutput;
   const homeDirectory = homeDirectoryFromEnvironment(environment, platform);
   const commandEnvironment = { env: environment };
+  const resourceScope: RetainedResourceScope = {
+    retain: (owner, resource) =>
+      resources.retain({
+        kind: "lease",
+        resource,
+        lease: AnalysisCleanupLease.forCloseOwner(owner, resource),
+      }),
+    run: (operation) => resources.run(operation),
+  };
+  const resolveProviderRequestBudget =
+    options.resolveProviderRequestBudget === undefined
+      ? undefined
+      : (
+          provider: Parameters<ProviderRequestBudgetResolver>[0],
+          environment: Parameters<ProviderRequestBudgetResolver>[1],
+        ) =>
+          options.resolveProviderRequestBudget!(
+            provider,
+            environment,
+            resourceScope,
+            inspectionSignal,
+          );
   return {
+    ...(options.signal === undefined ? {} : { signal: options.signal }),
     platform,
     architecture,
     runtime: javaScriptRuntime(process.versions),
@@ -462,6 +554,13 @@ export const systemDoctorHost = (
     ...(environment.HOPPER_LAUNCHER_PATH === undefined
       ? {}
       : { configuredHopperPath: environment.HOPPER_LAUNCHER_PATH }),
+    ...(environment.REA_HOPPER_STARTUP_TIMEOUT_MS === undefined
+      ? {}
+      : {
+          configuredHopperStartupTimeout:
+            environment.REA_HOPPER_STARTUP_TIMEOUT_MS,
+        }),
+    configurationIssues: configurationError?.settings ?? [],
     ...(environment.REA_ILSPY_CMD_PATH === undefined
       ? {}
       : { configuredIlspyCmdPath: environment.REA_ILSPY_CMD_PATH }),
@@ -549,16 +648,21 @@ export const systemDoctorHost = (
     manualHopperPaths: () => manualHopperPaths(homeDirectory),
     ...(options.providerInspections === undefined
       ? {}
-      : { providerInspections: options.providerInspections }),
+      : {
+          providerInspections: () =>
+            resources.run(() =>
+              options.providerInspections!(resourceScope, inspectionSignal),
+            ),
+        }),
     ...(options.providerRegistrationEnvironment === undefined
       ? {}
       : {
           providerRegistrationEnvironment:
             options.providerRegistrationEnvironment,
         }),
-    ...(options.resolveProviderRequestBudget === undefined
+    ...(resolveProviderRequestBudget === undefined
       ? {}
-      : { resolveProviderRequestBudget: options.resolveProviderRequestBudget }),
+      : { resolveProviderRequestBudget }),
     async ilspyCmdVersion(path) {
       try {
         await access(path, constants.X_OK);
@@ -599,11 +703,23 @@ export const systemDoctorHost = (
         resources,
       ),
     close: async () => {
+      controller.abort(STARTUP_OWNER_CLOSED);
       try {
         await resources.close();
         return undefined;
       } catch (cause: unknown) {
-        return `Doctor resource cleanup failed: ${cause instanceof Error ? cause.message : String(cause)}`;
+        const observation = ArtifactReaderFailure.cleanupObservation(
+          cause,
+          "doctor resources",
+        );
+        const failure = new ProviderCleanupError(
+          "rea",
+          observation.resources,
+          { reason: observation.reason },
+          { cause, operation: "doctor" },
+        );
+        bindArtifactFileCleanup(cause, failure);
+        throw failure;
       }
     },
     clientRegistrations: () =>
@@ -611,11 +727,10 @@ export const systemDoctorHost = (
         platform,
         environment,
         resources,
-        ...(options.resolveProviderRequestBudget === undefined
+        ...(resolveProviderRequestBudget === undefined
           ? {}
           : {
-              resolveProviderRequestBudget:
-                options.resolveProviderRequestBudget,
+              resolveProviderRequestBudget,
             }),
       }),
   };

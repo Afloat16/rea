@@ -68,6 +68,7 @@ it("keeps malformed JavaScript, package metadata, and source maps as explicit un
   await Promise.all([
     writeFile(join(root, "package.json"), "{"),
     writeFile(join(root, "broken.js"), "function broken( {"),
+    writeFile(join(root, "data.json"), "{"),
     writeFile(join(root, "renderer", "renderer.js.map"), "{"),
   ]);
 
@@ -90,9 +91,33 @@ it("keeps malformed JavaScript, package metadata, and source maps as explicit un
     expect.arrayContaining([
       "parse-javascript",
       "parse-package-json",
+      "parse-json-module",
       "parse-local-source-map",
     ]),
   );
+  const gaps = result.graph.nodes
+    .filter(({ kind }) => kind === "unknown")
+    .flatMap(({ observations }) => observations);
+  for (const operation of [
+    "parse-javascript",
+    "parse-package-json",
+    "parse-json-module",
+    "parse-local-source-map",
+  ]) {
+    const applicable = gaps.filter(
+      ({ properties }) => properties.operation === operation,
+    );
+    expect(applicable.length).toBeGreaterThan(0);
+    for (const gap of applicable)
+      expect(gap.evidence).toMatchObject({
+        authority:
+          operation === "parse-javascript"
+            ? "ast-static-analysis"
+            : "artifact-bytes",
+        state: "unavailable",
+        confidence: "unknown",
+      });
+  }
 });
 
 it("retains every source declared by every included local source map", async () => {
@@ -379,10 +404,14 @@ it("rejects traversal from a production reader seam and malformed ASAR container
 it("preserves cancellation and explicit format diagnostics", async () => {
   const root = await fixtureDirectory();
   const controller = new AbortController();
-  controller.abort();
-  await expect(
-    reconstructJavaScriptArtifact({ input_path: root }, controller.signal),
-  ).rejects.toMatchObject({ reason: "cancelled" });
+  const reason = Object.freeze({ requested: "reconstruction-stop" });
+  controller.abort(reason);
+  const cancelled: unknown = await reconstructJavaScriptArtifact(
+    { input_path: root },
+    controller.signal,
+  ).catch((caught: unknown) => caught);
+  expect(cancelled).toMatchObject({ reason: "cancelled" });
+  expect((cancelled as { cause?: unknown }).cause).toBe(reason);
   await expect(
     reconstructJavaScriptArtifact({ input_path: root, format: "asar" }),
   ).rejects.toMatchObject({
@@ -408,7 +437,7 @@ class TraversalReader implements ArtifactReader {
       executable: false,
       encrypted: false,
       byteOffset: null,
-      declaredSha256: null,
+      declaredIntegrity: null,
       unpacked: false,
       limitations: [],
       adapterKey: "/tmp/escape.js",

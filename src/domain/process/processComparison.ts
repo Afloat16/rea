@@ -79,9 +79,9 @@ export const processCaptureComparisonSchema = z
           "filesystem",
           "process",
         ]),
-        index: z.number().int().nonnegative(),
-        left_at_ms: z.number().int().nonnegative().nullable(),
-        right_at_ms: z.number().int().nonnegative().nullable(),
+        index: z.int().nonnegative(),
+        left_at_ms: z.int().nonnegative().nullable(),
+        right_at_ms: z.int().nonnegative().nullable(),
         left: jsonValueSchema.nullable(),
         right: jsonValueSchema.nullable(),
       }),
@@ -330,7 +330,8 @@ const applyTraceVerdict = (
   const sources = new Set(specification.events.map(({ source }) => source));
   const covered = dimensionsForTraceSources(sources);
   // A different verdict names the failing events and observations; attribute
-  // it only to their dimensions so equal observations keep their exact status.
+  // it only to their dimensions; unrelated comparisons keep their own status,
+  // including unknown coverage and independently observed additions/removals.
   const diagnosticSources = new Set<ProcessObservationSource>([
     ...specification.events
       .filter(({ id }) => trace.diagnostic?.event_ids.includes(id) === true)
@@ -350,8 +351,7 @@ const applyTraceVerdict = (
     if (!covered.has(dimension)) return exact;
     if (trace.verdict === "nonconforming") return exact;
     if (trace.verdict === "different")
-      return traceShowsDifference &&
-        (exact !== "unchanged" || attributed.has(dimension))
+      return traceShowsDifference && attributed.has(dimension)
         ? "changed"
         : exact;
     if (

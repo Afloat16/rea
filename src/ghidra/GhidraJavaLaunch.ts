@@ -2,6 +2,7 @@ import { snapshotEnvironment } from "../process/snapshotEnvironment.js";
 import { dirname, join } from "node:path";
 import {
   execFileOutput,
+  ExecFileOutputCancelledError,
   execFileOutputFailure,
   type ExecFileOutputFailure,
 } from "../process/ExecFileOutput.js";
@@ -18,19 +19,24 @@ type LaunchSupportOutcome = Omit<
 
 export class GhidraLaunchSupportError extends Error {
   readonly outcome: LaunchSupportOutcome | undefined;
+  readonly cancellation: { readonly reason: unknown } | undefined;
 
   constructor(phase: LaunchSupportPhase, cause: unknown) {
     super(`Ghidra LaunchSupport ${phase} failed`, { cause });
     this.name = "GhidraLaunchSupportError";
+    this.cancellation =
+      cause instanceof ExecFileOutputCancelledError
+        ? { reason: cause.cause }
+        : undefined;
     const outcome = execFileOutputFailure(cause);
     this.outcome =
       outcome === undefined
         ? undefined
         : {
             ...outcome,
-            killed: outcome.code === "ABORT_ERR" ? null : outcome.killed,
+            killed: this.cancellation === undefined ? outcome.killed : null,
             outputTruncated:
-              outcome.code === "ABORT_ERR" ? null : outcome.outputTruncated,
+              this.cancellation === undefined ? outcome.outputTruncated : null,
           };
   }
 }
@@ -83,6 +89,8 @@ export const ghidraJavaLaunch = async (options: {
   readonly command: string;
   readonly arguments: readonly string[];
   readonly environment: NodeJS.ProcessEnv;
+  /** REA-configured -Xmx value, not effective or observed JVM memory. */
+  readonly configuredMaxHeap?: string;
 }> => {
   const supportRoot = dirname(options.analyzeHeadlessPath);
   const installRoot = dirname(supportRoot);
@@ -146,6 +154,8 @@ export const ghidraJavaLaunch = async (options: {
     if ((environment[key] ?? "") === "")
       environment[key] = line.slice(separator + 1);
   }
+  const configuredMaxHeap =
+    environment.GHIDRA_HEADLESS_MAXMEM || environment.GHIDRA_MAXMEM || "2G";
   // The merged environment becomes the analysis JVM's environment, and the
   // JVM applies these options variables automatically. An injected
   // -Dos.arch/-Dos.name there selects an unvalidated native directory without
@@ -172,10 +182,11 @@ export const ghidraJavaLaunch = async (options: {
   return {
     command,
     environment,
+    configuredMaxHeap,
     arguments: [
       ...vmArguments,
       ...(options.platform === "darwin" ? ["-Xdock:name=Ghidra-Headless"] : []),
-      `-Xmx${environment.GHIDRA_HEADLESS_MAXMEM || environment.GHIDRA_MAXMEM || "2G"}`,
+      `-Xmx${configuredMaxHeap}`,
       "-XX:ParallelGCThreads=2",
       "-XX:CICompilerCount=2",
       "-Djava.awt.headless=true",

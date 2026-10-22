@@ -7,6 +7,12 @@ import { jsonObjectSchema, type JsonValue } from "../jsonValue.js";
 import type { JavaScriptApplicationAnalysisResult } from "../javascript/javascriptApplicationAnalysis.js";
 import type { ApplicationNode } from "../javascript/javascriptApplicationGraphSchemas.js";
 import { err, ok, type Result } from "../result.js";
+import type { JavaScriptModuleReference } from "./javascriptModuleReferences.js";
+import {
+  javascriptApplicationSourceCoverage,
+  type JavaScriptApplicationSourceCoverage,
+} from "./javascriptApplicationCoverage.js";
+import { projectJavaScriptFacts } from "./javascriptFactsView.js";
 import {
   boundedViewMessages,
   completeWithinViewCoverage as completeCoverage,
@@ -50,20 +56,52 @@ export const javascriptModulePath = (node: ApplicationNode): string | null => {
   return null;
 };
 
-const moduleEntries = (
-  nodes: readonly ApplicationNode[],
-): readonly {
-  readonly node: ApplicationNode;
+interface ModuleEntry {
+  readonly node: ApplicationNode & {
+    readonly kind: JavaScriptModuleReference["kind"];
+  };
   readonly path: string | null;
-}[] =>
-  nodes
-    .filter(
-      (node) =>
-        node.kind === "javascript-asset" ||
-        node.kind === "javascript-module" ||
-        node.kind === "source-module",
-    )
-    .map((node) => ({ node, path: javascriptModulePath(node) }));
+}
+
+const isModuleNode = (node: ApplicationNode): node is ModuleEntry["node"] =>
+  node.kind === "javascript-asset" ||
+  node.kind === "javascript-module" ||
+  node.kind === "source-module";
+
+/** One owner for the module kinds and path semantics of every module view. */
+function* moduleEntries(
+  nodes: readonly ApplicationNode[],
+): Generator<ModuleEntry> {
+  for (const node of nodes) {
+    if (isModuleNode(node)) yield { node, path: javascriptModulePath(node) };
+  }
+}
+
+/** Scan retained order once; materialize only the requested matching page. */
+const modulePage = (
+  nodes: readonly ApplicationNode[],
+  view: {
+    readonly offset: number;
+    readonly limit: number;
+    readonly where?: Extract<
+      AnalysisViewRequest,
+      { kind: "javascript" }
+    >["where"];
+  },
+): { entries: ModuleEntry[]; total: number } => {
+  const entries: ModuleEntry[] = [];
+  let total = 0;
+  for (const entry of moduleEntries(nodes)) {
+    if (view.where?.kind !== undefined && entry.node.kind !== view.where.kind)
+      continue;
+    if (view.where?.path !== undefined && entry.path !== view.where.path)
+      continue;
+    if (total >= view.offset && entries.length < view.limit)
+      entries.push(entry);
+    total += 1;
+  }
+  return { entries, total };
+};
 
 const exportNames = (node: ApplicationNode): readonly string[] => {
   const names = new Set<string>();
@@ -128,32 +166,53 @@ const moduleItem = (node: ApplicationNode): JsonValue => ({
   })),
 });
 
-const applicationUnknownCount = (
-  analysis: JavaScriptApplicationAnalysisResult,
-): number =>
-  analysis.graph.nodes.reduce(
-    (count, node) => count + Number(node.kind === "unknown"),
-    0,
-  );
+const moduleReference = ({
+  node,
+  path,
+}: ModuleEntry): JavaScriptModuleReference => {
+  let ranges = 0;
+  const support = new Map<string, JavaScriptModuleReference["basis"][number]>();
+  for (const { evidence } of node.observations) {
+    if (
+      evidence.location.available &&
+      evidence.location.value.kind === "source-range"
+    )
+      ranges += 1;
+    const { authority, state, confidence } = evidence;
+    support.set(`${authority}:${state}:${confidence}`, {
+      authority,
+      state,
+      confidence,
+    });
+  }
+  return {
+    node_id: node.node_id,
+    kind: node.kind,
+    path,
+    identity: node.identity,
+    retained_source_range_count: ranges,
+    basis: [...support.values()],
+  };
+};
 
 const javascriptCoverageUnknowns = (
-  analysis: JavaScriptApplicationAnalysisResult,
+  coverage: JavaScriptApplicationSourceCoverage,
 ): readonly string[] => {
   const unknowns: string[] = [];
-  if (analysis.graph.coverage.status !== "complete")
-    unknowns.push(`graph.coverage.status is ${analysis.graph.coverage.status}`);
-  if (analysis.semantic_graph.coverage.status !== "complete")
+  if (coverage.application.status !== "complete")
+    unknowns.push(`graph.coverage.status is ${coverage.application.status}`);
+  if (coverage.semantic.status !== "complete")
     unknowns.push(
-      `semantic_graph.coverage.status is ${analysis.semantic_graph.coverage.status}`,
+      `semantic_graph.coverage.status is ${coverage.semantic.status}`,
     );
-  const applicationUnknowns = applicationUnknownCount(analysis);
+  const applicationUnknowns = coverage.application_unknown_count;
   if (applicationUnknowns > 0)
     unknowns.push(
       `${String(applicationUnknowns)} application graph unknowns remain in the parent Evidence.`,
     );
-  if (analysis.semantic_graph.unknowns.length > 0)
+  if (coverage.semantic_unknown_count > 0)
     unknowns.push(
-      `${String(analysis.semantic_graph.unknowns.length)} semantic graph unknowns remain in the parent Evidence.`,
+      `${String(coverage.semantic_unknown_count)} semantic graph unknowns remain in the parent Evidence.`,
     );
   return unknowns;
 };
@@ -161,6 +220,7 @@ const javascriptCoverageUnknowns = (
 const parentFields = (
   parent: AnalysisViewParent,
   analysis: JavaScriptApplicationAnalysisResult,
+  sourceCoverage: JavaScriptApplicationSourceCoverage,
 ) => {
   const limitations = [
     ...analysis.limitations,
@@ -184,13 +244,13 @@ const parentFields = (
       limitations,
       parent.evidenceId,
       "unknowns",
-      javascriptCoverageUnknowns(analysis),
+      javascriptCoverageUnknowns(sourceCoverage),
     ),
   };
 };
 
 const selectModule = (
-  modules: ReturnType<typeof moduleEntries>,
+  modules: readonly ModuleEntry[],
   selector: Extract<AnalysisViewRequest, { readonly kind: "item" }>["selector"],
 ): Result<ApplicationNode, AnalysisError> => {
   if ("node_id" in selector) {
@@ -247,17 +307,55 @@ const selectModule = (
 export const projectJavaScriptApplicationView = (
   parent: AnalysisViewParent,
   analysis: JavaScriptApplicationAnalysisResult,
-  view: Exclude<AnalysisViewRequest, { kind: "api-surface" }>,
+  view: Exclude<
+    AnalysisViewRequest,
+    { kind: "api-surface" | "environment-manifest" | "environment-state" }
+  >,
 ): Result<UnsignedAnalysisView, AnalysisError> => {
-  if (view.kind !== "summary" && view.kind !== "item" && view.kind !== "page")
+  if (
+    view.kind !== "summary" &&
+    view.kind !== "item" &&
+    view.kind !== "page" &&
+    view.kind !== "javascript" &&
+    view.kind !== "javascript-facts"
+  )
     return err(
       jsIncompatible(
-        "JavaScript application Evidence supports summary, module item or module page views.",
+        "JavaScript application Evidence supports summary, module item/page, typed module references or selected JavaScript facts.",
       ),
     );
-  const shared = parentFields(parent, analysis);
-  const modules = moduleEntries(analysis.graph.nodes);
-  if (view.kind === "summary")
+  const sourceCoverage = javascriptApplicationSourceCoverage(analysis);
+  const shared = parentFields(parent, analysis, sourceCoverage);
+  if (view.kind === "javascript-facts") {
+    const { rows, total } = projectJavaScriptFacts(analysis.graph.nodes, view);
+    return ok({
+      ...shared,
+      kind: "javascript-facts",
+      view,
+      rows,
+      source_coverage: sourceCoverage,
+      coverage: pageCoverage(view.offset, rows.length, total),
+    });
+  }
+  if (view.kind === "javascript") {
+    const { entries, total } = modulePage(analysis.graph.nodes, view);
+    const rows = entries.map(moduleReference);
+    return ok({
+      ...shared,
+      kind: "javascript",
+      view,
+      rows,
+      source_coverage: sourceCoverage,
+      coverage: pageCoverage(view.offset, rows.length, total),
+    });
+  }
+  if (view.kind === "summary") {
+    // Summary coverage counts modules. Graph nodes that are not modules stay
+    // in summary.coverage.application rather than inflating this total.
+    const moduleCount = analysis.graph.nodes.reduce(
+      (count, node) => count + Number(isModuleNode(node)),
+      0,
+    );
     return ok({
       kind: "summary",
       view,
@@ -283,14 +381,15 @@ export const projectJavaScriptApplicationView = (
               }),
             ),
           },
-          application_unknowns: applicationUnknownCount(analysis),
-          semantic_unknowns: analysis.semantic_graph.unknowns.length,
+          application_unknowns: sourceCoverage.application_unknown_count,
+          semantic_unknowns: sourceCoverage.semantic_unknown_count,
         }),
         limitation_count: analysis.limitations.length,
       },
-      coverage: completeCoverage(modules.length, analysis.graph.nodes.length),
+      coverage: completeCoverage(moduleCount, moduleCount),
       ...shared,
     });
+  }
   if (view.kind === "item") {
     if (view.collection !== "modules")
       return err(
@@ -298,6 +397,7 @@ export const projectJavaScriptApplicationView = (
           "Section and symbol collections apply to inspect_binary_layout Evidence.",
         ),
       );
+    const modules = [...moduleEntries(analysis.graph.nodes)];
     const selected = selectModule(modules, view.selector);
     if (!selected.ok) return selected;
     return ok({
@@ -314,18 +414,17 @@ export const projectJavaScriptApplicationView = (
         "Section and symbol collections apply to inspect_binary_layout Evidence.",
       ),
     );
-  const items = modules
-    .slice(view.offset, view.offset + view.limit)
-    .map(({ node, path }) => ({
-      node_id: node.node_id,
-      kind: node.kind,
-      path,
-    }));
+  const { entries, total } = modulePage(analysis.graph.nodes, view);
+  const items = entries.map(({ node, path }) => ({
+    node_id: node.node_id,
+    kind: node.kind,
+    path,
+  }));
   return ok({
     kind: "page",
     view,
     items,
-    coverage: pageCoverage(view.offset, items.length, modules.length),
+    coverage: pageCoverage(view.offset, items.length, total),
     ...shared,
   });
 };

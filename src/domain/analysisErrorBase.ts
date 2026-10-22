@@ -53,6 +53,8 @@ export interface AnalysisCleanupObservation {
 
 /** Optional provider-neutral context that must survive typed error projection. */
 export interface AnalysisErrorOptions extends ErrorOptions {
+  /** Typed primary retained when a later lifecycle failure composes this error. */
+  readonly cleanupPrimary?: AnalysisError | undefined;
   /** Producer-owned, caller-safe facts retained through every typed projection. */
   readonly diagnostics?: Readonly<Record<string, JsonValue>> | undefined;
   readonly capturedOutput?: AnalysisCapturedOutput | undefined;
@@ -60,15 +62,30 @@ export interface AnalysisErrorOptions extends ErrorOptions {
   readonly partialObservation?: AnalysisPartialObservation | undefined;
 }
 
+/** Exact cleanup owner that can attribute its currently unresolved resources. */
+export interface AnalysisCleanupResourceOwner {
+  readonly cleanupResources: readonly string[] | undefined;
+}
+
 /** Base class for expected analysis, provider, and session failures. */
 export abstract class AnalysisError extends Error {
+  readonly #cleanupPrimary: AnalysisError | undefined;
+  // Undefined means unbound; a bound empty set records confirmed completion.
+  #cleanupDependencies: Set<AnalysisError> | undefined;
+  #cleanupResourceProjection:
+    | { readonly cleanupResources: readonly string[] }
+    | undefined;
+  #cleanupDependents: WeakRef<AnalysisError>[] = [];
   readonly diagnostics: Readonly<Record<string, JsonValue>> | undefined;
   readonly capturedOutput: AnalysisCapturedOutput | undefined;
   readonly cleanup: AnalysisCleanupObservation | undefined;
   cleanupIncomplete: boolean;
-  readonly cleanupResources: readonly string[];
+  #ownedCleanupResources: readonly string[];
+  #cleanupResourceOwner: AnalysisCleanupResourceOwner | undefined;
+  #secondaryFailures: AnalysisError[] = [];
   constructor(message: string, options?: AnalysisErrorOptions) {
     super(message, options);
+    this.#cleanupPrimary = options?.cleanupPrimary;
     this.diagnostics =
       options?.diagnostics === undefined
         ? undefined
@@ -79,7 +96,7 @@ export abstract class AnalysisError extends Error {
         : { ...options.capturedOutput };
     this.cleanup = options?.cleanup;
     this.cleanupIncomplete = options?.cleanup !== undefined;
-    this.cleanupResources = options?.cleanup?.resources ?? [];
+    this.#ownedCleanupResources = [...(options?.cleanup?.resources ?? [])];
     this.partialObservation = options?.partialObservation;
   }
   abstract readonly _tag: AnalysisErrorTag;
@@ -87,29 +104,99 @@ export abstract class AnalysisError extends Error {
   readonly userCategory: "cancelled" | undefined = undefined;
   readonly executionFailure: string | undefined = undefined;
   partialObservation: AnalysisPartialObservation | undefined;
+
+  get cleanupPrimary(): AnalysisError | undefined {
+    return this.#cleanupPrimary;
+  }
+  /** Later typed failures retained without changing the primary error cause. */
+  get secondaryFailures(): readonly AnalysisError[] {
+    return [...this.#secondaryFailures];
+  }
   readonly cleanupReport: ProcessCaptureCleanupReport | undefined = undefined;
 
-  /** Retain a later lifecycle failure without replacing the original typed error. */
+  /** Live dependencies own current resource attribution; cleanup keeps history. */
+  get cleanupResources(): readonly string[] {
+    if (this.#cleanupDependencies === undefined)
+      return (
+        this.#cleanupResourceOwner?.cleanupResources ??
+        this.#ownedCleanupResources
+      );
+    const pending = [...this.#cleanupDependencies].filter(
+      (dependency) => dependency.cleanupIncomplete,
+    );
+    if (pending.length === 0) return [];
+    if (this.#cleanupResourceProjection !== undefined)
+      return this.#cleanupResourceProjection.cleanupResources;
+    return [
+      ...new Set(pending.flatMap((dependency) => dependency.cleanupResources)),
+    ];
+  }
+
+  /** Bind attribution only to the producer that owns the complete cleanup set. */
+  bindCleanupResourceOwner(owner: AnalysisCleanupResourceOwner): this {
+    this.#cleanupResourceOwner = owner;
+    return this;
+  }
+
+  /** Initialize resource facts supplied by a more specific error producer. */
+  protected setCleanupResources(resources: readonly string[]): void {
+    this.#ownedCleanupResources = [...resources];
+  }
+
+  /** Retain diagnostic facts without replacing the original typed error. */
+  retainDiagnostics(diagnostics: Readonly<Record<string, JsonValue>>): this {
+    Object.assign(this, {
+      diagnostics: structuredClone({ ...this.diagnostics, ...diagnostics }),
+    });
+    return this;
+  }
+
   retainSecondaryFailure(
     failure: AnalysisError,
-    diagnostics: Readonly<Record<string, JsonValue>>,
+    diagnostics?: Readonly<Record<string, JsonValue>>,
   ): this {
     // Secondary resources remain owned by their cleanup lifecycle; preserve
     // the primary error's live cleanup status and original output.
-    Object.assign(this, {
-      diagnostics: structuredClone({ ...this.diagnostics, ...diagnostics }),
-      cause: new AggregateError(
-        this.cause === undefined ? [failure] : [this.cause, failure],
-        "Analysis failed and a later lifecycle operation also failed.",
-        { cause: this.cause },
-      ),
-    });
+    if (diagnostics !== undefined) this.retainDiagnostics(diagnostics);
+    this.#secondaryFailures.push(failure);
+    return this;
+  }
+
+  /** Keep a composed error incomplete until all explicitly owned source errors resolve. */
+  bindCleanupDependencies(
+    dependencies: readonly AnalysisError[],
+    resourceProjection?: { readonly cleanupResources: readonly string[] },
+  ): this {
+    const pending = (this.#cleanupDependencies ??= new Set<AnalysisError>());
+    if (resourceProjection !== undefined)
+      this.#cleanupResourceProjection = resourceProjection;
+    for (const dependency of dependencies) {
+      if (!dependency.cleanupIncomplete || pending.has(dependency)) continue;
+      pending.add(dependency);
+      dependency.#cleanupDependents = [
+        ...dependency.#cleanupDependents.filter(
+          (reference) => reference.deref() !== undefined,
+        ),
+        new WeakRef(this),
+      ];
+    }
+    if (pending.size === 0) this.resolveCleanup();
     return this;
   }
 
   /** Clear live cleanup status only after its owning resource confirms retry success. */
   resolveCleanup(): this {
+    if (
+      [...(this.#cleanupDependencies ?? [])].some(
+        (dependency) => dependency.cleanupIncomplete,
+      )
+    )
+      return this;
+    this.#cleanupDependencies?.clear();
     this.cleanupIncomplete = false;
+    for (const reference of this.#cleanupDependents)
+      reference.deref()?.resolveCleanup();
+    this.#cleanupDependents = [];
     return this;
   }
 
@@ -119,6 +206,13 @@ export abstract class AnalysisError extends Error {
     return this;
   }
 }
+
+/** Confirmed cleanup reveals the typed primary; unresolved ownership stays visible. */
+export const resolvedAnalysisError = (error: AnalysisError): AnalysisError => {
+  while (!error.cleanupIncomplete && error.cleanupPrimary !== undefined)
+    error = error.cleanupPrimary;
+  return error;
+};
 import type {
   PartialProcessCaptureObservation,
   ProcessCaptureCleanupReport,
@@ -135,6 +229,7 @@ import type { WebScriptExportPartialObservation } from "./webScriptExport.js";
 import type { JavaScriptRecoveryPartialObservation } from "./javascript/javascriptRecovery.js";
 import type { BrowserScenarioPartialObservation } from "./browserScenarioCapture.js";
 import type { Evidence } from "./evidence.js";
+import type { ElectronPagePartialObservation } from "./javascript/electronObservation.js";
 import type { AndroidPartialObservation } from "./android/androidPartialObservation.js";
 import type { FirmwarePartialObservation } from "./firmware/firmwareAnalysis.js";
 import type {
@@ -142,20 +237,41 @@ import type {
   AdbAcquiredFilePartialObservation,
   AdbPackagePullPartialObservation,
 } from "./adb/adbDeviceAnalysis.js";
+import type { InspectSignature } from "./native/nativeInspection.js";
 import type { NativeUiObservationResult } from "./native/nativeUiObservation.js";
 import type { BinaryLayout } from "./native/binaryLayout.js";
 import type {
   RecordedCrash,
   RecordedCrashPartialObservation,
 } from "./native/recordedCrash.js";
+import type { WebPageInspection } from "./browserObservationSchemas.js";
+import type { WebBundleAnalysis } from "./webBundleAnalysis.js";
+import type { WebExecution } from "./webExecution.js";
+import type { WebEventListeners } from "./webEventListeners.js";
+
+import type { NativeLoadImagePartialObservation } from "./native/nativeLoadImage.js";
+import type { NativeAotSnapshotObservation } from "./native/nativeAotSnapshotObservation.js";
+import type { FileSnapshotPartialObservation } from "./fileSnapshotObservation.js";
+
+import type { WebModuleResolutionObservation } from "./webModuleTrace.js";
+import type { WebNetworkCapture } from "./webNetworkCapture.js";
 
 /** Provider-neutral evidence collected before a typed analysis failure. */
 export type AnalysisPartialObservation =
+  | WebModuleResolutionObservation
+  | WebNetworkCapture
+  | NativeLoadImagePartialObservation
+  | NativeAotSnapshotObservation
+  | FileSnapshotPartialObservation
   | PartialProcessCaptureObservation
   | NativeCallPartialObservation
   | FileOffsetPartialObservation
   | ElectronActivePartialObservation
   | BrowserScenarioPartialObservation
+  | WebPageInspection
+  | WebBundleAnalysis
+  | WebExecution
+  | WebEventListeners
   | JavaScriptRuntimeObservation
   | ArtifactInventoryPartialObservation
   | ArtifactExtractionPartialObservation
@@ -168,6 +284,8 @@ export type AnalysisPartialObservation =
   | AndroidPartialObservation
   | FirmwarePartialObservation
   | NativeUiObservationResult
+  | InspectSignature
+  | ElectronPagePartialObservation
   | AdbActivityStartPartialObservation
   | AdbAcquiredFilePartialObservation
   | AdbPackagePullPartialObservation;

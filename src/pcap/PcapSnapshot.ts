@@ -1,3 +1,4 @@
+import { regularFileCancellation } from "../filesystem/OwnedRegularFile.js";
 import { createHash } from "node:crypto";
 import { chmod, open, stat, mkdir } from "node:fs/promises";
 import { join } from "node:path";
@@ -10,14 +11,18 @@ import {
   AnalysisInputError,
   AnalysisResourceConstraintError,
 } from "../domain/analysisErrorCore.js";
+import { fixedAllowanceOptions } from "../domain/fixedAllowanceRemediation.js";
+import { ProviderCleanupError } from "../domain/providerCleanupError.js";
 import { OwnedFileHandle } from "../filesystem/OwnedFileHandle.js";
 import {
+  assertRegularFileActive,
   openRegularFile,
   RegularFileAdmissionFailure,
   sameRegularFileState,
 } from "../filesystem/RegularFile.js";
 import { PrivateRuntimeRoot } from "../process/PrivateRuntimeRoot.js";
 import { PrivateRuntimeRootUnavailableError } from "../process/PrivateRuntimeRootUnavailableError.js";
+import { privateWorkspaceFailure } from "../process/privateWorkspaceFailure.js";
 
 const OPERATION = "inspect_pcap_capture";
 const MAX_CAPTURE_BYTES = 2 * 1024 ** 3;
@@ -25,6 +30,10 @@ const MAX_CAPTURE_BYTES = 2 * 1024 ** 3;
 /** An owned capture copy and every descriptor needed to release it safely. */
 export class PcapSnapshot {
   private readonly handles = new Set<OwnedFileHandle>();
+  private readonly completionCleanup = new Map<
+    OwnedFileHandle,
+    AnalysisError
+  >();
   readonly path: string;
   readonly configurationPath: string;
   private constructor(private readonly root: PrivateRuntimeRoot) {
@@ -45,13 +54,7 @@ export class PcapSnapshot {
           cause.message,
           { cause, retryable: cause.retryable },
         );
-      throw new AnalysisResourceConstraintError(
-        OPERATION,
-        "file-size",
-        "Cannot allocate the owned capture workspace",
-        null,
-        { cause },
-      );
+      throw privateWorkspaceFailure("pcap", OPERATION, cause, null);
     }
   }
 
@@ -62,6 +65,36 @@ export class PcapSnapshot {
   private async release(handle: OwnedFileHandle): Promise<void> {
     await handle.close();
     this.handles.delete(handle);
+    this.completionCleanup.get(handle)?.resolveCleanup();
+    this.completionCleanup.delete(handle);
+  }
+  private async releaseCompleted(
+    handle: OwnedFileHandle,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    try {
+      await this.release(handle);
+    } catch (cleanupCause) {
+      const cleanup = new ProviderCleanupError(
+        "pcap",
+        [this.path],
+        { reason: "Owned snapshot descriptor close failed" },
+        { operation: OPERATION, cause: cleanupCause },
+      );
+      this.completionCleanup.set(handle, cleanup);
+      if (signal?.aborted !== true) throw cleanup;
+      const cancelled = new AnalysisCancelledError(OPERATION, {
+        cause: signal.reason,
+        cleanup: {
+          reason: "Owned snapshot descriptor close could not be confirmed",
+          resources: [this.path],
+        },
+      });
+      cancelled
+        .retainSecondaryFailure(cleanup)
+        .bindCleanupDependencies([cleanup]);
+      throw cancelled;
+    }
   }
 
   async capture(
@@ -72,8 +105,8 @@ export class PcapSnapshot {
       try {
         return await read();
       } catch (cause) {
-        if (signal?.aborted)
-          throw new AnalysisCancelledError(OPERATION, { cause });
+        const cancellation = regularFileCancellation(cause);
+        if (cancellation !== undefined) throw cause;
         if (cause instanceof AnalysisError) throw cause;
         if (
           cause instanceof Error &&
@@ -93,7 +126,7 @@ export class PcapSnapshot {
       }
     };
     try {
-      signal?.throwIfAborted();
+      assertRegularFileActive(signal);
       await mkdir(this.configurationPath, { mode: 0o700 });
       const source = await sourceRead(async () => {
         try {
@@ -119,6 +152,10 @@ export class PcapSnapshot {
           "file-size",
           "Capture exceeds the owned-snapshot disk budget",
           { max_capture_bytes: MAX_CAPTURE_BYTES },
+          fixedAllowanceOptions(
+            "the owned capture snapshot allowance",
+            "input",
+          ),
         );
       const destination = this.own(
         new OwnedFileHandle(await open(this.path, "wx", 0o600)),
@@ -127,7 +164,7 @@ export class PcapSnapshot {
       const hash = createHash("sha256");
       let copied = 0;
       while (copied <= Number(before.size)) {
-        signal?.throwIfAborted();
+        assertRegularFileActive(signal);
         const { bytesRead } = await sourceRead(() =>
           source.handle.read(
             buffer,
@@ -136,7 +173,7 @@ export class PcapSnapshot {
             copied,
           ),
         );
-        signal?.throwIfAborted();
+        assertRegularFileActive(signal);
         if (bytesRead === 0) break;
         copied += bytesRead;
         if (BigInt(copied) > before.size)
@@ -180,22 +217,22 @@ export class PcapSnapshot {
           path,
           "Capture identity or contents changed during acquisition",
         );
-      await this.release(source);
-      await this.release(destination);
+      await this.releaseCompleted(source, signal);
+      await this.releaseCompleted(destination, signal);
       await chmod(this.path, 0o400);
-      signal?.throwIfAborted();
+      assertRegularFileActive(signal);
       return { bytes: copied, sha256: hash.digest("hex") };
     } catch (cause) {
-      if (signal?.aborted)
-        throw new AnalysisCancelledError(OPERATION, { cause });
+      if (cause instanceof RegularFileAdmissionFailure) this.own(cause.owner);
+      const primary =
+        cause instanceof RegularFileAdmissionFailure ? cause.cause : cause;
+      const cancellation = regularFileCancellation(primary);
+      if (cancellation !== undefined)
+        throw new AnalysisCancelledError(OPERATION, {
+          cause: cancellation.reason,
+        });
       if (cause instanceof AnalysisError) throw cause;
-      throw new AnalysisResourceConstraintError(
-        OPERATION,
-        "file-size",
-        "Owned capture snapshot I/O failed",
-        null,
-        { cause },
-      );
+      throw privateWorkspaceFailure("pcap", OPERATION, primary, this.root.path);
     }
   }
 
@@ -216,7 +253,7 @@ export class PcapSnapshot {
       const hash = createHash("sha256");
       let bytes = 0;
       while (bytes <= expected.bytes) {
-        signal?.throwIfAborted();
+        assertRegularFileActive(signal);
         const read = await file.handle.read(
           buffer,
           0,
@@ -240,11 +277,17 @@ export class PcapSnapshot {
           selectedPath,
           "Owned packet snapshot changed during tool analysis.",
         );
-      await this.release(file);
+      await this.releaseCompleted(file, signal);
+      assertRegularFileActive(signal);
     } catch (cause) {
-      if (signal?.aborted)
-        throw new AnalysisCancelledError(OPERATION, { cause });
       if (cause instanceof RegularFileAdmissionFailure) this.own(cause.owner);
+      const primary =
+        cause instanceof RegularFileAdmissionFailure ? cause.cause : cause;
+      const cancellation = regularFileCancellation(primary);
+      if (cancellation !== undefined)
+        throw new AnalysisCancelledError(OPERATION, {
+          cause: cancellation.reason,
+        });
       if (cause instanceof AnalysisError) throw cause;
       throw new AnalysisArtifactChangedError(
         OPERATION,

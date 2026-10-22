@@ -1,7 +1,8 @@
-import { basename, dirname, resolve } from "node:path";
+import { basename, dirname } from "node:path";
 import * as t from "@babel/types";
 import { parseJavaScriptSource } from "../domain/javascript/javascriptSourceParser.js";
 import { traverseJavaScriptAst } from "../domain/javascript/javascriptSemanticTraversal.js";
+import { absoluteCallerPath } from "../filesystem/callerPath.js";
 /** Associate visible literals with selected candidates without asserting data flow or URL identity. */
 export const associateWasmGlue = (
   source: string,
@@ -10,8 +11,11 @@ export const associateWasmGlue = (
 ) => {
   // Babel requires a hashbang at offset zero. Removing only its preceding BOM
   // leaves reference coordinates intact: all code starts on a later line.
+  // The selected filename selects the JavaScript grammar for .js glue; the
+  // unnamed-source fallback would misread valid JavaScript conditionals.
   const file = parseJavaScriptSource(
     source.startsWith("\uFEFF#!") ? source.slice(1) : source,
+    path,
   );
   const references: {
     value: string;
@@ -24,11 +28,18 @@ export const associateWasmGlue = (
   if (file === null) return { parse_status: "failed" as const, references };
   traverseJavaScriptAst(file, {
     enter(node) {
+      // Babel retains the source spelling in DirectiveLiteral.value, while
+      // extra.expressionValue is the same cooked value used by StringLiteral.
+      const directiveValue = t.isDirectiveLiteral(node)
+        ? node.extra?.expressionValue
+        : undefined;
       const value = t.isStringLiteral(node)
         ? node.value
-        : t.isTemplateLiteral(node) && node.expressions.length === 0
-          ? node.quasis[0]?.value.cooked
-          : undefined;
+        : typeof directiveValue === "string"
+          ? directiveValue
+          : t.isTemplateLiteral(node) && node.expressions.length === 0
+            ? node.quasis[0]?.value.cooked
+            : undefined;
       if (
         value === undefined ||
         value === null ||
@@ -41,11 +52,17 @@ export const associateWasmGlue = (
         !/^[a-z][a-z\d+.-]*:|^\/\//iu.test(value) &&
         !value.startsWith("/") &&
         !/[?#]/u.test(value);
-      const exact = local
-        ? candidates.filter(
-            (candidate) => candidate === resolve(dirname(path), value),
-          )
-        : [];
+      // Compare through the caller-path owner so `.` spellings match and a
+      // symlink followed by `..` is never collapsed onto a sibling.
+      const target = local
+        ? absoluteCallerPath(value, { cwd: dirname(path) })
+        : undefined;
+      const exact =
+        target === undefined
+          ? []
+          : candidates.filter(
+              (candidate) => absoluteCallerPath(candidate) === target,
+            );
       const matches =
         exact.length > 0
           ? exact

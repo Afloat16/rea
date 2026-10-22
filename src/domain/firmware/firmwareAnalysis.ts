@@ -1,19 +1,23 @@
 import { z } from "zod";
-import { isAbsolute } from "node:path";
 import { digestSchema } from "../digests.js";
 import { jsonValueSchema, type JsonValue } from "../jsonValue.js";
-import { localPathStringSchema } from "../localPath.js";
+import { absoluteLocalPathStringSchema } from "../localPath.js";
 
 const bytes = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
 const range = z.strictObject({ offset: bytes, length: bytes.positive() });
+/** Default analysis phase budget, excluding queue admission and publication. */
+export const DEFAULT_FIRMWARE_ANALYSIS_TIMEOUT_MS = 120_000;
+/** Largest delay supported without overflowing Node timers. */
+export const MAX_FIRMWARE_TIMEOUT_MS = 2_147_483_647;
+const timeout = z.number().int().min(1).max(MAX_FIRMWARE_TIMEOUT_MS);
 const target = {
-  path: localPathStringSchema
-    .refine(isAbsolute, {
-      message:
-        "path must be an absolute local filesystem path (for example /tmp/firmware.bin or C:\\firmware\\firmware.bin)",
-    })
+  path: absoluteLocalPathStringSchema.describe(
+    "Absolute local firmware file; never executed. Relative paths are rejected.",
+  ),
+  analysis_timeout_ms: timeout
+    .optional()
     .describe(
-      "Absolute local firmware file; never executed. Relative paths are rejected.",
+      "Analysis wall-clock budget in milliseconds (default 120000), from tool resolution through inspection and its final workspace cleanup, or extraction through inventory. Excludes queue admission and extraction publication. Does not raise fixed CPU, memory or byte limits.",
     ),
 };
 
@@ -22,11 +26,9 @@ export const firmwareInputSchemas = {
   inspect_firmware_regions: z.strictObject(target),
   extract_firmware: z.strictObject({
     ...target,
-    output_directory: localPathStringSchema
-      .refine(isAbsolute, {
-        message: "output_directory must be an absolute local filesystem path",
-      })
-      .describe("Absolute, absent output directory; parent must exist"),
+    output_directory: absoluteLocalPathStringSchema.describe(
+      "Absolute, absent output directory; parent must exist",
+    ),
     range: range
       .optional()
       .describe("Explicit file-byte interval; omit to extract the whole file"),
@@ -53,6 +55,11 @@ export const firmwareInputSchemas = {
       .max(100_000)
       .default(10_000)
       .describe("Staging entry budget, including directories and links"),
+    publication_timeout_ms: timeout
+      .default(120_000)
+      .describe(
+        "Publication and final cleanup budget in milliseconds, started after extraction and inventory; increase for a slow destination",
+      ),
   }),
 } as const;
 
@@ -84,6 +91,14 @@ const engine = z.strictObject({
   executable_sha256: digestSchema,
   source_revision: z.null(),
   worker_count: z.literal(1),
+});
+/** Small execution metadata contract; historical omissions remain unknown. */
+export const firmwareExecutionBudgetSchema = z.object({
+  analysis_timeout_ms: timeout
+    .exactOptional()
+    .describe(
+      "Actual analysis phase budget in milliseconds; absent in historical Evidence means unknown",
+    ),
 });
 const selection = z.strictObject({ ...range.shape, sha256: digestSchema });
 const chunk = z.strictObject({
@@ -132,6 +147,7 @@ export interface FirmwarePartialObservation {
 /** Portable results retain reported boundaries, unknowns and extraction lineage. */
 export const firmwareResultSchemas = {
   inspect_firmware_regions: z.strictObject({
+    ...firmwareExecutionBudgetSchema.shape,
     engine,
     input_size: bytes,
     regions: z.array(
@@ -148,6 +164,7 @@ export const firmwareResultSchemas = {
     coverage: z.literal("signature_scan"),
   }),
   extract_firmware: z.strictObject({
+    ...firmwareExecutionBudgetSchema.shape,
     engine,
     selection,
     output_directory: z.string(),

@@ -1,4 +1,6 @@
 import { expect, it } from "vitest";
+import { AnalysisCancelledError } from "../domain/analysisErrorCore.js";
+import { ProviderCleanupError } from "../domain/providerCleanupError.js";
 import { parseCapinfosOutput, parseTsharkJsonOutput } from "./PcapOutput.js";
 
 const capture = (layers: ReadonlyArray<Record<string, string[]>>) =>
@@ -13,6 +15,93 @@ const capture = (layers: ReadonlyArray<Record<string, string[]>>) =>
       },
     })),
   );
+
+it.each([
+  [[], []],
+  [["", ""], []],
+  [["user_dlt:data", ""], [{ protocol: "user_dlt:data", packet_count: 1 }]],
+  [["", "user_dlt:data"], [{ protocol: "user_dlt:data", packet_count: 1 }]],
+  [
+    ["user_dlt:data", "", "user_dlt:data"],
+    [{ protocol: "user_dlt:data", packet_count: 2 }],
+  ],
+] as const)(
+  "counts every frame while aggregating only reported protocol stacks: %j",
+  async (stacks, expected) => {
+    const result = await parseTsharkJsonOutput(
+      capture(stacks.map((stack) => ({ "frame.protocols": [stack] }))),
+    );
+    expect(result.packetCount).toBe(stacks.length);
+    expect(result.protocolDistribution).toEqual(expected);
+    expect(result.protocolCount).toBe(expected.length);
+    expect(result.partial).toBe(false);
+  },
+);
+
+it.each([
+  { "frame.number": ["1"] },
+  { "frame.number": ["1"], "frame.protocols": [] },
+  { "frame.number": ["1"], "frame.protocols": ["", "ip"] },
+  { "frame.number": ["1"], "frame.protocols": ["ip", "ip"] },
+  { "frame.number": ["1"], "frame.protocols": [null] },
+  { "frame.number": ["1"], "frame.protocols": "" },
+  { "frame.protocols": [""] },
+  { "frame.number": ["2"], "frame.protocols": [""] },
+])("rejects malformed or ambiguous frame inventories: %j", async (layers) => {
+  await expect(
+    parseTsharkJsonOutput(JSON.stringify([{ _source: { layers } }])),
+  ).rejects.toMatchObject({ _tag: "AnalysisProtocolError" });
+});
+
+it.each(["before", "after"] as const)(
+  "retains endpoint and DNS facts with an empty stack %s the response",
+  async (position) => {
+    const empty = { "frame.protocols": [""] };
+    const response = {
+      "frame.protocols": ["eth:ethertype:ip:udp:dns"],
+      "ip.src": ["192.0.2.53"],
+      "ip.dst": ["192.0.2.1"],
+      "dns.qry.name": ["api.example"],
+      "dns.flags.response": ["True"],
+      "dns.a": ["203.0.113.5"],
+    };
+    const result = await parseTsharkJsonOutput(
+      capture(position === "before" ? [empty, response] : [response, empty]),
+    );
+    expect(result).toMatchObject({
+      packetCount: 2,
+      protocolCount: 1,
+      protocolDistribution: [
+        { protocol: "eth:ethertype:ip:udp:dns", packet_count: 1 },
+      ],
+      endpointCount: 2,
+      endpoints: [
+        { address: "192.0.2.1", port: null, packet_count: 1 },
+        { address: "192.0.2.53", port: null, packet_count: 1 },
+      ],
+      dnsQueryCount: 1,
+      dnsQueries: [
+        {
+          query: "api.example",
+          response_addresses: ["203.0.113.5"],
+          response_address_count: 1,
+        },
+      ],
+      partial: false,
+    });
+  },
+);
+
+it("rejects duplicate frame identities even when protocol stacks are empty", async () => {
+  await expect(
+    parseTsharkJsonOutput(
+      capture([
+        { "frame.protocols": [""] },
+        { "frame.number": ["1"], "frame.protocols": [""] },
+      ]),
+    ),
+  ).rejects.toMatchObject({ _tag: "AnalysisProtocolError" });
+});
 
 it("binds interleaved DNS answers to the question in their response packet", async () => {
   const result = await parseTsharkJsonOutput(
@@ -156,12 +245,26 @@ it("refuses dense JSON before its expanded graph exceeds the decoding budget", a
   });
 });
 
-it("permits cancellation while validating and aggregating producer output", async () => {
-  const controller = new AbortController();
-  const result = parseTsharkJsonOutput(
-    capture([{ "ip.src": ["192.0.2.1"] }]),
-    controller.signal,
-  );
-  controller.abort(new Error("stopped"));
-  await expect(result).rejects.toThrow("stopped");
-});
+it.each([
+  null,
+  "stopped",
+  new ProviderCleanupError("caller", ["foreign-resource"], {}),
+])(
+  "preserves opaque cancellation while validating producer output: %s",
+  async (reason) => {
+    const controller = new AbortController();
+    const result = parseTsharkJsonOutput(
+      capture([{ "ip.src": ["192.0.2.1"] }]),
+      controller.signal,
+    );
+    controller.abort(reason);
+    const failure = await result.catch((cause: unknown) => cause);
+    expect(failure).toBeInstanceOf(AnalysisCancelledError);
+    if (!(failure instanceof AnalysisCancelledError)) throw failure;
+    expect(failure.cause).toBe(reason);
+    expect(failure.cleanupIncomplete).toBe(false);
+    expect(failure.cleanupResources).toEqual([]);
+    if (reason instanceof ProviderCleanupError)
+      expect(reason.cleanupIncomplete).toBe(true);
+  },
+);

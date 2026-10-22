@@ -507,6 +507,149 @@ describe("direct Electron Framework binary selection", () => {
   });
 });
 
+describe("absolute Electron Framework symlinks", () => {
+  const versionedFramework = async (prefix: string) => {
+    const root = await createTestTempDirectory(prefix);
+    const app = join(root, "Fixture.app");
+    const framework = join(
+      app,
+      "Contents",
+      "Frameworks",
+      "Electron Framework.framework",
+    );
+    for (const [version, state] of [
+      ["A", 0x30],
+      ["B", 0x31],
+    ] as const) {
+      await mkdir(join(framework, "Versions", version), { recursive: true });
+      await writeFile(
+        join(framework, "Versions", version, "Electron Framework"),
+        thinFuseImage([state]).bytes,
+      );
+    }
+    return { root, app, framework };
+  };
+
+  const expectEscapes = async (path: string) => {
+    const result = await provider.inspect({ path });
+    expect(result.ok, path).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toMatchObject({
+      _tag: "AnalysisInputError",
+      issues: [
+        expect.objectContaining({
+          path: ["path"],
+          message: expect.stringContaining("escapes"),
+        }),
+      ],
+    });
+  };
+
+  const expectHopLimit = async (path: string) => {
+    const result = await provider.inspect({ path });
+    expect(result.ok, path).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toMatchObject({
+      _tag: "AnalysisInputError",
+      issues: [
+        expect.objectContaining({
+          path: ["path"],
+          message: expect.stringContaining("hop limit exceeded"),
+        }),
+      ],
+    });
+  };
+
+  it("follows an absolute Versions/Current link that stays inside", async () => {
+    const relative = await versionedFramework(
+      "rea-electron-fuses-absolute-relative-",
+    );
+    const absolute = await versionedFramework(
+      "rea-electron-fuses-absolute-inside-",
+    );
+    await symlink("B", join(relative.framework, "Versions", "Current"));
+    await symlink(
+      join(absolute.framework, "Versions", "B"),
+      join(absolute.framework, "Versions", "Current"),
+    );
+
+    const fromRelative = await inspect(relative.app);
+    const fromAbsolute = await inspect(absolute.app);
+    const binary = join(
+      absolute.framework,
+      "Versions",
+      "B",
+      "Electron Framework",
+    );
+    const selected = join(
+      absolute.framework,
+      "Versions",
+      "Current",
+      "Electron Framework",
+    );
+    const fromSelected = await inspect(selected);
+    expect(fromRelative.artifact.resolved_path).toBe(
+      join(relative.framework, "Versions", "B", "Electron Framework"),
+    );
+    expect(fromAbsolute.artifact.resolved_path).toBe(binary);
+    expect(fromAbsolute.artifact.sha256).toBe(fromRelative.artifact.sha256);
+    expect(fromAbsolute.slices[0]?.sentinels[0]?.fuses[0]?.state).toBe(
+      "enabled",
+    );
+    expect(fromSelected.artifact.resolved_path).toBe(binary);
+    expect(fromSelected.artifact.sha256).toBe(fromRelative.artifact.sha256);
+  });
+
+  it("rejects an absolute Versions/Current link outside the framework", async () => {
+    const { root, app, framework } = await versionedFramework(
+      "rea-electron-fuses-absolute-outside-",
+    );
+    const outside = join(root, "outside");
+    await mkdir(outside);
+    await writeFile(
+      join(outside, "Electron Framework"),
+      thinFuseImage([0x31]).bytes,
+    );
+    await symlink(outside, join(framework, "Versions", "Current"));
+
+    await expectEscapes(app);
+  });
+
+  it("rejects an absolute in-framework link that then hops outside", async () => {
+    const { app, framework } = await versionedFramework(
+      "rea-electron-fuses-absolute-hop-",
+    );
+    const outside = join(app, "Contents", "Other");
+    await mkdir(outside);
+    await writeFile(
+      join(outside, "Electron Framework"),
+      thinFuseImage([0x31]).bytes,
+    );
+    await symlink("../../../Other", join(framework, "Versions", "Gate"));
+    await symlink(
+      join(framework, "Versions", "Gate"),
+      join(framework, "Versions", "Current"),
+    );
+
+    await expectEscapes(app);
+    await expectEscapes(
+      join(framework, "Versions", "Current", "Electron Framework"),
+    );
+  });
+
+  it("rejects an absolute Current cycle instead of falling back to Versions/A", async () => {
+    const { app, framework } = await versionedFramework(
+      "rea-electron-fuses-absolute-cycle-",
+    );
+    const current = join(framework, "Versions", "Current");
+    // A valid A binary exists, so this also proves the failed Current walk is
+    // not mistaken for absence and silently replaced by the fallback.
+    await symlink(current, current);
+
+    await expectHopLimit(app);
+  });
+});
+
 it.each(["Contents", "Frameworks"])(
   "rejects a redirected %s for every app selection form",
   async (segment) => {
@@ -575,8 +718,15 @@ it("enforces the 32 sentinel boundary with typed and public limit details", asyn
         expect(result.error._tag).toBe("AnalysisResourceConstraintError");
         expect(projectAnalysisError(result.error)).toMatchObject({
           code: "resource_constraint",
+          retryable: false,
           details: { reported_limits: { maximum_sentinels_per_slice: 32 } },
+          remediation: {
+            action: expect.stringContaining("sentinel inventory"),
+          },
         });
+        expect(
+          projectAnalysisError(result.error).remediation.action,
+        ).not.toMatch(/Wait for an active analysis/u);
       }
     }
   }
@@ -593,7 +743,11 @@ it("rejects a sparse artifact over 1 GiB before scanning", async () => {
     expect(result.error._tag).toBe("AnalysisResourceConstraintError");
     expect(projectAnalysisError(result.error)).toMatchObject({
       code: "resource_constraint",
+      retryable: false,
       details: { reported_limits: { maximum_input_bytes: 1024 * 1024 * 1024 } },
+      remediation: {
+        action: expect.stringContaining("does not admit this input"),
+      },
     });
   }
 });

@@ -1,7 +1,27 @@
 import { cp, mkdir, readFile, readdir } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 
-import { exec, pathExists } from "./lib/verify-package-core.mjs";
+import { exec, execNpm, pathExists } from "./lib/verify-package-core.mjs";
+
+/** Install the separately locked Skills CLI so verification resolves no registry metadata. */
+const lockedSkillsCli = async (root, workspace) => {
+  const tool = join(workspace, "skills-cli");
+  await mkdir(tool, { recursive: true });
+  for (const file of ["package.json", "package-lock.json"])
+    await cp(join(root, "scripts/verify-tools/skills", file), join(tool, file));
+  await execNpm(
+    ["ci", "--prefer-offline", "--ignore-scripts", "--no-audit", "--no-fund"],
+    { cwd: tool, timeout: 120_000 },
+  );
+  const installed = join(tool, "node_modules/skills");
+  const manifest = JSON.parse(
+    await readFile(join(installed, "package.json"), "utf8"),
+  );
+  return {
+    version: manifest.version,
+    entry: join(installed, manifest.bin.skills),
+  };
+};
 
 /** Exercise Skills' default root discovery without ignored build outputs. */
 export async function verifyRepositorySkill({ root, workspace }) {
@@ -33,16 +53,14 @@ export async function verifyRepositorySkill({ root, workspace }) {
     throw new Error("repository skill check must run without generated skills");
   await mkdir(consumer, { recursive: true });
   await mkdir(home, { recursive: true });
-  const skillsVersion = "1.7.2";
+  const { version: skillsVersion, entry } = await lockedSkillsCli(
+    root,
+    workspace,
+  );
   await exec(
-    "npm",
+    process.execPath,
     [
-      "exec",
-      "--yes",
-      "--package",
-      `skills@${skillsVersion}`,
-      "--",
-      "skills",
+      entry,
       "add",
       snapshot,
       "--skill",

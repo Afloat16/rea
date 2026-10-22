@@ -11,7 +11,7 @@ import {
 } from "./WindowsNativeLoader.js";
 
 const launchSchema = z.strictObject({
-  pid: z.number().int().positive().max(0xffff_ffff),
+  pid: z.int().positive().max(0xffff_ffff),
   handle: windowsHandleSchema,
   jobAssigned: z.literal(true),
   killOnOwnerClose: z.literal(true),
@@ -21,18 +21,14 @@ const pollSchema = z.strictObject({
   stderr: z.instanceof(Buffer),
   stdoutEnded: z.boolean(),
   stderrEnded: z.boolean(),
-  exitCode: z.number().int().nonnegative().max(0xffff_ffff).nullable(),
-  activeProcesses: z.number().int().nonnegative(),
+  exitCode: z.int().nonnegative().max(0xffff_ffff).nullable(),
+  activeProcesses: z.int().nonnegative(),
 });
 // A commit-limited job reports its applied limit at launch and its
 // notification state on every poll; an unlimited job reports neither.
 const limitedPollSchema = pollSchema.extend({
   memoryLimitReached: z.boolean(),
-  peakJobMemoryBytes: z
-    .number()
-    .int()
-    .nonnegative()
-    .max(Number.MAX_SAFE_INTEGER),
+  peakJobMemoryBytes: z.int().nonnegative().max(Number.MAX_SAFE_INTEGER),
 });
 
 /** Optional native job controls for one owned Windows process tree. */
@@ -65,6 +61,10 @@ export class WindowsOwnedProcess extends EventEmitter {
   readonly #settled: Promise<void>;
   #settle: (() => void) | undefined;
   #closed = false;
+  // Settlement was observed and stream teardown finished, but process_close
+  // has not released every native handle. Later cleanup retries that close
+  // alone; kill and poll still need the job or process handle.
+  #releasePending = false;
   #failure: string | undefined;
   #timer: NodeJS.Timeout | undefined;
   #blockedWake: NodeJS.Timeout | undefined;
@@ -190,7 +190,6 @@ export class WindowsOwnedProcess extends EventEmitter {
   async #writeInput(chunk: unknown): Promise<void> {
     const bytes = z.instanceof(Buffer).parse(chunk);
     const written = z
-      .number()
       .int()
       .nonnegative()
       .max(Number.MAX_SAFE_INTEGER)
@@ -247,6 +246,17 @@ export class WindowsOwnedProcess extends EventEmitter {
 
   async #stop(): Promise<ProcessCleanupResult> {
     if (this.#closed) return { cleaned: true, signaled: false };
+    if (this.#releasePending) {
+      try {
+        this.#release();
+        return { cleaned: true, signaled: false };
+      } catch (cause: unknown) {
+        return {
+          cleaned: false,
+          reason: cause instanceof Error ? cause.message : String(cause),
+        };
+      }
+    }
     let timer: NodeJS.Timeout | undefined;
     try {
       const signaled = this.kill();
@@ -323,6 +333,17 @@ export class WindowsOwnedProcess extends EventEmitter {
   #poll(): void {
     this.#timer = undefined;
     if (this.#closed) return;
+    if (this.#releasePending) {
+      try {
+        this.#release();
+      } catch (cause: unknown) {
+        const failure =
+          cause instanceof Error ? cause : new Error(String(cause));
+        this.#failure = failure.message;
+        if (this.listenerCount("error") > 0) this.emit("error", failure);
+      }
+      return;
+    }
     try {
       const observed: unknown = this.#authority.call("process_poll", [
         this.#handle,
@@ -361,7 +382,8 @@ export class WindowsOwnedProcess extends EventEmitter {
       // Native lifecycle failures belong to the error/cleanup channels, never
       // the captured stderr observation produced by the child itself.
       if (this.listenerCount("error") > 0) this.emit("error", failure);
-      // Retain the original job so explicit cleanup can retry its observation.
+      // Poll failures keep the job for another observation. A process_close
+      // failure leaves #releasePending so cleanup retries that close alone.
     }
   }
 
@@ -385,14 +407,18 @@ export class WindowsOwnedProcess extends EventEmitter {
 
   #release(): void {
     if (this.#closed) return;
-    if (this.#timer !== undefined) clearTimeout(this.#timer);
-    this.#clearBlockedWake();
-    this.stdin?.destroy();
-    if (!this.stdout.destroyed) this.stdout.end();
-    if (!this.stderr.destroyed) this.stderr.end();
-    // End local streams before releasing the native handle. If release fails,
-    // the retained job can be retried without leaving output streams open.
+    if (!this.#releasePending) {
+      if (this.#timer !== undefined) clearTimeout(this.#timer);
+      this.#timer = undefined;
+      this.#clearBlockedWake();
+      this.stdin?.destroy();
+      if (!this.stdout.destroyed) this.stdout.end();
+      if (!this.stderr.destroyed) this.stderr.end();
+      this.#releasePending = true;
+    }
+    // Streams are already ended. A failed close retries this call alone.
     this.#authority.call("process_close", [this.#handle]);
+    this.#releasePending = false;
     this.#closed = true;
     this.#settle?.();
     this.emit("close", this.exitCode, null);

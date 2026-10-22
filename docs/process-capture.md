@@ -38,6 +38,10 @@ supervision on macOS. REA removes that directory when it exits. REA does not
 install Xcode, Command Line Tools, or other software. Capability checks prepare
 this helper before reporting macOS capture as available.
 
+Stopping process sampling or cancelling an ownership query waits for its issued
+inspection command to exit. Closing a macOS ownership reader rejects new queries
+and waits for admitted helper commands before removing their executable directory.
+
 ## Capture a command
 
 For a small first capture, save this as `scenario.json`:
@@ -241,6 +245,22 @@ follow also remain unknown. Partial enumeration of one root does not erase
 known effects in another, and unavailable content hashes do not by themselves
 make path absence unknown.
 
+When a follow-up read fails after an entry's metadata was observed, the
+snapshot keeps unaffected observations and records an `entry_unavailable`
+enumeration omission with the root-aliased path and system error code.
+Successfully observed identity replacements use `identity_changed` with a null
+system code. Unstable symlink targets are omitted; already observed directory
+metadata remains available. The affected root stays incomplete, so omitted
+entries do not prove deletion. A path missing at its initial lookup remains an
+observed absence.
+
+Before launch, a selected root below a non-directory, or one whose lookup is
+denied or otherwise unavailable, fails capture. After admission, a root or descendant lookup that
+reports a missing path or a non-directory ancestor is an observed absence. A
+denied or otherwise unavailable lookup records an `entry_unavailable` omission
+for that path instead, and its root stays incomplete. Cancellation and
+unexpected I/O failures still stop capture.
+
 Terminal frame `data` is the comparison text after the selected normalization.
 New captures also preserve `raw_data` when normalization changes a PTY chunk;
 otherwise `data` is already the original text. Older captures may lack the
@@ -419,13 +439,26 @@ Every capture requires `truncation_details`, with separate accounting for:
   imply incomplete path enumeration.
 - `process`: sampling limit and whether sampling ended partially. Coverage
   remains `sampled`, including when that limit was not exhausted.
+  `sampling_failures` counts failed read observations plus at most one
+  unfinished pass interrupted by sampler shutdown. `first_sampling_failure`
+  retains the first attributed read diagnostic, with shutdown context appended
+  when applicable; interruption alone has an explicit shutdown diagnostic.
+  Denied or failed procfs reads mark
+  sampling partial while preserving readable process rows and thread children;
+  a process with unreadable identity is not attributed. Expected process-exit
+  races are separate from failed observations. Shutdown counts only when it
+  interrupts a read or leaves traversal unfinished; a completed pass does not
+  become partial merely because the sampler stops. Completed rows
+  remain available and issued reads settle before final coverage is returned.
 
 The aggregate `truncated` flag summarizes these observations. Comparisons retain
 results for unaffected dimensions and mark affected dimensions unknown; an
 incomplete capture cannot locate the first divergence across all dimensions.
 Trace assertions use coverage for the sources they select, so an assertion
 about complete raw terminal output need not fail because rendered snapshots
-were omitted. Captures missing `truncation_details` are rejected on import;
+were omitted. A trace difference applies to the dimensions identified by its
+diagnostic; unrelated dimensions retain their own comparison, including unknown
+coverage. Captures missing `truncation_details` are rejected on import;
 preserve them as historical files and recapture for current comparisons.
 `limits.file_bytes` is already the cumulative whole-file hashing budget,
 independent of `limits.output_bytes`, which bounds retained terminal content.
@@ -433,11 +466,61 @@ Each filesystem checkpoint starts with a fresh `file_bytes` budget across all
 selected roots; it is not a per-file allowance. File contents are read in
 64 KiB chunks for hashing and are not embedded in capture Evidence.
 
+Ownership inspections bind run-token reads to native start identities and retain
+related generations through reparenting, group changes, omitted rows, and cleanup
+retries. A host without native identity reads still token-checks process-table
+rows that appear only in a launcher-exit refresh before reporting that group
+clean or publishing an empty lineage. A matching token authorizes a signal only
+for a group whose leader carries the same token. A matching token whose leader
+is absent, or an unreadable token for a still-live new row, stays unresolved. A
+readable foreign token is not signaled. An unreadable row that has exited by
+the confirmation read does not hide a new row in that confirmation table, and a
+group proven while revalidating another owned group is signaled in the same
+cleanup. A matched row that changes parent or group on the confirmation read
+is token-checked again. A PID whose token was already read is read again
+on the next confirmation even when its parent and group return to the
+pre-exit values. A PID whose first token was foreign is read again
+on that table, because the PID alone does not identify the process. A PID
+from the pre-exit table is read again when its parent or group changes, and
+an unchanged pre-existing row that was never token-read stays unread. Lineage
+publishes one row for each PID. Confirmation reads are bounded; a table that keeps producing unreadable
+replacements stays unresolved. That refresh does not retain a ledger
+for a later attempt that never observes the launcher. Lineage reads a row again
+when its parent, group, or launcher-tree membership changes, and it reads a
+token again on the next refresh even when those fields are unchanged. The
+launcher is read on every lineage refresh; a missing, unowned, or
+relation-changed launcher PID is not published as a verified lineage. A
+descendant absent from the latest refresh is omitted. An
+ancestor move cannot leave a foreign descendant inside a verified result. A
+group that reappears after cleanup already processed it is revalidated once;
+another appearance stays unresolved. The captured run keeps
+one evidence owner through settlement and cleanup.
+An absent or changed token leaves a previously related generation unresolved;
+current token proof is still required before signaling. Swept cleanup verifies the
+remaining family after its group signals. Coverage is bounded by the native
+snapshots and generations inspected; sampled group IDs select candidates.
+
 When the host withholds an unrelated process’s ownership token, REA leaves that
 process untouched and records its PID and reason in `cleanup.unverified_processes`
 and process residual unknowns. Successful cleanup verifies the owned group;
 it does not attribute those unrelated processes. Related or otherwise unexplained
 unreadable processes still prevent successful cleanup.
+
+Failed cleanup retains its exact resources for the owning session to retry.
+The CLI retries before projecting its error; MCP retries pending cleanup before
+admitting another capture and during session cleanup. Once every attributed
+owner confirms release, the live error status clears `cleanup_incomplete`.
+The original failure, observations and `cleanup_report` retain the facts from
+the earlier attempt, including any cleanup failure recorded then.
+
+Snapshot file handles, directory handles, and the selected executable reader
+follow the same ownership rule. A failed close preserves completed observations
+and any primary read failure; it cannot turn a completed digest into a successful
+capture with unresolved cleanup. Interrupted snapshots retain examined entries
+with incomplete coverage in `partial_observation`, alongside the failure.
+File-handle retry uses the exact retained owner. After a directory close rejects,
+Node does not expose enough handle validity to authorize another native close;
+REA retains that unresolved owner and blocks further captures in the session.
 
 On macOS, changing a Node process's `process.title` can make its run token
 unreadable. Node documents that [setting the title overwrites argv memory](https://nodejs.org/download/release/v24.18.0/docs/api/process.html#processtitle).
@@ -468,6 +551,15 @@ an unset or empty compiler setting keeps the normal `xcrun swiftc` path. A
 missing or relative SDK/compiler path fails with an actionable prerequisite
 error before compilation. An incompatible installation reports the compiler's
 bounded diagnostics; REA does not repair or replace the toolchain.
+
+The compile deadline is `REA_SWIFTC_COMPILE_TIMEOUT_MS`. An omitted value is
+120,000 ms, and accepted values are integers from 1 to 2,147,483,647. REA reads
+the variable from the environment that starts the process and keeps that
+deadline for every helper compile in that process. Restart REA to apply a
+change; the next ownership-helper compile uses the new value. A timeout names
+the effective milliseconds. Invalid values fail configuration validation at
+startup. Embedded compiler diagnostics are cut at 512 bytes, and this release
+has no runtime override for that excerpt.
 
 For example, select paths from your existing Xcode or Command Line Tools
 installation **before** entering an enforced write boundary:

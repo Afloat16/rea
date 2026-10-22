@@ -13,7 +13,7 @@ export const NATIVE_AOT_MAX_WORK_UNITS = 64 * 1024 * 1024;
 export const NATIVE_AOT_MAX_WORKING_MEMORY_BYTES = 64 * 1024 * 1024;
 /** Version of the built-in read-only PE metadata interpretation in profiles. */
 export const NATIVE_AOT_PROFILE_CONTRACT_REVISION =
-  "rtr-9.1-x64-pe-read-only-v3";
+  "rtr-9.1-x64-pe-read-only-v5";
 
 export type NativeAotParserLimits = {
   readonly sourceBytes: number;
@@ -72,6 +72,34 @@ class NativeAotParserBudget {
     this.workingMemoryBytes = Math.max(0, this.workingMemoryBytes - bytes);
   }
 }
+
+/** Hydration stops by throwing; other scans record truncation and continue. */
+class NativeAotParserBudgetError extends Error {
+  constructor(readonly budget: "work" | "working-memory") {
+    super(
+      budget === "work"
+        ? "NativeAOT parser work budget is exhausted"
+        : "NativeAOT working-memory budget is exhausted",
+    );
+    this.name = "NativeAotParserBudgetError";
+  }
+}
+
+const parserBudgetExhausted = (
+  budget: NativeAotParserBudgetError["budget"],
+): never => {
+  throw new NativeAotParserBudgetError(budget);
+};
+
+const NATIVE_AOT_PARSER_BUDGET_RECOVERY =
+  "This release has no runtime override for that NativeAOT parser budget. Repeating the unchanged request fails the same way.";
+
+const nativeAotHydrationFailure = (cause: unknown): string =>
+  cause instanceof NativeAotParserBudgetError
+    ? `${cause.message}. ${NATIVE_AOT_PARSER_BUDGET_RECOVERY}`
+    : cause instanceof Error
+      ? cause.message
+      : "DEHYDRATED_DATA could not be hydrated";
 
 type Section = {
   readonly name: string;
@@ -301,8 +329,7 @@ export const nativeAotSnapshotOverCapacity = (
     {
       format: "dotnet-nativeaot",
       status: "partial",
-      reason:
-        "The captured PE exceeds the read-only NativeAOT snapshot byte budget.",
+      reason: `The captured PE exceeds the read-only NativeAOT snapshot byte budget of ${String(limits.sourceBytes)} bytes. This release has no runtime override.`,
       analysis_artifact_sha256: sha256,
       analysis_mode: "read-only-derived-overlay",
       header_address: null,
@@ -387,6 +414,7 @@ class PeImage {
     if (bytes.length < 0x40 || bytes.toString("latin1", 0, 2) !== "MZ")
       throw new Error("Not a PE image");
     const peOffset = this.#u32(0x3c);
+    if (peOffset < 0x40) throw new Error("PE header overlaps the DOS header");
     this.#range(peOffset, 24);
     if (bytes.toString("latin1", peOffset, peOffset + 4) !== "PE\0\0")
       throw new Error("Invalid PE signature");
@@ -399,6 +427,12 @@ class PeImage {
     const optionalSize = this.#u16(peOffset + 20);
     const optional = peOffset + 24;
     this.#range(optional, optionalSize);
+    // Mapping fields through SizeOfHeaders must belong to this header,
+    // independently of whether the following file bytes are available.
+    if (optionalSize < 64)
+      throw new Error(
+        "PE optional header is too short for image mapping fields",
+      );
     const magic = this.#u16(optional);
     if (magic !== 0x20b || this.#machine !== 0x8664)
       throw new Error("Only x64 PE32+ is supported");
@@ -407,8 +441,18 @@ class PeImage {
     this.#sizeOfHeaders = this.#u32(optional + 60);
     if (count < 1 || this.sizeOfImage === 0)
       throw new Error("Unsupported PE image extent");
+    if (this.imageBase + BigInt(this.sizeOfImage) > 1n << 64n)
+      throw new Error("PE image exceeds the 64-bit address domain");
     const sectionOffset = optional + optionalSize;
     this.#range(sectionOffset, count * 40);
+    if (
+      this.#sizeOfHeaders < sectionOffset + count * 40 ||
+      this.#sizeOfHeaders > this.#bytes.length ||
+      this.#sizeOfHeaders > this.sizeOfImage
+    )
+      throw new Error(
+        "PE declared headers do not fit the captured image layout",
+      );
     this.sections = Array.from({ length: count }, (_, index) => {
       const p = sectionOffset + index * 40;
       const name = bytes.toString("ascii", p, p + 8).replace(/\0.*$/u, "");
@@ -425,6 +469,19 @@ class PeImage {
       this.#range(section.rawOffset, section.rawSize);
       if (section.rva + virtualExtent(section) > this.sizeOfImage)
         throw new Error("PE section exceeds the declared image extent");
+    }
+    // Establish one virtual owner before any scan, read, permission query or
+    // hydration. Empty sections own no bytes; adjacent intervals remain valid.
+    const mapped = this.sections
+      .filter((section) => virtualExtent(section) > 0)
+      .sort((left, right) => left.rva - right.rva);
+    let mappedEnd = this.#sizeOfHeaders;
+    for (const section of mapped) {
+      if (section.rva < mappedEnd)
+        throw new Error(
+          "PE virtual section overlaps headers or another section",
+        );
+      mappedEnd = section.rva + virtualExtent(section);
     }
   }
 
@@ -454,8 +511,14 @@ class PeImage {
     const rva = address - this.imageBase;
     if (rva > BigInt(Number.MAX_SAFE_INTEGER)) return null;
     const relative = Number(rva);
-    if (relative < this.#sizeOfHeaders && relative <= this.#bytes.length - size)
+    if (relative < this.#sizeOfHeaders) {
+      if (
+        size > this.#sizeOfHeaders - relative ||
+        relative > this.#bytes.length - size
+      )
+        return null;
       return this.#bytes.subarray(relative, relative + size);
+    }
     for (const section of this.sections) {
       if (this.#budget !== undefined && !this.#budget.consumeWork(1))
         return null;
@@ -796,17 +859,22 @@ const hydrate = (
     );
   let output = Buffer.alloc(Math.min(outputLimit, 64 * 1024));
   if (!budget.reserveWorkingMemory(output.byteLength))
-    throw new Error("NativeAOT working-memory budget is exhausted");
+    parserBudgetExhausted("working-memory");
   let outputLength = 0;
   let cursor = 4;
-  const ensureOutput = (length: number): number => {
+  /** Reserve the next output bytes and return a view of the retained buffer.
+   * Writers must use only this view: growth replaces `output`, so a reference
+   * taken before reserving would write into the superseded buffer. Every byte
+   * of the view must be written because growth leaves new capacity
+   * uninitialized. */
+  const reserveOutput = (length: number): Buffer => {
     if (
       !Number.isSafeInteger(length) ||
       length < 0 ||
       length > outputLimit - outputLength
     ) {
       if (length > budget.limits.workUnits - budget.workUnits)
-        throw new Error("NativeAOT parser work budget is exhausted");
+        parserBudgetExhausted("work");
       throw new Error("Hydrated metadata exceeds its mapped PE section");
     }
     const start = outputLength;
@@ -820,40 +888,33 @@ const hydrate = (
         ),
       );
       if (!budget.reserveWorkingMemory(capacity))
-        throw new Error("NativeAOT working-memory budget is exhausted");
+        parserBudgetExhausted("working-memory");
       const expanded = Buffer.allocUnsafe(capacity);
       output.copy(expanded, 0, 0, outputLength);
       budget.releaseWorkingMemory(output.byteLength);
       output = expanded;
     }
     outputLength = required;
-    return start;
+    return output.subarray(start, required);
   };
   const append = (chunk: Buffer): void => {
-    if (!budget.consumeWork(chunk.length))
-      throw new Error("NativeAOT parser work budget is exhausted");
-    chunk.copy(output, ensureOutput(chunk.length));
+    if (!budget.consumeWork(chunk.length)) parserBudgetExhausted("work");
+    chunk.copy(reserveOutput(chunk.length));
   };
   const appendZero = (length: number): void => {
-    if (!budget.consumeWork(length))
-      throw new Error("NativeAOT parser work budget is exhausted");
-    const start = ensureOutput(length);
-    output.fill(0, start, outputLength);
+    if (!budget.consumeWork(length)) parserBudgetExhausted("work");
+    reserveOutput(length).fill(0);
   };
   const appendRel = (target: bigint): void => {
-    if (!budget.consumeWork(4))
-      throw new Error("NativeAOT parser work budget is exhausted");
+    if (!budget.consumeWork(4)) parserBudgetExhausted("work");
     const delta = target - (base + BigInt(outputLength));
     if (delta < -0x80000000n || delta > 0x7fffffffn)
       throw new Error("Hydrated relative pointer does not fit int32");
-    const offset = ensureOutput(4);
-    output.writeInt32LE(Number(delta), offset);
+    reserveOutput(4).writeInt32LE(Number(delta), 0);
   };
   const appendPtr = (target: bigint): void => {
-    if (!budget.consumeWork(8))
-      throw new Error("NativeAOT parser work budget is exhausted");
-    const offset = ensureOutput(8);
-    output.writeBigUInt64LE(target, offset);
+    if (!budget.consumeWork(8)) parserBudgetExhausted("work");
+    reserveOutput(8).writeBigUInt64LE(target, 0);
   };
   const readFixup = (index: number): bigint => {
     const fixupLocation = dehydrated.end + BigInt(index * 4);
@@ -864,8 +925,7 @@ const hydrate = (
   };
   try {
     while (cursor < first.length) {
-      if (!budget.consumeWork(1))
-        throw new Error("NativeAOT parser work budget is exhausted");
+      if (!budget.consumeWork(1)) parserBudgetExhausted("work");
       const encoded = first[cursor];
       if (encoded === undefined) break;
       cursor++;
@@ -898,8 +958,7 @@ const hydrate = (
           appendPtr(readFixup(payload));
           break;
         case 4:
-          if (!budget.consumeWork(payload * 4))
-            throw new Error("NativeAOT parser work budget is exhausted");
+          if (!budget.consumeWork(payload * 4)) parserBudgetExhausted("work");
           if (
             payload > Math.floor((first.length - cursor) / 4) ||
             payload > Math.floor((outputLimit - outputLength) / 4)
@@ -917,8 +976,7 @@ const hydrate = (
           }
           break;
         case 5:
-          if (!budget.consumeWork(payload * 4))
-            throw new Error("NativeAOT parser work budget is exhausted");
+          if (!budget.consumeWork(payload * 4)) parserBudgetExhausted("work");
           if (
             payload > Math.floor((first.length - cursor) / 4) ||
             payload > Math.floor((outputLimit - outputLength) / 8)
@@ -1318,13 +1376,12 @@ export const parseNativeAotPe = (
     );
   let overlay: ReturnType<typeof hydrate> = null;
   let hydrationError: string | null = null;
+  let hydrationBudgetLimited = false;
   try {
     overlay = hydrate(image, dehydrated[0] as RtrSection, budget);
   } catch (cause: unknown) {
-    hydrationError =
-      cause instanceof Error
-        ? cause.message
-        : "DEHYDRATED_DATA could not be hydrated";
+    hydrationBudgetLimited = cause instanceof NativeAotParserBudgetError;
+    hydrationError = nativeAotHydrationFailure(cause);
   }
   const discovered = discoverTables(image, overlay, budget);
   const frozen = directory.sections.find(
@@ -1363,12 +1420,18 @@ export const parseNativeAotPe = (
     frozen === undefined || frozen.end < frozenFirstCandidate + 14n
       ? 0
       : Number((frozen.end - 14n - frozenFirstCandidate) / 8n + 1n);
-  const recoveryReason =
+  const discoveryReason =
     discovered.truncated && discovered.tables.includedCount === 0
       ? "RTR 9.1 was found, but method-table discovery reached its resource budget before determining whether a unique System.Object root exists."
       : discovered.tables.includedCount === 0
         ? "RTR 9.1 was found, but no unique System.Object method-table root could be recovered from the fully examined image pointers."
         : hydrationError;
+  const recoveryReason =
+    hydrationBudgetLimited &&
+    hydrationError !== null &&
+    discoveryReason !== hydrationError
+      ? `${discoveryReason} ${hydrationError}`
+      : discoveryReason;
   const reportLimitations = [
     "Only x64 PE32+ with RTR 9.1 is supported.",
     "No Ghidra database types, labels, functions, or bytes are created or changed.",

@@ -23,6 +23,7 @@ import { logToolExecution } from "./toolLogging.js";
 import { toolRegistrationOptions } from "./toolRegistrationOptions.js";
 import type { WithAdmittedAnalysis } from "./analysisAdmission.js";
 import { runAdmittedToolOperation } from "./admittedToolOperation.js";
+import { deliverEvidenceResult } from "./contractToolHandler.js";
 
 interface RuntimeToolRegistration {
   readonly logger: Logger;
@@ -93,13 +94,11 @@ const runRuntimeTool = async <Input>(
       const result = await logToolExecution(options.logger, contract.name, () =>
         execute(input, context.mcpReq.signal),
       );
-      if (!result.ok)
-        return options.delivery.toCallToolResult(result, contract);
-      const recorded = options.recordEvidence?.(result.value);
-      return options.delivery.toEvidenceToolResult(
-        result.value,
+      return deliverEvidenceResult(
+        options.server,
+        result,
         contract,
-        recorded,
+        options.recordEvidence,
       );
     },
   );

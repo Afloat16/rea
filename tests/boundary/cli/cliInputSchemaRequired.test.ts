@@ -4,6 +4,11 @@ import { describe, expect, it } from "vitest";
 
 import { createCli } from "../../../src/cli.js";
 import { createCliInventory } from "../../../scripts/lib/catalog-cli.mjs";
+import {
+  apktoolInputSchemas,
+  MAX_SELECTED_LOCALES,
+} from "../../../src/domain/apktool/apktoolResourceAnalysis.js";
+import { presentOmittableDefaults } from "../../../src/cli/omittableDefaults.js";
 
 type CliInstance = ReturnType<typeof createCli>;
 type CommandMap = NonNullable<ReturnType<typeof Cli.toCommands.get>>;
@@ -57,11 +62,18 @@ const parserSchema = (
   return schema instanceof z.ZodObject ? schema : undefined;
 };
 
+/**
+ * Reject a key only when an object parse that omits it fails.
+ * `exactOptional()` rejects explicit `undefined` and still accepts omission.
+ */
 const omissionRejected = (schema: z.ZodObject | undefined): string[] =>
   Object.entries(schema?.shape ?? {})
-    .filter(([, field]) => !field.safeParse(undefined).success)
+    .filter(([key, field]) => !acceptsOmittedKey(key, field))
     .map(([key]) => key)
     .sort();
+
+const acceptsOmittedKey = (key: string, field: z.ZodType): boolean =>
+  z.object({ [key]: field }).safeParse({}).success;
 
 describe("CLI advertised input schemas", () => {
   it("require exactly the inputs whose omission the parser rejects", async () => {
@@ -100,6 +112,30 @@ describe("CLI advertised input schemas", () => {
     expect(mismatches).toEqual([]);
   });
 
+  it("allows an omitted WASM timeout while validating explicitly supplied values", async () => {
+    const cli = createCli({});
+    const advertised = await advertisedSchema(cli, "inspect-wasm-artifact");
+    const options = parserSchema(cli, "inspect-wasm-artifact", "options");
+    expect(options).toBeDefined();
+    const validate = new Ajv2020({ strict: false }).compile(
+      advertised.options ?? {},
+    );
+
+    expect(options?.safeParse({}).success).toBe(true);
+    expect(validate({})).toBe(true);
+    expect(options?.safeParse({ commandTimeoutMs: undefined }).success).toBe(
+      false,
+    );
+    for (const commandTimeoutMs of [1, 30_000, 2_147_483_647]) {
+      expect(options?.safeParse({ commandTimeoutMs }).success).toBe(true);
+      expect(validate({ commandTimeoutMs })).toBe(true);
+    }
+    for (const commandTimeoutMs of [0, 1.5, 2_147_483_648]) {
+      expect(options?.safeParse({ commandTimeoutMs }).success).toBe(false);
+      expect(validate({ commandTimeoutMs })).toBe(false);
+    }
+  });
+
   it("accepts the one-argument keyed-archive call and keeps its constraints", async () => {
     const cli = createCli({});
     const advertised = await advertisedSchema(cli, "inspect-keyed-archive");
@@ -129,6 +165,22 @@ describe("CLI advertised input schemas", () => {
     expect(help.stdout).toContain(
       "archive  Relative archive path when the target is a bundle",
     );
+  });
+
+  it("advertises defaults as omittable on a mounted group root", async () => {
+    const group = Cli.create("group", {
+      args: z.object({ scope: z.enum(["all", "selected"]).default("all") }),
+      run: () => ({ ok: true }),
+    }).command("child", { run: () => ({ ok: true }) });
+    const cli = Cli.create("group-root-test", { sync: false }).command(group);
+
+    presentOmittableDefaults(cli as unknown as CliInstance);
+
+    const advertised = await advertisedSchema(
+      cli as unknown as CliInstance,
+      "group",
+    );
+    expect(advertised.args?.required ?? []).not.toContain("scope");
   });
 });
 
@@ -198,6 +250,40 @@ describe("web module CLI advertised input schema", () => {
     expect(options({ importMapPath: "" })).toBe(false);
     expect(options({ importMapPath: "map\u0000.json" })).toBe(false);
     expect(options({ importMapBaseUrl: "" })).toBe(false);
+  });
+});
+
+describe("Apktool locale selection input schema", () => {
+  it("preserves the owner's array bounds through CLI advertisement and parsing", async () => {
+    const cli = createCli({});
+    const advertised = await advertisedSchema(cli, "decode-android-resources");
+    expect(advertised.options?.properties?.locales).toMatchObject({
+      type: "array",
+      minItems: 1,
+      maxItems: MAX_SELECTED_LOCALES,
+    });
+    const parser = parserSchema(cli, "decode-android-resources", "options");
+    const ajv = new Ajv2020({ strict: false });
+    const validate = ajv.compile({
+      ...advertised.options,
+      $schema: "https://json-schema.org/draft/2020-12/schema",
+    });
+    for (const locales of [
+      undefined,
+      [],
+      ["de"],
+      Array<string>(MAX_SELECTED_LOCALES).fill("de"),
+      Array<string>(MAX_SELECTED_LOCALES + 1).fill("de"),
+      ["not a locale"],
+    ]) {
+      const input = locales === undefined ? {} : { locales };
+      const expected = apktoolInputSchemas.decode_android_resources.safeParse({
+        path: "/targets/app.apk",
+        ...input,
+      }).success;
+      expect(parser?.safeParse(input).success).toBe(expected);
+      expect(validate(input)).toBe(expected);
+    }
   });
 });
 

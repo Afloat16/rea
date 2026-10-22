@@ -1,3 +1,8 @@
+import {
+  artifactIntegrityPairOf,
+  artifactSha256PairSchema,
+  artifactMd5PairSchema,
+} from "./artifactIntegrity.js";
 import { z } from "zod";
 
 import {
@@ -30,14 +35,18 @@ const inspectionHypothesisSchema = z.strictObject({
   limitation: textSchema,
 });
 
-const inspectionContradictionSchema = z.strictObject({
+const inspectionContradictionBaseSchema = z.strictObject({
   contradiction_id: prefixedDigestSchema("aic"),
   statement: textSchema,
   occurrence_id: prefixedDigestSchema("occ"),
-  declared_sha256: z.string().regex(/^[a-f0-9]{64}$/u),
-  observed_sha256: z.string().regex(/^[a-f0-9]{64}$/u),
+
   evidence_id: evidenceIdSchema,
 });
+
+const inspectionContradictionSchema = z.union([
+  inspectionContradictionBaseSchema.extend(artifactSha256PairSchema.shape),
+  inspectionContradictionBaseSchema.extend(artifactMd5PairSchema.shape),
+]);
 
 const nextProbeSchema = z.strictObject({
   operation: textSchema,
@@ -88,15 +97,15 @@ export const artifactInspectionResultSchema = z.strictObject({
   next_probes: z.array(nextProbeSchema),
   coverage: z.strictObject({
     status: z.enum(["complete-within-substeps", "partial", "truncated"]),
-    substeps_completed: z.number().int().min(1),
-    observations_retained: z.number().int().min(0),
-    observations_omitted: z.number().int().min(0),
-    hypotheses_retained: z.number().int().min(0),
-    hypotheses_omitted: z.number().int().min(0),
-    unexplored_branches_retained: z.number().int().min(0),
-    unexplored_branches_omitted: z.number().int().min(0),
-    next_probes_retained: z.number().int().min(0),
-    next_probes_omitted: z.number().int().min(0),
+    substeps_completed: z.int().min(1),
+    observations_retained: z.int().min(0),
+    observations_omitted: z.int().min(0),
+    hypotheses_retained: z.int().min(0),
+    hypotheses_omitted: z.int().min(0),
+    unexplored_branches_retained: z.int().min(0),
+    unexplored_branches_omitted: z.int().min(0),
+    next_probes_retained: z.int().min(0),
+    next_probes_omitted: z.int().min(0),
   }),
   evidence_links: z.array(evidenceIdSchema).min(1),
   limitations: z.array(textSchema),
@@ -269,8 +278,7 @@ const contradictions = (
     const semantic = {
       statement: `Declared integrity for ${value.logical_path} contradicts observed bytes.`,
       occurrence_id: value.occurrence_id,
-      declared_sha256: value.declared_sha256,
-      observed_sha256: value.observed_sha256,
+      ...artifactIntegrityPairOf(value),
       evidence_id: evidenceId,
     };
     return {
@@ -419,10 +427,13 @@ const branch = (
   };
 };
 
+// A completed substep establishes only the coverage its producer examined, so
+// unknown inventory traversal keeps the inspection partial, never complete.
 const inspectionCoverage = (
-  _inventory: ArtifactInventoryResult,
+  inventory: ArtifactInventoryResult,
   omissions: Readonly<Record<string, number>>,
 ): ArtifactInspectionResult["coverage"]["status"] => {
   if (Object.values(omissions).some((count) => count > 0)) return "truncated";
+  if (inventory.coverage.status !== "complete") return "partial";
   return "complete-within-substeps";
 };

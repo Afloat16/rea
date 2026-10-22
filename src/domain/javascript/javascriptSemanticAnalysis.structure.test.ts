@@ -291,6 +291,74 @@ describe("JavaScript semantic analysis: class expression lexical names", () => {
   });
 });
 
+describe("JavaScript semantic analysis: class member keys", () => {
+  it("does not read an outer binding through noncomputed class member names", () => {
+    const ir = analyzeJavaScriptSemantics(`
+      const marker = "seed";
+      class Holder {
+        marker() {}
+        static marker() {}
+        get marker() { return 1; }
+        set marker(value) {}
+        marker = 1;
+        static marker = 2;
+        #marker = 3;
+        #read() { return this.#marker; }
+      }
+    `);
+    expect(ir.references.filter(({ name }) => name === "marker")).toEqual([]);
+  });
+
+  it("does not read an outer binding through TypeScript class member names", () => {
+    const ir = analyzeJavaScriptSemantics(`
+      const marker = "seed";
+      abstract class Holder {
+        declare marker: string;
+        abstract marker(): void;
+        abstract [marker](): void;
+      }
+      class Overloads {
+        marker(): void;
+        marker(value?: number) {}
+      }
+    `);
+    // Only the computed abstract key evaluates the outer binding.
+    expect(
+      ir.references
+        .filter(({ name }) => name === "marker")
+        .map(({ role, location }) => `${role}@${location.start.line}`),
+    ).toEqual(["read@6"]);
+  });
+
+  it("does not capture an outer binding through a noncomputed method name", () => {
+    const ir = analyzeJavaScriptSemantics(`
+      function outer() {
+        const marker = 1;
+        class Holder { marker() { return 2; } }
+        return Holder;
+      }
+    `);
+    expect(ir.closureCaptures).toEqual([]);
+  });
+
+  it("keeps reads from computed class keys and field initializers", () => {
+    const ir = analyzeJavaScriptSemantics(`
+      const marker = "seed";
+      class Holder {
+        [marker]() {}
+        field = marker;
+      }
+    `);
+    const reads = ir.references.filter(
+      ({ name, role }) => name === "marker" && role === "read",
+    );
+    expect(reads.map(({ resolution }) => resolution)).toEqual([
+      "resolved",
+      "resolved",
+    ]);
+  });
+});
+
 describe("JavaScript semantic analysis: structure 2", () => {
   it("retains ESM, re-export, require, and CommonJS export relationships", () => {
     const ir = analyzeJavaScriptSemantics(`
@@ -491,6 +559,120 @@ describe("CommonJS receiver lifetimes", () => {
   });
 });
 
+describe("CommonJS exports defined with Object.defineProperty", () => {
+  const exportsOf = (source: string) =>
+    analyzeJavaScriptSemantics(source).moduleLinks.filter(
+      ({ kind }) => kind === "commonjs-export",
+    );
+  const defineParse =
+    'Object.defineProperty(exports, "parse", { value: () => 1 });';
+
+  it("retains tsc CommonJS re-exports and data descriptors", () => {
+    const links = exportsOf(`
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.VERSION = void 0;
+      exports.VERSION = "1.0";
+      var client_1 = require("./client");
+      Object.defineProperty(exports, "Client", { enumerable: true, get: function () { return client_1.Client; } });
+    `);
+    expect(links.map(({ exportedName }) => exportedName)).toEqual([
+      "__esModule",
+      "VERSION",
+      "VERSION",
+      "Client",
+    ]);
+    // An accessor's result is not proven by the descriptor.
+    expect(links.at(-1)).toMatchObject({
+      localName: null,
+      callableId: null,
+      specifier: null,
+    });
+  });
+
+  it.each([
+    ["() => 1", "parse"],
+    ['require("./parser")', "parse"],
+    ['require("./parser").parse', "parse"],
+    ["parse", "parse"],
+    ['holder.parse = require("./parser").parse', "parse"],
+    ["first = second = () => 1", "parse"],
+  ])(
+    "links a data descriptor value %s like the equivalent assignment",
+    (value, name) => {
+      const strip = (links: ReturnType<typeof exportsOf>) =>
+        links.map(({ location: _location, callableId, ...link }) => ({
+          ...link,
+          callable: callableId !== null,
+        }));
+      const assigned = exportsOf(`exports.${name} = ${value};`);
+      const defined = exportsOf(
+        `Object.defineProperty(exports, "${name}", { value: ${value} });`,
+      );
+      expect(strip(defined)).toEqual(strip(assigned));
+      expect(defined).toHaveLength(1);
+    },
+  );
+
+  it.each([
+    defineParse,
+    `module.exports = {}; ${defineParse.replace("(exports", "(module.exports")}`,
+    `module.exports = {}; exports = module.exports; ${defineParse}`,
+  ])("retains a connected receiver: %s", (source) => {
+    expect(exportsOf(source)).toContainEqual(
+      expect.objectContaining({
+        exportedName: "parse",
+        callableId: expect.any(String),
+      }),
+    );
+  });
+
+  it.each([
+    `module.exports = {}; ${defineParse}`,
+    `exports = {}; ${defineParse}`,
+    `${defineParse} module.exports = {};`,
+  ])("excludes a detached receiver: %s", (source) => {
+    expect(
+      exportsOf(source).filter(({ exportedName }) => exportedName === "parse"),
+    ).toEqual([]);
+  });
+
+  it.each([
+    `if (flag) module.exports = {}; ${defineParse}`,
+    `function replace() { exports = {}; } replace(); ${defineParse}`,
+    `module.exports = {}; Object.defineProperty(module, "exports", { value: exports }); ${defineParse}`,
+    `if (flag) { ${defineParse} }`,
+  ])("keeps an uncertain receiver unresolved: %s", (source) => {
+    expect(exportsOf(source)).toContainEqual(
+      expect.objectContaining({
+        exportedName: "parse",
+        callableId: null,
+        localName: null,
+      }),
+    );
+  });
+
+  it.each([
+    'const Object = { defineProperty() {} }; Object.defineProperty(exports, "parse", { value: 1 });',
+    'Object.defineProperty = patched; Object.defineProperty(exports, "parse", { value: 1 });',
+    'Object.defineProperty(other, "parse", { value: 1 });',
+    'Object.defineProperty(module, "parse", { value: 1 });',
+    'function local(exports) { Object.defineProperty(exports, "parse", { value: 1 }); }',
+    'Object.defineProperty(exports, "parse");',
+    "Object.defineProperty(...args);",
+  ])("does not treat other defineProperty calls as exports: %s", (source) => {
+    expect(
+      exportsOf(source).filter(({ exportedName }) => exportedName === "parse"),
+    ).toEqual([]);
+  });
+
+  it("keeps a dynamic defined key unknown", () => {
+    expect(
+      exportsOf("Object.defineProperty(exports, key, { value: 1 });"),
+    ).toEqual([expect.objectContaining({ exportedName: "*" })]);
+  });
+});
+
 describe("JavaScript semantic analysis: write references", () => {
   it("classifies destructuring and loop targets as writes, not reads", () => {
     const ir = analyzeJavaScriptSemantics(`
@@ -531,6 +713,44 @@ describe("JavaScript semantic analysis: write references", () => {
       "write", // total++
       "write", // total = 2
       "read", // const observed = total
+    ]);
+  });
+
+  it("treats TypeScript parameter-property declarations as bindings rather than reads", () => {
+    const ir = analyzeJavaScriptSemantics(`
+      const seed = 1;
+      class Service {
+        constructor(
+          public x: number,
+          public y = 1,
+          public z = seed,
+        ) {
+          console.log(this.x);
+          console.log(y);
+        }
+      }
+    `);
+    const referencesFor = (name: string) =>
+      ir.references.filter((reference) => reference.name === name);
+
+    // Parameter properties are definitions, not source identifier reads.
+    expect(referencesFor("x")).toEqual([]);
+    expect(referencesFor("z")).toEqual([]);
+
+    // Actual reads in constructor body survive.
+    expect(referencesFor("y")).toEqual([
+      expect.objectContaining({
+        name: "y",
+        role: "read",
+      }),
+    ]);
+
+    // Actual reads in parameter default values remain references.
+    expect(referencesFor("seed")).toEqual([
+      expect.objectContaining({
+        name: "seed",
+        role: "read",
+      }),
     ]);
   });
 });

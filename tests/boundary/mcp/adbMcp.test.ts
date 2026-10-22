@@ -7,6 +7,7 @@ import { parseEvidence } from "../../../src/domain/evidence.js";
 import { ok } from "../../../src/domain/result.js";
 import { createServer } from "../../../src/server/createServer.js";
 import { createTestBinarySession } from "../../fixtures/binarySession.js";
+import { parseMcpToolError } from "../../fixtures/mcpToolError.js";
 import { assertAdvertisedMcpContracts } from "./mcpContractHarness.js";
 
 const identity = { id: "adb", name: "Android Debug Bridge", version: null };
@@ -194,9 +195,25 @@ const results: Readonly<Record<string, unknown>> = {
   inspect_adb_window: {
     client: clientIdentity,
     serial: "emulator-5554",
+    source_section: "windows",
+    focus_summary: "single_context",
+    focus_contexts: [
+      {
+        scope: "unscoped",
+        display_id: null,
+        header_line: null,
+        declarations: [
+          {
+            field: "mCurrentFocus",
+            value: "Window{abcdef u0 com.example.app/Main}",
+            raw_line: "mCurrentFocus=Window{abcdef u0 com.example.app/Main}",
+          },
+        ],
+      },
+    ],
     focused_window: "Window{abcdef u0 com.example.app/Main}",
     focused_app: null,
-    observed_lines: ["Window{abcdef u0 com.example.app/Main}"],
+    observed_lines: ["mCurrentFocus=Window{abcdef u0 com.example.app/Main}"],
   },
   read_adb_setting: {
     client: clientIdentity,
@@ -225,6 +242,7 @@ const results: Readonly<Record<string, unknown>> = {
       },
     ],
     exact_match: true,
+    unparsed_lines: [],
     coverage: "complete",
   },
   install_adb_package: {
@@ -375,8 +393,24 @@ it("rejects invalid tool input before reaching the provider", async () => {
     arguments: { serial: "bad serial" },
   });
   expect(rejected.isError).toBe(true);
-  const text = (rejected.content as { readonly text?: string }[])
-    .map((part) => part.text ?? "")
-    .join("");
-  expect(text).toContain("Invalid arguments for tool inspect_adb_device");
+  expect(parseMcpToolError(rejected)).toMatchObject({
+    error: {
+      code: "invalid_request",
+      recovery: {
+        kind: "inspect_input_contract",
+        operation: "inspect_adb_device",
+      },
+      details: {
+        operation: "inspect_adb_device",
+        issues: [
+          {
+            path: [],
+            reason: "invalid_value",
+            message:
+              "serial: Device serial cannot contain whitespace or quotes",
+          },
+        ],
+      },
+    },
+  });
 });

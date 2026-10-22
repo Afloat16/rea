@@ -4,12 +4,14 @@ import { browserCliError } from "../cliBrowserContext.js";
 import {
   browserScopeOptions,
   observationDuration,
+  selectedCommandTimeout,
 } from "../cliObservationOptions.js";
 import { logCliCommand } from "../cliLogging.js";
 import { CLI_COMMANDS } from "../cliCommandNames.js";
 import type { Logger } from "pino";
 import type { ProgressReporter } from "../application/ProgressReporter.js";
 import { withCommandCancellation } from "./commandCancellation.js";
+import { finishAnalysisCommand } from "./finishAnalysisCommand.js";
 
 /** CLI progress exposes the actual armed point on stderr without corrupting JSON results. */
 const runtimeProgress: ProgressReporter = {
@@ -39,16 +41,28 @@ export const registerWebRuntimeCommands = (
     run: ({ args, options }) =>
       withCommandCancellation((signal) =>
         logCliCommand(logger, "observe-web-execution", async () => {
-          const result = await createWebRuntimeService().observe(
+          const service = createWebRuntimeService();
+          return await finishAnalysisCommand(
+            () =>
+              service.observe(
+                {
+                  cdp_endpoint: args.endpoint,
+                  target_id: args.targetId,
+                  allowed_origins: options.allowedOrigins,
+                  observation_ms: options.observationMs,
+                  ...selectedCommandTimeout(options.commandTimeoutMs),
+                },
+                { progress: runtimeProgress, signal },
+              ),
             {
-              cdp_endpoint: args.endpoint,
-              target_id: args.targetId,
-              allowed_origins: options.allowedOrigins,
-              observation_ms: options.observationMs,
+              close: async () => {
+                await service.provider.close?.();
+              },
             },
-            { progress: runtimeProgress, signal },
+            service.provider.identity().id,
+            "observe_web_execution",
+            signal,
           );
-          return result.ok ? result.value : browserCliError(result.error);
         }),
       ),
   });
@@ -68,16 +82,28 @@ export const registerWebRuntimeCommands = (
     run: ({ args, options }) =>
       withCommandCancellation((signal) =>
         logCliCommand(logger, "inspect-web-event-listeners", async () => {
-          const result = await createWebRuntimeService().inspect(
+          const service = createWebRuntimeService();
+          return await finishAnalysisCommand(
+            () =>
+              service.inspect(
+                {
+                  cdp_endpoint: args.endpoint,
+                  target_id: args.targetId,
+                  selector: args.selector,
+                  allowed_origins: options.allowedOrigins,
+                  ...selectedCommandTimeout(options.commandTimeoutMs),
+                },
+                { signal },
+              ),
             {
-              cdp_endpoint: args.endpoint,
-              target_id: args.targetId,
-              selector: args.selector,
-              allowed_origins: options.allowedOrigins,
+              close: async () => {
+                await service.provider.close?.();
+              },
             },
-            { signal },
+            service.provider.identity().id,
+            "inspect_web_event_listeners",
+            signal,
           );
-          return result.ok ? result.value : browserCliError(result.error);
         }),
       ),
   });

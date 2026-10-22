@@ -11,6 +11,7 @@ import {
   readFile,
   readdir,
   rm,
+  stat,
   symlink,
   writeFile,
 } from "node:fs/promises";
@@ -26,6 +27,7 @@ import {
   linuxHopperReleaseCacheDirectory,
   retryLinuxHopperPublisherCleanup,
 } from "../../../src/application/LinuxHopperPublisher.js";
+import { ArtifactReaderFailure } from "../../../src/artifacts/ArtifactReader.js";
 import {
   HOPPER_LINUX_PRIMARY_FINGERPRINT,
   type LinuxHopperRelease,
@@ -33,6 +35,7 @@ import {
 import * as signatures from "../../../src/process/DetachedPgpSignature.js";
 import { downloadHopperPackage } from "../../../src/application/HopperDownload.js";
 import { PrivateRuntimeRoot } from "../../../src/process/PrivateRuntimeRoot.js";
+import { OwnedFileHandle } from "../../../src/filesystem/OwnedFileHandle.js";
 import * as leases from "../../../src/process/HopperLease.js";
 import * as nativeCommands from "../../../src/process/ExecFileOutput.js";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
@@ -43,6 +46,7 @@ const verifySignature = signatures.verifyDetachedPgpSignature;
 const sha256 = (bytes: Uint8Array) =>
   createHash("sha256").update(bytes).digest("hex");
 const linux = it.skipIf(process.platform !== "linux");
+const portableTar = it.skipIf(process.platform === "win32");
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -103,6 +107,21 @@ const fixture = async (family: "deb" | "arch" = "deb") => {
     publicKey: generated.publicKey,
     fingerprint: key.getFingerprint().toUpperCase(),
   };
+};
+
+const verifyFixtureArchive = async (
+  f: Awaited<ReturnType<typeof fixture>>,
+  family: "deb" | "arch" = "deb",
+) => {
+  const result = await f.publisher.verifyArchive(
+    family,
+    f.release,
+    f.archive,
+    undefined,
+    f.publicKey,
+  );
+  if (!result.ok) throw result.error;
+  return result.value;
 };
 
 const admitFixturePublisher = (
@@ -170,16 +189,9 @@ describe("Linux signed package retention boundary", () => {
       });
       vi.stubGlobal("fetch", network);
       try {
-        const verified = await f.publisher.verifyArchive(
-          family,
-          f.release,
-          f.archive,
-          undefined,
-          f.publicKey,
-        );
-        if (!verified.ok) throw verified.error;
+        const verifiedArchive = await verifyFixtureArchive(f, family);
         expect(
-          await f.publisher.retainVerifiedArchive(verified.value, f.archive),
+          await f.publisher.retainVerifiedArchive(verifiedArchive, f.archive),
         ).toEqual({ ok: true, value: undefined });
         await f.publisher.close();
         // A new instance alone still shares process-local cryptographic proofs.
@@ -237,16 +249,9 @@ linux.each([
   const f = await fixture();
   admitFixturePublisher(f.fingerprint);
   try {
-    const verified = await f.publisher.verifyArchive(
-      "deb",
-      f.release,
-      f.archive,
-      undefined,
-      f.publicKey,
-    );
-    if (!verified.ok) throw verified.error;
+    const verifiedArchive = await verifyFixtureArchive(f, "deb");
     const retained = await f.publisher.retainVerifiedArchive(
-      verified.value,
+      verifiedArchive,
       f.archive,
     );
     if (!retained.ok) throw retained.error;
@@ -297,7 +302,7 @@ linux.each([
     // An explicitly approved fresh package can repair this entry while
     // preserving the original evidence and keeping ordinary reads strict.
     expect(
-      await f.publisher.retainVerifiedArchive(verified.value, f.archive),
+      await f.publisher.retainVerifiedArchive(verifiedArchive, f.archive),
     ).toEqual({ ok: true, value: undefined });
     const backups = (await readdir(f.publisher.cacheRoot)).filter((name) =>
       name.startsWith(`${f.release.main_exe_hash}.backup-`),
@@ -318,7 +323,7 @@ linux.each([
       ok: true,
     });
     expect(
-      await f.publisher.retainVerifiedArchive(verified.value, f.archive),
+      await f.publisher.retainVerifiedArchive(verifiedArchive, f.archive),
     ).toEqual({ ok: true, value: undefined });
     expect(
       (await readdir(f.publisher.cacheRoot)).filter((name) =>
@@ -342,16 +347,9 @@ linux.each([false, true])(
       | ReturnType<LinuxHopperPublisher["retainVerifiedArchive"]>
       | undefined;
     try {
-      const verified = await f.publisher.verifyArchive(
-        "deb",
-        f.release,
-        f.archive,
-        undefined,
-        f.publicKey,
-      );
-      if (!verified.ok) throw verified.error;
+      const verifiedArchive = await verifyFixtureArchive(f, "deb");
       expect(
-        await f.publisher.retainVerifiedArchive(verified.value, f.archive),
+        await f.publisher.retainVerifiedArchive(verifiedArchive, f.archive),
       ).toEqual({ ok: true, value: undefined });
       const staged = join(f.publisher.cacheRoot, "authenticated-fixture-stage");
       await cp(f.cache, staged, { recursive: true });
@@ -396,7 +394,7 @@ linux.each([false, true])(
         },
       );
       retention = f.publisher.retainVerifiedArchive(
-        verified.value,
+        verifiedArchive,
         f.archive,
         controller.signal,
       );
@@ -447,16 +445,9 @@ linux("restores old evidence when replacement publication fails", async () => {
   const f = await fixture();
   admitFixturePublisher(f.fingerprint);
   try {
-    const verified = await f.publisher.verifyArchive(
-      "deb",
-      f.release,
-      f.archive,
-      undefined,
-      f.publicKey,
-    );
-    if (!verified.ok) throw verified.error;
+    const verifiedArchive = await verifyFixtureArchive(f, "deb");
     expect(
-      await f.publisher.retainVerifiedArchive(verified.value, f.archive),
+      await f.publisher.retainVerifiedArchive(verifiedArchive, f.archive),
     ).toEqual({ ok: true, value: undefined });
     const broken = "{interrupted cache metadata";
     await writeFile(join(f.cache, "release.json"), broken);
@@ -476,7 +467,7 @@ linux("restores old evidence when replacement publication fails", async () => {
     syncBuiltinESMExports();
     try {
       const result = await f.publisher.retainVerifiedArchive(
-        verified.value,
+        verifiedArchive,
         f.archive,
       );
       expect(result).toMatchObject({
@@ -503,7 +494,7 @@ linux("restores old evidence when replacement publication fails", async () => {
       syncBuiltinESMExports();
     }
     expect(
-      await f.publisher.retainVerifiedArchive(verified.value, f.archive),
+      await f.publisher.retainVerifiedArchive(verifiedArchive, f.archive),
     ).toEqual({ ok: true, value: undefined });
     expect(await f.publisher.inspectLauncher(f.launcher)).toMatchObject({
       ok: true,
@@ -519,16 +510,9 @@ linux(
     const f = await fixture();
     admitFixturePublisher(f.fingerprint);
     try {
-      const verified = await f.publisher.verifyArchive(
-        "deb",
-        f.release,
-        f.archive,
-        undefined,
-        f.publicKey,
-      );
-      if (!verified.ok) throw verified.error;
+      const verifiedArchive = await verifyFixtureArchive(f, "deb");
       expect(
-        await f.publisher.retainVerifiedArchive(verified.value, f.archive),
+        await f.publisher.retainVerifiedArchive(verifiedArchive, f.archive),
       ).toEqual({ ok: true, value: undefined });
       await writeFile(join(f.cache, "public-key.asc"), f.publicKey + "\n");
       const metadata = await readFile(join(f.cache, "release.json"));
@@ -536,7 +520,7 @@ linux(
         .spyOn(nativeCommands, "execFileOutput")
         .mockRejectedValue(new Error("Fixture native inspection unavailable"));
       expect(
-        await f.publisher.retainVerifiedArchive(verified.value, f.archive),
+        await f.publisher.retainVerifiedArchive(verifiedArchive, f.archive),
       ).toMatchObject({
         ok: false,
         error: { reason: "verification_unavailable" },
@@ -618,16 +602,9 @@ linux(
       },
     );
     try {
-      const verified = await f.publisher.verifyArchive(
-        "deb",
-        f.release,
-        f.archive,
-        undefined,
-        f.publicKey,
-      );
-      if (!verified.ok) throw verified.error;
+      const verifiedArchive = await verifyFixtureArchive(f, "deb");
       expect(
-        await f.publisher.retainVerifiedArchive(verified.value, f.archive),
+        await f.publisher.retainVerifiedArchive(verifiedArchive, f.archive),
       ).toMatchObject({ ok: false, error: { reason: "cleanup_failed" } });
       const input = {
         cacheDirectory: f.publisher.cacheRoot,
@@ -702,6 +679,79 @@ it("cancels an oversized chunked metadata response before retaining it", async (
   expect(cancelled).toHaveBeenCalledOnce();
 });
 
+portableTar(
+  "retains the temporary root until its failed hash descriptor closes",
+  async () => {
+    const f = await fixture("arch");
+    admitFixturePublisher(f.fingerprint);
+    const events: string[] = [];
+    let targetCloseAttempts = 0;
+    let failTargetClose = true;
+    const targetSize = (await stat(f.launcher)).size;
+    let temporaryRoot: string | undefined;
+    const originalFileClose = OwnedFileHandle.prototype.close;
+    const fileClose = vi
+      .spyOn(OwnedFileHandle.prototype, "close")
+      .mockImplementation(async function (this: OwnedFileHandle) {
+        if ((await this.handle.stat()).size === targetSize) {
+          targetCloseAttempts += 1;
+          if (failTargetClose) {
+            events.push(`hash-close-failed-${targetCloseAttempts}`);
+            throw new Error("Fixture extracted launcher close unavailable");
+          }
+          events.push("hash-close-retried");
+        }
+        return originalFileClose.call(this);
+      });
+    const originalRootClose = PrivateRuntimeRoot.prototype.close;
+    const originalRootCreate = PrivateRuntimeRoot.create;
+    const rootCreate = vi
+      .spyOn(PrivateRuntimeRoot, "create")
+      .mockImplementation(async (options) => {
+        const root = await originalRootCreate.call(PrivateRuntimeRoot, options);
+        temporaryRoot = root.path;
+        return root;
+      });
+    const rootClose = vi
+      .spyOn(PrivateRuntimeRoot.prototype, "close")
+      .mockImplementation(async function (this: PrivateRuntimeRoot) {
+        temporaryRoot = this.path;
+        events.push("temporary-root-close");
+        return originalRootClose.call(this);
+      });
+    try {
+      expect(
+        await f.publisher.verifyArchive(
+          "arch",
+          f.release,
+          f.archive,
+          undefined,
+          f.publicKey,
+        ),
+      ).toMatchObject({ ok: false, error: { reason: "cleanup_failed" } });
+      expect(targetCloseAttempts).toBeGreaterThanOrEqual(2);
+      expect(events).not.toContain("temporary-root-close");
+      const attemptsBeforeClose = targetCloseAttempts;
+      await expect(f.publisher.close()).rejects.toThrow();
+      expect(targetCloseAttempts).toBeGreaterThan(attemptsBeforeClose);
+      expect(events).not.toContain("temporary-root-close");
+      expect(temporaryRoot).toBeDefined();
+      await expect(access(temporaryRoot!)).resolves.toBeUndefined();
+      failTargetClose = false;
+      await f.publisher.close();
+      expect(events.slice(-2)).toEqual([
+        "hash-close-retried",
+        "temporary-root-close",
+      ]);
+    } finally {
+      fileClose.mockRestore();
+      rootClose.mockRestore();
+      rootCreate.mockRestore();
+      await f.publisher.close();
+    }
+  },
+);
+
 linux("retains and retries failed verification cleanup", async () => {
   const f = await fixture();
   admitFixturePublisher(f.fingerprint);
@@ -726,6 +776,149 @@ linux("retains and retries failed verification cleanup", async () => {
   }
 });
 
+portableTar(
+  "reports pending publisher cleanup as a typed failure before retrying the operation",
+  async () => {
+    const f = await fixture("arch");
+    admitFixturePublisher(f.fingerprint);
+    const closeRoot = PrivateRuntimeRoot.prototype.close;
+    let rootCloseAttempts = 0;
+    vi.spyOn(PrivateRuntimeRoot.prototype, "close").mockImplementation(
+      async function (this: PrivateRuntimeRoot) {
+        rootCloseAttempts += 1;
+        if (rootCloseAttempts < 3)
+          throw new Error("Fixture cleanup remains unavailable");
+        return await closeRoot.apply(this);
+      },
+    );
+    try {
+      expect(
+        await f.publisher.verifyArchive(
+          "arch",
+          f.release,
+          f.archive,
+          undefined,
+          f.publicKey,
+        ),
+      ).toMatchObject({ ok: false, error: { reason: "cleanup_failed" } });
+
+      const closeHandle = vi.spyOn(OwnedFileHandle.prototype, "close");
+      expect(await f.publisher.inspectLauncher(f.launcher)).toMatchObject({
+        ok: false,
+        error: { reason: "cleanup_failed" },
+      });
+      expect(closeHandle).not.toHaveBeenCalled();
+
+      expect(
+        await f.publisher.verifyArchive(
+          "arch",
+          f.release,
+          f.archive,
+          undefined,
+          f.publicKey,
+        ),
+      ).toMatchObject({ ok: true });
+      expect(closeHandle).toHaveBeenCalled();
+      expect(rootCloseAttempts).toBe(4);
+    } finally {
+      await f.publisher.close();
+    }
+  },
+);
+
+it("retries a launcher hash descriptor after a transient close failure", async () => {
+  const launcher = join(
+    await createTestTempDirectory("rea-linux-publisher-hash-"),
+    "Hopper",
+  );
+  const bytes = Buffer.from("fixture launcher bytes");
+  await writeFile(launcher, bytes);
+  const publisher = new LinuxHopperPublisher({}, async () => undefined);
+  const closeCause = new Error("Fixture hash descriptor close unavailable");
+  const owners: OwnedFileHandle[] = [];
+  const originalClose = OwnedFileHandle.prototype.close;
+  const close = vi
+    .spyOn(OwnedFileHandle.prototype, "close")
+    .mockImplementation(async function (this: OwnedFileHandle) {
+      owners.push(this);
+      if (owners.length === 1) throw closeCause;
+      return originalClose.call(this);
+    });
+  try {
+    await expect(publisher.hashLauncher(launcher)).resolves.toBe(sha256(bytes));
+    expect(close).toHaveBeenCalledTimes(2);
+    expect(owners).toHaveLength(2);
+    expect(owners[1]).toBe(owners[0]);
+    expect(owners[0]?.handle.fd).toBe(-1);
+    await publisher.close();
+    expect(close).toHaveBeenCalledTimes(2);
+  } finally {
+    close.mockRestore();
+    await publisher.close();
+  }
+});
+
+portableTar(
+  "lets overlapping verification and descriptor cleanup settle without re-entering publisher admission",
+  async () => {
+    const f = await fixture("arch");
+    admitFixturePublisher(f.fingerprint);
+    const verifiedArchive = await verifyFixtureArchive(f, "arch");
+    expect(
+      await f.publisher.retainVerifiedArchive(verifiedArchive, f.archive),
+    ).toMatchObject({ ok: true });
+
+    let reachedMetadataClose!: () => void;
+    const metadataCloseStarted = new Promise<void>((resolve) => {
+      reachedMetadataClose = resolve;
+    });
+    let releaseMetadataClose!: () => void;
+    const metadataCloseGate = new Promise<void>((resolve) => {
+      releaseMetadataClose = resolve;
+    });
+    const originalClose = OwnedFileHandle.prototype.close;
+    const close = vi
+      .spyOn(OwnedFileHandle.prototype, "close")
+      .mockImplementation(async function (this: OwnedFileHandle) {
+        const attempt = close.mock.calls.length;
+        if (attempt === 2) {
+          reachedMetadataClose();
+          await metadataCloseGate;
+        }
+        if (attempt === 3 || attempt === 4 || attempt === 5)
+          throw new Error("Fixture descriptor close temporarily unavailable");
+        return await originalClose.apply(this);
+      });
+    try {
+      const inspection = f.publisher.inspectLauncher(f.launcher);
+      await metadataCloseStarted;
+      const hashFailure = await f.publisher.hashLauncher(f.launcher).then(
+        () => undefined,
+        (cause: unknown) => cause,
+      );
+      expect(hashFailure).toMatchObject({
+        reason: "cleanup_failed",
+        cause: expect.any(AggregateError),
+      });
+      const cleanupOutcomes = (hashFailure as Error & { cause: AggregateError })
+        .cause.errors;
+      expect(cleanupOutcomes).toHaveLength(2);
+      expect(cleanupOutcomes[0]).toMatchObject({ reason: "cleanup_failed" });
+      releaseMetadataClose();
+      await expect(inspection).resolves.toMatchObject({
+        ok: true,
+        value: { source: "signed_package_cache" },
+      });
+      await expect(f.publisher.close()).resolves.toBeUndefined();
+      expect(close).toHaveBeenCalledTimes(9);
+    } finally {
+      releaseMetadataClose();
+      close.mockRestore();
+      await f.publisher.close();
+    }
+  },
+);
+
 linux(
   "preserves cleanup ownership when verification is cancelled",
   async () => {
@@ -738,6 +931,7 @@ linux(
         controller.abort();
         throw new Error("Fixture cleanup unavailable after cancellation");
       });
+    let retryFailure: unknown;
     try {
       expect(
         await f.publisher.verifyArchive(
@@ -751,10 +945,22 @@ linux(
         ok: false,
         error: { reason: "cleanup_failed" },
       });
-      await expect(retryLinuxHopperPublisherCleanup()).rejects.toMatchObject({
+      try {
+        await retryLinuxHopperPublisherCleanup();
+      } catch (cause: unknown) {
+        retryFailure = cause;
+      }
+      expect(retryFailure).toBeInstanceOf(ArtifactReaderFailure);
+      expect(retryFailure).toMatchObject({
         cleanup: {
           resources: [expect.stringContaining("rea-hopper-publisher-")],
         },
+        cleanupLeases: [expect.objectContaining({ released: false })],
+      });
+      cleanup.mockRestore();
+      await retryLinuxHopperPublisherCleanup();
+      expect(retryFailure).toMatchObject({
+        cleanupLeases: [expect.objectContaining({ released: true })],
       });
     } finally {
       cleanup.mockRestore();

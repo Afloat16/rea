@@ -1,10 +1,8 @@
-import { isAbsolute } from "node:path";
 import type { ExecutionOptions } from "../AnalysisProvider.js";
 import type { PeResourcesPort } from "./PeResourcesPort.js";
 import type { AnalysisError } from "../../domain/analysisErrorBase.js";
 import {
   AnalysisCancelledError,
-  AnalysisInputError,
   AnalysisOutputError,
 } from "../../domain/analysisErrorCore.js";
 import { createEvidence, type Evidence } from "../../domain/evidence.js";
@@ -15,7 +13,13 @@ import {
   type PeResourceIdentity,
 } from "../../domain/native/peResources.js";
 import { analysisInputErrorFromIssues } from "../../domain/inputIssueProjection.js";
+import {
+  decodePeMachine,
+  peOptionalHeaderMagic,
+  type PeArchitecture,
+} from "../../domain/peMachine.js";
 import { err, ok, type Result } from "../../domain/result.js";
+import { completeProviderEvidence } from "../ProviderOperationExecution.js";
 
 /** Shared caller validation, output parsing and Evidence provenance for CLI/MCP. */
 export class PeResourcesService {
@@ -31,7 +35,9 @@ export class PeResourcesService {
   ): Promise<Result<Evidence, AnalysisError>> {
     const operation = "inspect_pe_resources";
     if (options?.signal?.aborted)
-      return err(new AnalysisCancelledError(operation));
+      return err(
+        new AnalysisCancelledError(operation, { cause: options.signal.reason }),
+      );
     const input = inspectPeResourcesInputSchema.safeParse(rawInput);
     if (!input.success)
       return err(
@@ -39,20 +45,8 @@ export class PeResourcesService {
           cause: input.error,
         }),
       );
-    if (!isAbsolute(input.data.path))
-      return err(
-        new AnalysisInputError(operation, undefined, [
-          {
-            path: ["path"],
-            reason: "invalid_format",
-            message: "Expected an absolute filesystem path on this host.",
-          },
-        ]),
-      );
     const result = await this.provider.inspect(input.data, options);
     if (!result.ok) return result;
-    if (options?.signal?.aborted)
-      return err(new AnalysisCancelledError(operation));
     const report = peResourcesSchema.safeParse(result.value);
     if (
       !report.success ||
@@ -70,12 +64,14 @@ export class PeResourcesService {
         ),
       );
     const value = report.data;
-    return ok(
+    const architecture = subjectArchitecture(value);
+    return completeProviderEvidence(
       createEvidence(
         {
           path: value.artifact.path,
           format: "pe",
           sha256: value.artifact.sha256,
+          ...(architecture === undefined ? {} : { architecture }),
         },
         this.provider.identity,
         {
@@ -87,9 +83,27 @@ export class PeResourcesService {
           locations: [{ kind: "artifact-path", path: value.artifact.path }],
         },
       ),
+      options?.signal,
     );
   }
 }
+
+/**
+ * Name the subject architecture from the reported COFF machine. The resource
+ * reader does not inspect the CLI header, so a ReadyToRun OS-override machine
+ * needs separate proof. An optional-header magic that contradicts the machine
+ * is observed conflicting evidence. Both stay unknown.
+ */
+const subjectArchitecture = (
+  report: PeResources,
+): PeArchitecture | undefined => {
+  const machine = decodePeMachine(report.machine);
+  if (machine === undefined || machine.nativeOsOverride) return undefined;
+  const magic = report.format === "pe32-plus" ? 0x20b : 0x10b;
+  return magic === peOptionalHeaderMagic(machine.architecture)
+    ? machine.architecture
+    : undefined;
+};
 
 /** Check cross-field invariants before provider output becomes public Evidence. */
 const validReport = (

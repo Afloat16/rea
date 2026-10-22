@@ -1,7 +1,7 @@
 <div align="center">
 
 [English](../../README.md) · [简体中文](README_zh.md) · [繁體中文](README_zh-TW.md) · [日本語](README_ja.md) · **한국어** · [Türkçe](README_tr.md) · [Русский](README_ru.md) · [Tiếng Việt](README_vi.md) · [ไทย](README_th.md) · [Deutsch](README_de.md) · [Español](README_es.md) · [Français](README_fr.md) · [Українська](README_uk.md) · [Polski](README_pl.md) · [Português (Brasil)](README_pt-BR.md) · [العربية](README_ar.md) · [فارسی](README_fa.md) · [Bahasa Indonesia](README_id.md) · [Italiano](README_it.md)
-· [Ελληνικά](README_el.md)
+· [Ελληνικά](README_el.md) · [മലയാളം](README_ml.md)
 
 # REA: 무엇이든 리버스 엔지니어링
 
@@ -62,7 +62,7 @@ REA는 에이전트를 분석 도구에 연결해 네이티브 바이너리, Jav
 
 설정 과정은 에이전트에 REA를 등록하고 해당 버전에 맞는 워크플로 지침을 설치합니다. 네이티브 분석에는 기존 Hopper, Ghidra 또는 IDA 설치를 사용할 수 있습니다. 승인하면 설정 과정에서 Hopper를 설치할 수도 있습니다. 정적 JavaScript 분석에는 네이티브 분석 엔진이 필요하지 않습니다.
 
-> **[REA 웹사이트](https://rea.tools/ko/)**에서 설정 방법, 그림으로 설명한 가이드, 실제 사례를 확인하세요.
+> <strong>[REA 웹사이트](https://rea.tools/ko/)</strong>에서 설정 방법, 그림으로 설명한 가이드, 실제 사례를 확인하세요.
 
 ## 빠른 시작
 
@@ -117,6 +117,10 @@ REA는 빠르게 바뀌며 새 릴리스에는 버그 수정이 자주 포함됩
 rea update
 ```
 
+`rea --update`는 이 검증된 업데이트 절차의 별칭이며 같은 전역 출력 플래그를 사용할 수 있습니다. 다른 명령 제어 옵션과 함께 사용할 때는 `rea update`를 사용하세요.
+
+업데이트 명령은 stdout과 stderr를 합쳐 최대 4 MiB까지만 보관합니다. 한도를 넘긴 메타데이터 응답은 명령이 종료된 뒤 거부됩니다. 상세 출력을 사용하는 설치에서는 진단 정보를 한도 내에서만 보관하고 설치를 계속 진행합니다. 사람이 읽는 진행 출력은 터미널이 받아들이는 속도에 맞춰 전달되며, 이미 제출한 쓰기가 끝날 때까지 기다립니다.
+
 Bun 전역 업데이트에는 Bun 1.2.17 이상이 필요합니다. 이전 버전의 Bun을 사용한다면 `rea update`를 실행하기 전에 Bun을 직접 업그레이드하세요.
 
 에이전트 등록과 스킬을 갱신하려면 업데이트 과정에서 출력된 설정 명령을 실행하세요.
@@ -143,31 +147,36 @@ npx rea-agents@latest setup
 
 REA에는 Node.js 22.x(>=22.19), 24.x(>=24.11) 또는 26+와 npm이 필요합니다. 추가 도구와 호스트 지원은 대상에 따라 다릅니다.
 
-| 대상                  | REA가 반환하는 내용                                                           | 요구 사항 및 가이드                                                                                                               |
-| --------------------- | ----------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| 네이티브 바이너리     | 의사 코드, 어셈블리, 문자열, 심볼, 호출, 참조                                 | Hopper, Ghidra 또는 IDA; [네이티브 분석](../native-investigation.md)                                                              |
-| 오프라인 ELF 레이아웃 | 섹션, 세그먼트, 원본 심볼/재배치 정보, 정적 분석으로 얻은 보안 완화 기법 후보 | Linux x64에서 호출자가 제공하는 pwntools; [바이너리 진단](../binary-diagnostics.md)                                               |
-| Go 바이너리           | 내장된 컴파일러 버전, 모듈, `replace` 지시어, 빌드 설정                       | REA 내장 ELF/PE/thin Mach-O 정적 검사; Go 설치 불필요                                                                             |
-| Rust 바이너리         | cargo-auditable이 내장한 크레이트 이름, 버전, 소스, 의존성 관계               | REA 내장 ELF/PE/thin Mach-O 정적 검사; [Rust 바이너리](../rust-binaries.md)                                                       |
-| WASM 아티팩트         | 유효성 검사, 섹션, import/export의 정확한 WAT 형식, 디코딩된 WAT              | 호출자 제공 WABT 1.0.42; `inspect_wasm_artifact`                                                                                  |
-| EVM 바이트코드        | 디스패치 선택자, 바이트 오프셋, 추론한 인자와 상태 변경 가능 여부             | Linux x64의 로컬 원시 바이트/16진수 입력 파일; [오프라인 EVM 가이드](../evm-bytecode.md)                                          |
-| SQLite 데이터베이스   | 테이블, 열, 인덱스, 뷰, 트리거, 선택한 일반 테이블의 행                       | 로컬 데이터베이스/WAL 스냅샷; Node.js 24.15 이상의 24.x 또는 26 이상(네이티브 SQLite 한도 적용)                                   |
-| 기록된 Linux 크래시   | 원시 note 레코드, 기록된 모든 스레드의 레지스터/시그널, 선택적 매핑 후보      | Linux x64에서 호출자가 제공하는 pwntools; GDB/pwndbg는 선택 사항; [기록된 크래시](../recorded-crashes.md)                         |
-| JavaScript / Electron | 모듈, 임포트, 소스 맵, 라우트, IPC, 네이티브 애드온 관계                      | Node.js와 npm; Linux: procps 호환 `ps`; [애플리케이션 분석](../javascript-application-workflows.md)                               |
-| 웹사이트              | 페이지 구조, 스크립트, 네트워크 관찰 결과, 요청한 스크린샷                    | Chrome 계열 브라우저; [브라우저 분석](../browser-observation.md)                                                                  |
-| 저장된 네트워크 캡처  | 요청, 응답, 접근 가능한 페이로드, 소스 위치                                   | HAR 또는 Fiddler Everywhere SAZ; mitmproxy 네이티브 캡처에는 Linux의 mitmdump; [캡처 가이드](../web-network-captures.md)          |
-| .NET 어셈블리         | 메타데이터, CIL 명령, 선언된 네이티브 의존성, 빌드 비교                       | 별도 도구 불필요(정적 검사만); [관리 코드 가이드](../managed-code-analysis.md)                                                    |
-| Android APK           | 매니페스트 선언, 클래스, 디컴파일된 메서드, 참조                              | Linux/macOS/Windows x64의 헤드리스 JADX와 전체 JDK; [Android 가이드](../android-analysis.md)                                      |
-| Android 기기          | 기기, 패키지, 프로세스, 로그, 덤프, 화면 캡처, APK/파일 전송                  | 호출자 제공 adb(에뮬레이터 또는 실제 기기); [ADB 가이드](../adb-device-analysis.md)                                               |
-| JEB 프로젝트          | 엔진 기반 프로젝트 유닛, 아티팩트 해시, 타입/메서드 의사코드                  | 호출자가 시작하고 MCP를 제공하는 JEB 클라이언트(REA_JEB_MCP_URL로 선택); [JEB 가이드](../jeb-analysis.md)                         |
-| Android 리소스        | 디코딩된 매니페스트, 문자열 테이블, 로캘, 버전 정보                           | 호출자 제공 Apktool 런처; [리소스 가이드](../apktool-resource-analysis.md)                                                        |
-| Flutter 앱            | Dart 스냅샷 해시, ABI별 라이브러리 해시, 엔진 빌드 출처                       | 없음 (정적 APK 파싱); [Flutter 가이드](../flutter-analysis.md)                                                                    |
-| 펌웨어                | 영역, 추출 결과, 네이티브 분석으로 전달할 정보                                | Linux의 Binwalk / Unblob; [펌웨어 가이드](../firmware-analysis.md)                                                                |
-| 기록된 패킷           | 선택 필드, 반복 값, 필터 및 디코딩 규칙                                       | Linux: TShark 4.x + prlimit; [캡처 가이드](../packet-captures.md)                                                                 |
-| 패킷 요약             | 엔드포인트, DNS, TLS SNI, 프로토콜 분포, HTTP 요청                            | 호출자 제공 tshark 및 capinfos(Linux에서 검증됨); [pcap 가이드](../pcap-analysis.md)                                              |
-| 기록된 논리 신호      | 디코더 주석, 샘플 범위, 진단 정보                                             | Linux: sigrok-cli 0.7.2 + prlimit; [신호 기록 가이드](../signal-recordings.md)                                                    |
-| 패키지 및 리소스      | 파일 목록, 다이제스트, plist, Apple 번들 구조, 추출한 리소스                  | [아티팩트 및 JavaScript 가이드](../javascript-artifact-reconstruction.md), [Apple 애플리케이션](../apple-application-analysis.md) |
-| 프로세스 동작         | 터미널 출력, 상호작용, 종료 및 파일 시스템 관찰 결과, 실행 비교               | 네이티브 PTY를 지원하는 Linux/macOS; [프로세스 캡처](../process-capture.md)                                                       |
+| 대상                   | REA가 반환하는 내용                                                           | 요구 사항 및 가이드                                                                                                               |
+| ---------------------- | ----------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| 네이티브 바이너리      | 의사 코드, 어셈블리, 문자열, 심볼, 호출, 참조                                 | Hopper, Ghidra 또는 IDA; [네이티브 분석](../native-investigation.md)                                                              |
+| 오프라인 ELF 레이아웃  | 섹션, 세그먼트, 원본 심볼/재배치 정보, 정적 분석으로 얻은 보안 완화 기법 후보 | Linux x64에서 호출자가 제공하는 pwntools; [바이너리 진단](../binary-diagnostics.md)                                               |
+| Go 바이너리            | 내장된 컴파일러 버전, 모듈, `replace` 지시어, 빌드 설정                       | REA 내장 ELF/PE/thin Mach-O 정적 검사; Go 설치 불필요                                                                             |
+| Rust 바이너리          | cargo-auditable이 내장한 크레이트 이름, 버전, 소스, 의존성 관계               | REA 내장 ELF/PE/thin Mach-O 정적 검사; [Rust 바이너리](../rust-binaries.md)                                                       |
+| PE certificates        | Authenticode WIN_CERTIFICATE entries and PKCS#7 signer/X.509 identity fields  | Built-in static PE inspection; [PE certificates](../pe-certificates.md)                                                           |
+| ELF notes              | PT_NOTE/SHT_NOTE owners, types, GNU build-id and ABI-tag fields               | Built-in static ELF inspection; [ELF notes](../elf-notes.md)                                                                      |
+| Erlang BEAM            | IFF chunks, atoms, exports, and tables                                        | Built-in static BEAM inspection; [Erlang BEAM](../erlang-beam.md)                                                                 |
+| WASM 아티팩트          | 유효성 검사, 섹션, import/export의 정확한 WAT 형식, 디코딩된 WAT              | 호출자 제공 WABT 1.0.42; `inspect_wasm_artifact`                                                                                  |
+| EVM 바이트코드         | 디스패치 선택자, 바이트 오프셋, 추론한 인자와 상태 변경 가능 여부             | Linux x64의 로컬 원시 바이트/16진수 입력 파일; [오프라인 EVM 가이드](../evm-bytecode.md)                                          |
+| SQLite 데이터베이스    | 테이블, 열, 인덱스, 뷰, 트리거, 선택한 일반 테이블의 행                       | 로컬 데이터베이스/WAL 스냅샷; Node.js 24.15 이상의 24.x 또는 26 이상(네이티브 SQLite 한도 적용)                                   |
+| 기록된 Linux 크래시    | 원시 note 레코드, 기록된 모든 스레드의 레지스터/시그널, 선택적 매핑 후보      | Linux x64에서 호출자가 제공하는 pwntools; GDB/pwndbg는 선택 사항; [기록된 크래시](../recorded-crashes.md)                         |
+| 데스크톱 설치 디렉터리 | 런타임 후보, 근거 파일, 구성 요소 표시와 다음 조사 단계                       | 범위가 제한된 디렉터리 및 헤더 검사；[데스크톱 애플리케이션](../desktop-applications.md)                                          |
+| JavaScript / Electron  | 모듈, 임포트, 소스 맵, 라우트, IPC, 네이티브 애드온 관계                      | Node.js와 npm; Linux: procps 호환 `ps`; [애플리케이션 분석](../javascript-application-workflows.md)                               |
+| 웹사이트               | 페이지 구조, 스크립트, 네트워크 관찰 결과, 요청한 스크린샷                    | Chrome 계열 브라우저; [브라우저 분석](../browser-observation.md)                                                                  |
+| 저장된 네트워크 캡처   | 요청, 응답, 접근 가능한 페이로드, 소스 위치                                   | HAR 또는 Fiddler Everywhere SAZ; mitmproxy 네이티브 캡처에는 Linux의 mitmdump; [캡처 가이드](../web-network-captures.md)          |
+| .NET 어셈블리          | 메타데이터, CIL 명령, 선언된 네이티브 의존성, 빌드 비교                       | 별도 도구 불필요(정적 검사만); [관리 코드 가이드](../managed-code-analysis.md)                                                    |
+| Android APK            | 매니페스트 선언, 클래스, 디컴파일된 메서드, 참조                              | Linux/macOS/Windows x64의 헤드리스 JADX와 전체 JDK; [Android 가이드](../android-analysis.md)                                      |
+| Android 기기           | 기기, 패키지, 프로세스, 로그, 덤프, 화면 캡처, APK/파일 전송                  | 호출자 제공 adb(에뮬레이터 또는 실제 기기); [ADB 가이드](../adb-device-analysis.md)                                               |
+| JEB 프로젝트           | 엔진 기반 프로젝트 유닛, 아티팩트 해시, 타입/메서드 의사코드                  | 호출자가 시작하고 MCP를 제공하는 JEB 클라이언트(REA_JEB_MCP_URL로 선택); [JEB 가이드](../jeb-analysis.md)                         |
+| Android 리소스         | 디코딩된 매니페스트, 문자열 테이블, 로캘, 버전 정보                           | 호출자 제공 Apktool 런처; [리소스 가이드](../apktool-resource-analysis.md)                                                        |
+| Flutter 앱             | Dart 스냅샷 해시, ABI별 라이브러리 해시, 엔진 빌드 출처                       | 없음 (정적 APK 파싱); [Flutter 가이드](../flutter-analysis.md)                                                                    |
+| 펌웨어                 | 영역, 추출 결과, 네이티브 분석으로 전달할 정보                                | Linux의 Binwalk / Unblob; [펌웨어 가이드](../firmware-analysis.md)                                                                |
+| 기록된 패킷            | 선택 필드, 반복 값, 필터 및 디코딩 규칙                                       | Linux: TShark 4.x + prlimit; [캡처 가이드](../packet-captures.md)                                                                 |
+| 패킷 요약              | 엔드포인트, DNS, TLS SNI, 프로토콜 분포, HTTP 요청                            | 호출자 제공 tshark 및 capinfos(Linux에서 검증됨); [pcap 가이드](../pcap-analysis.md)                                              |
+| 기록된 논리 신호       | 디코더 주석, 샘플 범위, 진단 정보                                             | Linux: sigrok-cli 0.7.2 + prlimit; [신호 기록 가이드](../signal-recordings.md)                                                    |
+| 패키지 및 리소스       | 파일 목록, 다이제스트, plist, Apple 번들 구조, 추출한 리소스                  | [아티팩트 및 JavaScript 가이드](../javascript-artifact-reconstruction.md), [Apple 애플리케이션](../apple-application-analysis.md) |
+| 프로세스 동작          | 터미널 출력, 상호작용, 종료 및 파일 시스템 관찰 결과, 실행 비교               | 네이티브 PTY를 지원하는 Linux/macOS; [프로세스 캡처](../process-capture.md)                                                       |
+| PyInstaller            | CArchive, PYZ, Python bytecode                                                | Static inspection; [Python packaged applications](../python-packaged-applications.md)                                             |
 
 정적 JavaScript 및 .NET 검사는 제공된 파일을 읽으며 애플리케이션을 실행하지 않습니다. 런타임 캡처는 사용자의 권한으로 선택한 대상을 실행하거나 대상과 상호작용합니다. 각 런타임 가이드에서 그 영향을 설명합니다.
 
@@ -175,7 +184,7 @@ REA에는 Node.js 22.x(>=22.19), 24.x(>=24.11) 또는 26+와 npm이 필요합니
 
 <a id="choosing-a-deep-analysis-provider"></a>
 
-지원하는 네이티브 형식과 호스트는 제공자마다 다릅니다. [Hopper 및 Ghidra 설정](../installation.md#hopper), [IDA 가이드](../ida-provider.md)(선택 사항인 네이티브 MCP 브리지 포함), [실험적 Windows Ghidra 지원](../windows-ghidra-p0.md)을 참고하세요. Ghidra는 [16비트 DOS 분석](../ghidra-dos.md)도 지원합니다. 큰 바이너리를 분석할 때는 `REA_GHIDRA_STARTUP_TIMEOUT_MS` 또는 `REA_HOPPER_STARTUP_TIMEOUT_MS`로 제공자의 시작 제한 시간을 늘리세요. 제공자 선택은 [CLI 가이드](../cli.md#choose-a-provider)를 참고하세요. 최신 npm 릴리스 이후 추가된 기능은 [릴리스에서의 사용 가능 여부](../installation.md#released-package-and-main)를 확인하세요.
+지원하는 네이티브 형식과 호스트는 제공자마다 다릅니다. [Hopper 및 Ghidra 설정](../installation.md#hopper), [IDA 가이드](../ida-provider.md)(선택 사항인 네이티브 MCP 브리지 포함), [Kuna](../kuna-provider.md), [실험적 Windows Ghidra 지원](../windows-ghidra-p0.md)을 참고하세요. Ghidra는 [16비트 DOS 분석](../ghidra-dos.md)도 지원합니다. 큰 바이너리를 분석할 때는 `REA_GHIDRA_STARTUP_TIMEOUT_MS` 또는 `REA_HOPPER_STARTUP_TIMEOUT_MS`로 제공자의 시작 제한 시간을 늘리세요. 제공자 선택은 [CLI 가이드](../cli.md#choose-a-provider)를 참고하세요. 최신 npm 릴리스 이후 추가된 기능은 [릴리스에서의 사용 가능 여부](../installation.md#released-package-and-main)를 확인하세요.
 
 ## 사례
 
@@ -274,6 +283,8 @@ npx rea-agents@latest setup
 
 - [설치 및 설정](../installation.md): 에이전트 등록, 제공자 설정, 업데이트, 제거.
 - [준비 상태 확인 및 문제 해결](../installation.md#check-readiness-for-your-task): 특정 에이전트 또는 분석 엔진 진단.
+- [CUDA / HIP](../gpu-code-objects.md)
+- [GGUF / safetensors](../model-artifacts.md)
 - [CLI 및 Evidence](../cli.md): 명령, 제공자 선택, 스냅샷, 가져오기/내보내기, 종료 상태.
 - [MCP 계약](../mcp-contracts.md) 및 [에이전트 프롬프트](../mcp-prompts.md): 도구 결과, 세션, 안내에 따른 조사.
 - [도구 카탈로그](../mcp-contracts.md#generated-catalog): 빌드 시 생성되는 도구, 제공자, CLI 명령 목록.
@@ -283,7 +294,7 @@ npx rea-agents@latest setup
 
 ## 스타 기록
 
-🎉 **GitHub 스타 200,000개, 감사합니다!**
+🎉 **GitHub 스타 300,000개, 감사합니다!**
 
 REA를 사용하고, 버그를 보고하고, 기능을 요청하고, 빌드를 테스트하고, 수정에 기여해 주신 모든 분께 감사드립니다.
 
@@ -308,6 +319,10 @@ REA는 법을 준수하는 연구, 교육, 상호운용성 확보, 소프트웨�
 REA에 도움을 보태 주세요! [issue를 등록](https://github.com/morluto/rea/issues)해 버그나 기능을 제안하거나, [pull request를 보내](https://github.com/morluto/rea/pulls) 코드와 문서를 개선할 수 있습니다.
 
 개발 환경과 검사 항목은 [CONTRIBUTING.md](../../CONTRIBUTING.md), 검증 절차는 [테스트 가이드](../testing.md), 프로젝트 구조는 [아키텍처 지도](../architecture.mermaid)를 참고하세요.
+
+한국어 번역도 개선할 수 있습니다. 이 README를 수정할 때는 [영문 README](../../README.md)의 명령어, 요구 사항, 분석 범위와 일치하는지 확인하세요. 웹사이트 번역은 `website/locales/ko/messages.po`의 `msgstr` 값을 수정하세요.
+
+웹사이트 번역의 수정 방법, 검사 명령, 로컬 미리보기는 `website/locales/README.md`를 따르세요. 위 기여 문서의 **Translation corrections** 절에서 이 가이드로 이동할 수 있습니다. 명령어, 경로, 자리표시자, 기록된 근거는 그대로 보존하세요. `website/_site/`의 한국어 HTML은 자동 생성되므로 직접 수정하지 마세요.
 
 ## 라이선스
 

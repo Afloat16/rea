@@ -10,8 +10,20 @@ export const BINARY_ARCHITECTURES = [
   "6502",
   "riscv",
   "powerpc",
+  "m68k",
+  "hexagon",
 ] as const;
 export type BinaryArchitecture = (typeof BINARY_ARCHITECTURES)[number];
+
+/**
+ * Families admitted only by explicit raw-binary selection. Header detection
+ * never yields them, so detected targets and Evidence subjects exclude them.
+ */
+export const RAW_ONLY_ARCHITECTURES = [
+  "6502",
+  "m68k",
+] as const satisfies readonly BinaryArchitecture[];
+export type RawOnlyArchitecture = (typeof RAW_ONLY_ARCHITECTURES)[number];
 
 /**
  * ELF header facts for a family whose ISA and ABI are not established by the
@@ -51,7 +63,7 @@ export const isElfMetadataArchitecture = (
 /** Recognized family with no ELF metadata member; the header alone is the fact. */
 export type HeaderArchitecture = Exclude<
   BinaryArchitecture,
-  ElfMetadataArchitecture | "6502"
+  ElfMetadataArchitecture | RawOnlyArchitecture | "hexagon"
 >;
 
 /** Raw ELF facts; family recognition does not establish ISA or ABI support. */
@@ -164,6 +176,14 @@ export type BinaryTarget =
       readonly executableRole?: never;
       readonly managed?: never;
     })
+  | (BinaryTargetIdentity & {
+      readonly kind: "executable";
+      readonly format: "elf";
+      readonly architecture: "hexagon";
+      readonly availableArchitectures: readonly "hexagon"[];
+      readonly executableRole?: never;
+      readonly managed?: never;
+    })
   | (ExecutableTarget & {
       readonly format: "mach-o" | "elf" | "dos-mz" | "dos-com";
       readonly universalSlice?: never;
@@ -180,14 +200,11 @@ export type BinaryTarget =
   | (BinaryTargetIdentity & {
       readonly kind: "executable";
       readonly format: "raw-binary";
-      readonly architecture: Exclude<
-        BinaryArchitecture,
-        ElfMetadataArchitecture
-      >;
-      readonly availableArchitectures: readonly Exclude<
-        BinaryArchitecture,
-        ElfMetadataArchitecture
-      >[];
+      readonly architecture: HeaderArchitecture | RawOnlyArchitecture;
+      readonly availableArchitectures: readonly (
+        | HeaderArchitecture
+        | RawOnlyArchitecture
+      )[];
       readonly entryPoint: string;
       readonly entryPointSource: string;
       readonly executableRole?: never;
@@ -195,6 +212,8 @@ export type BinaryTarget =
     })
   | (ExecutableTarget & {
       readonly format: "pe";
+      /** Original COFF machine; undefined means this header fact is unavailable. */
+      readonly peMachine?: number;
       /** Provider-neutral PE image role observed from COFF characteristics. */
       readonly executableRole:
         | "application"
@@ -213,7 +232,12 @@ export type BinaryTarget =
   | (BinaryTargetIdentity &
       NonExecutableMetadata & {
         readonly kind: "archive";
-        readonly format: ZipPackageFormat | "asar" | "dmg" | "pkg";
+        readonly format:
+          | ZipPackageFormat
+          | "asar"
+          | "godot-pck"
+          | "dmg"
+          | "pkg";
       })
   | (BinaryTargetIdentity &
       NonExecutableMetadata & {

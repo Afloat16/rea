@@ -1,4 +1,7 @@
-import { AnalysisOutputError } from "../../domain/analysisErrorCore.js";
+import {
+  AnalysisCancelledError,
+  AnalysisOutputError,
+} from "../../domain/analysisErrorCore.js";
 import { AnalysisError } from "../../domain/analysisErrorBase.js";
 import {
   recordedCrashPayloadSchema,
@@ -10,6 +13,7 @@ import type { RecordedCrashPort } from "../../application/binaryDiagnostics/Reco
 import { PrivateRuntimeRoot } from "../../process/PrivateRuntimeRoot.js";
 import { PwntoolsDecoder, type PwntoolsLauncher } from "./PwntoolsDecoder.js";
 import { PWNTOOLS_PROVIDER_IDENTITY } from "./PwntoolsRelease.js";
+import { validateCoreFileMappingAuthority } from "../pwndbg/CoreFileMappingAuthority.js";
 import { validateRecordedCrashSources } from "./RecordedCrashSourceBindings.js";
 import { validateRecordedCrashStructure } from "./RecordedCrashStructureBindings.js";
 import {
@@ -52,6 +56,7 @@ export class PwntoolsRecordedCrashProvider
           diagnostics,
           options,
           runCommand,
+          timeoutMs,
         }) => {
           const validate = (debuggerContext: RecordedCrash["debugger"]) =>
             recordedCrashSchema.safeParse({
@@ -118,13 +123,25 @@ export class PwntoolsRecordedCrashProvider
             }
           if (!input.include_debugger_context) return value;
           try {
+            if (options?.signal?.aborted)
+              throw new AnalysisCancelledError("inspect_recorded_crash", {
+                cause: options.signal.reason,
+                capturedOutput: diagnostics,
+              });
+            const authority = validateCoreFileMappingAuthority(
+              value,
+              snapshot.bytes,
+            );
+            if (!authority.ok) throw authority.error;
             const context = await inspectPwndbgCore({
               environment,
+              architecture: value.architecture,
               rootPath,
               resources,
               diagnostics,
               options,
               runCommand,
+              timeoutMs,
             });
             const enriched = validate(context);
             if (!enriched.success)

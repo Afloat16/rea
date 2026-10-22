@@ -3,6 +3,7 @@ import {
   wasmInterfaceEntryRepresentationBytes,
 } from "../../domain/wasm/wasmInterface.js";
 import { setImmediate } from "node:timers/promises";
+import { ARTIFACT_COMPARISON_PROVIDER } from "../../domain/comparisonEvidenceIdentity.js";
 import {
   compareWasmInterfacesInputSchema,
   wasmInterfaceComparisonSchema,
@@ -22,10 +23,10 @@ import {
   AnalysisInputError,
   AnalysisResourceConstraintError,
 } from "../../domain/analysisErrorCore.js";
+import { fixedAllowanceOptions } from "../../domain/fixedAllowanceRemediation.js";
 import { AnalysisError } from "../../domain/analysisErrorBase.js";
 import { analysisInputErrorFromIssues } from "../../domain/inputIssueProjection.js";
 import { err, ok, type Result } from "../../domain/result.js";
-import { ARTIFACT_COMPARISON_PROVIDER } from "../InvestigationProviders.js";
 import {
   resolvePairedEvidenceRequest,
   type EvidenceLookup,
@@ -133,6 +134,10 @@ export const compareWasmInterfaces = async (
           "capacity",
           "WASM comparison exceeds typed interface representation capacity",
           { maximum_bytes: WASM_INTERFACE_REPRESENTATION_BYTES },
+          fixedAllowanceOptions(
+            "The WASM interface comparison inventory",
+            "bytes",
+          ),
         );
       if (++work % 256 === 0) {
         await setImmediate();

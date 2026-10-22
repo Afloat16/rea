@@ -27,8 +27,46 @@ if (
   process.exit(64);
 }
 
+const OOME_LINE =
+  "ERROR Abort due to Headless analyzer error: Java heap space (HeadlessAnalyzer) java.lang.OutOfMemoryError: Java heap space\n";
+// Exceeds the 8 MiB diagnostic retention budget in many small chunks.
+const floodStdout = async () => {
+  const line = "INFO  fixture analyzer progress line\n";
+  const block = line.repeat(Math.ceil((64 * 1024) / line.length));
+  for (let written = 0; written < 10.5 * 1024 * 1024;) {
+    if (!process.stdout.write(block))
+      await new Promise((resolve) => process.stdout.once("drain", resolve));
+    written += block.length;
+  }
+};
+
+// The retention boundary ends exactly at the class-name prefix of a different identifier.
+const cutIdentifierAtBudget = async () => {
+  const marker = "java.lang.OutOfMemoryError";
+  let remaining = 8 * 1024 * 1024 - marker.length;
+  const block = Buffer.alloc(64 * 1024, 0x70);
+  while (remaining > 0) {
+    const part = block.subarray(0, Math.min(remaining, block.length));
+    if (!process.stdout.write(part))
+      await new Promise((resolve) => process.stdout.once("drain", resolve));
+    remaining -= part.length;
+  }
+  await new Promise((resolve, reject) =>
+    process.stdout.write(`${marker}Custom\n`, (error) =>
+      error ? reject(error) : resolve(),
+    ),
+  );
+  process.exit(74);
+};
+
+const writeThen = (stream, text, then) =>
+  stream.write(text, () => setTimeout(then, 10));
+
 if (mode === "exit") process.exit(73);
-if (mode === "silent") setInterval(() => undefined, 1_000);
+if (mode === "flood_silent") {
+  await floodStdout();
+  setInterval(() => undefined, 1_000);
+} else if (mode === "silent") setInterval(() => undefined, 1_000);
 else {
   await rm(endpointPath, { force: true });
   const sockets = new Set();
@@ -47,6 +85,7 @@ else {
     const state = {
       buffer: { value: "" },
       pings: { value: 0 },
+      emittedOome: false,
       mode,
       token,
       runId,
@@ -103,9 +142,48 @@ const onSocketData = (socket, server, chunk, state) => {
   }
 };
 
+/** Tool-request failures that follow process output, as the Ghidra JVM prints them. */
+const handleOutputFailure = (socket, state) => {
+  const oome = () =>
+    writeThen(process.stderr, OOME_LINE, () => process.exit(1));
+  if (state.mode === "prefix_cut_identifier_exit_tools")
+    void cutIdentifierAtBudget();
+  else if (state.mode === "oom_exit_tools") oome();
+  else if (state.mode === "flood_then_oom_exit_tools")
+    void floodStdout().then(oome);
+  else if (state.mode === "flood_then_exit_tools")
+    void floodStdout().then(() => process.exit(74));
+  else if (state.mode === "flood_then_malformed")
+    void floodStdout().then(() => socket.write("{invalid\n"));
+  else return false;
+  return true;
+};
+
 const handleRequest = (socket, server, request, state) => {
   if (request.method === "ping") {
     handlePing(socket, request, state);
+    return;
+  }
+  if (
+    state.mode === "old_oom_then_malformed" &&
+    request.method === "list_documents" &&
+    !state.emittedOome
+  ) {
+    state.emittedOome = true;
+    process.stderr.write(
+      "ERROR Abort due to Headless analyzer error: Java heap space (HeadlessAnalyzer) java.lang.OutOfMemoryError:\n",
+      () => setTimeout(() => handleRequest(socket, server, request, state), 10),
+    );
+    return;
+  }
+  if (
+    state.mode === "old_oom_then_malformed" &&
+    request.method === "list_procedures" &&
+    state.emittedOome
+  ) {
+    process.stderr.write("Current operation diagnostic: 雪\n", () =>
+      setTimeout(() => socket.write("{invalid\n"), 10),
+    );
     return;
   }
   if (state.mode === "remote_error" && request.method === "list_procedures") {
@@ -123,6 +201,8 @@ const handleRequest = (socket, server, request, state) => {
   }
   if (state.mode === "exit_tools" && request.method !== "shutdown")
     process.exit(74);
+  if (request.method !== "shutdown" && handleOutputFailure(socket, state))
+    return;
   if (state.mode === "hang_tools" && request.method !== "shutdown") return;
   const inventory =
     request.method === "list_strings" && state.mode === "fragmented"
@@ -232,6 +312,7 @@ const sessionInfo = ({
   analysis_complete: !timedOut,
   analysis_timed_out: timedOut,
   capabilities: [
+    "read_binary_inventory_summary",
     "ping",
     "shutdown",
     "inspect_native_load_image",
@@ -284,6 +365,13 @@ const sessionInfo = ({
 
 const inventoryResultFor = (method, params) => {
   switch (method) {
+    case "read_binary_inventory_summary":
+      return {
+        document: "fixture",
+        segments: inventoryResultFor("list_segments", {}),
+        procedure_count: inventoryResultFor("list_procedures", {}).length,
+        string_count: inventoryResultFor("list_strings", {}).length,
+      };
     case "search_bytes": {
       const continued = params.cursor === "fixture-second-page";
       const paged = params.limit === 1 && !continued;

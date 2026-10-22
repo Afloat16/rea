@@ -1,15 +1,175 @@
 import { expect, it } from "vitest";
+import { z } from "zod";
 
 import { digestProcessCommitment } from "./processScenario.js";
 import { parseProcessCapture } from "./processCaptureParsing.js";
 import { partialProcessCaptureObservationSchema } from "./processCapture.js";
 import { FINALIZED_PROCESS_CAPTURE_EXAMPLE } from "./processCaptureExample.js";
 import { finalizationConsistencyIssue } from "./processCaptureValidation.js";
+import type { FilesystemCoverage } from "./processCaptureCoverage.js";
 import {
   compareUnverifiedProcessCaptures as compareProcessCaptures,
   emptyUnverifiedProcessCapture as emptyCapture,
   processCaptureIssues,
 } from "./processCapture.fixture.js";
+
+/** Name every rejected field reported by the production parser. */
+const rejectedPaths = (input: unknown): readonly string[] => {
+  try {
+    parseProcessCapture(input);
+  } catch (cause: unknown) {
+    if (cause instanceof z.ZodError)
+      return cause.issues.map(({ path }) => path.join("."));
+    throw cause;
+  }
+  throw new Error("Process capture was accepted");
+};
+
+const captureWithEnumerationOmission = (
+  omission: FilesystemCoverage["enumeration_omissions"][number],
+) => {
+  const capture = emptyCapture();
+  const scenario = {
+    ...capture.manifest.scenario,
+    filesystem_observation_paths: ["/fixture/selected"],
+  };
+  return {
+    ...capture,
+    manifest: {
+      ...capture.manifest,
+      scenario,
+      full_scenario_sha256: digestProcessCommitment(scenario),
+    },
+    truncated: true,
+    filesystem_checkpoints: capture.filesystem_checkpoints.map((checkpoint) =>
+      checkpoint.name === "after_settlement"
+        ? { ...checkpoint, truncated: true }
+        : checkpoint,
+    ),
+    truncation_details: {
+      ...capture.truncation_details,
+      filesystem_after: {
+        ...capture.truncation_details.filesystem_after,
+        enumeration_truncated: true,
+        enumeration_reasons: [omission.reason],
+        enumeration_omissions: [omission],
+      },
+    },
+  };
+};
+
+const captureWithSamplingInterruption = () => {
+  const capture = emptyCapture();
+  return {
+    ...capture,
+    truncated: true,
+    truncation_details: {
+      ...capture.truncation_details,
+      process: {
+        ...capture.truncation_details.process,
+        sampling_partial: true,
+        sampling_failures: 1,
+        first_sampling_failure: "Process sampling interrupted by shutdown",
+      },
+    },
+  };
+};
+
+it("requires interrupted sampling diagnostics to agree with partial and aggregate truncation", () => {
+  const interrupted = captureWithSamplingInterruption();
+  expect(parseProcessCapture(interrupted)).toEqual(interrupted);
+  expect(() =>
+    parseProcessCapture({
+      ...interrupted,
+      truncated: false,
+    }),
+  ).toThrow("truncation_details");
+  expect(
+    rejectedPaths({
+      ...interrupted,
+      truncation_details: {
+        ...interrupted.truncation_details,
+        process: {
+          ...interrupted.truncation_details.process,
+          sampling_partial: false,
+        },
+      },
+    }),
+  ).toContain("truncation_details.process");
+  expect(
+    rejectedPaths({
+      ...interrupted,
+      truncation_details: {
+        ...interrupted.truncation_details,
+        process: {
+          ...interrupted.truncation_details.process,
+          first_sampling_failure: null,
+        },
+      },
+    }),
+  ).toContain("truncation_details.process");
+});
+
+it("limits interruption impact to process comparison", () => {
+  const baseline = emptyCapture();
+  const interrupted = captureWithSamplingInterruption();
+  expect(compareProcessCaptures(interrupted, baseline)).toMatchObject({
+    status: "unknown",
+    terminal: "unchanged",
+    interaction: "unchanged",
+    exit: "unchanged",
+    filesystem: "unchanged",
+    process: "unknown",
+  });
+});
+
+it.each([
+  { path: "root_0:.", reason: "entry_unavailable", system_code: "ENOENT" },
+  { path: "root_0:.", reason: "identity_changed", system_code: null },
+] as const)("accepts a partial entry with $reason evidence", (omission) => {
+  const capture = captureWithEnumerationOmission(omission);
+  expect(parseProcessCapture(capture)).toEqual(capture);
+});
+
+it.each([
+  { path: "root_0:.", reason: "entry_unavailable", system_code: null },
+  { path: "root_0:.", reason: "identity_changed", system_code: "ENOENT" },
+  { path: "root_0:.", reason: "directory_unavailable", system_code: "ENOENT" },
+] as const)("rejects an inconsistent omission %j", (omission) => {
+  expect(() =>
+    parseProcessCapture(captureWithEnumerationOmission(omission)),
+  ).toThrow("enumeration_omissions");
+});
+
+it("requires entry-unavailability details and matching aggregate reasons", () => {
+  const capture = captureWithEnumerationOmission({
+    path: "root_0:.",
+    reason: "entry_unavailable",
+    system_code: "ENOENT",
+  });
+  for (const changes of [
+    { enumeration_omissions: [] },
+    { enumeration_reasons: ["identity_changed"] },
+    {
+      enumeration_omissions: [
+        ...capture.truncation_details.filesystem_after.enumeration_omissions,
+        ...capture.truncation_details.filesystem_after.enumeration_omissions,
+      ],
+    },
+  ])
+    expect(() =>
+      parseProcessCapture({
+        ...capture,
+        truncation_details: {
+          ...capture.truncation_details,
+          filesystem_after: {
+            ...capture.truncation_details.filesystem_after,
+            ...changes,
+          },
+        },
+      }),
+    ).toThrow("enumeration_omissions");
+});
 
 it("never considers truncated captures equivalent", () => {
   const complete = emptyCapture();
@@ -73,8 +233,8 @@ it("does not infer normalized retention budget from missing scenario defaults", 
       filesystem_depth: 16,
     },
   };
-  expect(() =>
-    parseProcessCapture({
+  expect(
+    rejectedPaths({
       ...capture,
       manifest: {
         ...capture.manifest,
@@ -90,7 +250,7 @@ it("does not infer normalized retention budget from missing scenario defaults", 
         },
       },
     }),
-  ).toThrow("manifest.scenario.limits.output_bytes");
+  ).toContain("manifest.scenario.limits.output_bytes");
 });
 
 it("rejects settlement and cleanup combinations that cannot occur", () => {

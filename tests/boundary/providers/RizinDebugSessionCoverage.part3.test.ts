@@ -1,17 +1,13 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { AnalysisInputError } from "../../../src/domain/analysisErrorCore.js";
-import { RizinDebugSessionManager } from "../../../src/rizin/RizinDebugSessionManager.js";
-import {
-  createRizinTestManager,
-  rizinTestInferiorTty,
-} from "./RizinTestInferiorTty.js";
+import { rizinTestInferiorTty } from "./RizinTestInferiorTty.js";
 import {
   createRizinCoverageHarness,
   abortOnCheck,
   createInjectedProcess,
 } from "./RizinDebugSessionCoverage.fixtures.js";
 
-const { cleanup, startInjected, track } = createRizinCoverageHarness();
+const { cleanup, startInjected, createManager } = createRizinCoverageHarness();
 afterEach(cleanup);
 
 it.skipIf(process.platform === "win32")(
@@ -35,9 +31,10 @@ it.skipIf(process.platform === "win32")(
       });
       expect(result.value.evidence.limitations).toEqual([
         "The current debugger target identity is not established by the Rizin session identifier.",
-        "The command timed out before its completion marker; retained output is partial and completion is unknown.",
+        "The command timed out before its completion marker at 10 ms (deadlineExpired). This release has no runtime override. Retained output is partial and completion is unknown.",
         "The owned debugger session was stopped because output correlation could no longer be guaranteed.",
         "The command is unrestricted and may access local files, the shell, network, or mutate the target.",
+        "Interrupted output may include an incomplete completion-marker prefix; it is retained because it cannot be distinguished from command diagnostics.",
         "Launch provenance records the original and resolved startup paths; it does not establish the current target after unrestricted debugger commands.",
       ]);
     }
@@ -98,7 +95,10 @@ it.skipIf(process.platform === "win32")(
 
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(result.value.result.output).toBe("first frame\nsecond frame");
+      // All three frames arrived before expiry; the third is still queued.
+      expect(result.value.result.output).toBe(
+        "first frame\nsecond frame\nthird frame",
+      );
       expect(result.value.result.completion_status).toBe("unknown");
     }
   },
@@ -260,6 +260,7 @@ it.skipIf(process.platform === "win32")(
         "The current debugger target identity is not established by the Rizin session identifier.",
         "Rizin exited before the command-completion marker; retained frame output is partial and command completion is unknown.",
         "The command is unrestricted and may access local files, the shell, network, or mutate the target.",
+        "Interrupted output may include an incomplete completion-marker prefix; it is retained because it cannot be distinguished from command diagnostics.",
         "Launch provenance records the original and resolved startup paths; it does not establish the current target after unrestricted debugger commands.",
       ]);
     }

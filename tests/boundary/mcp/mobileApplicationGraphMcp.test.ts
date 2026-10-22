@@ -12,6 +12,7 @@ import { afterEach, expect, it } from "vitest";
 
 import { createDirectAnalysis } from "../../../src/composition/directAnalysis.js";
 import { parseEvidence } from "../../../src/domain/evidence.js";
+import { fragmentInventoryEvidence } from "../../fixtures/artifactEvidence.js";
 import { createTestBinarySession } from "../../fixtures/binarySession.js";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 import { createServer } from "../../../src/server/createServer.js";
@@ -84,9 +85,10 @@ it("advertises and executes Android and Apple inventory projections", async () =
   const apkInventory = parseEvidence(
     await runProviderAnalysis(await writeApk(root), "inventory_artifact", {}),
   );
+  const apkSources = fragmentInventoryEvidence(apkInventory, 2).toReversed();
   const android = await client.callTool({
     name: "project_android_application_graph",
-    arguments: { inventory_evidence: [apkInventory] },
+    arguments: { inventory_evidence: apkSources },
   });
   if (android.isError === true)
     throw new Error(JSON.stringify(android, null, 2));
@@ -94,6 +96,38 @@ it("advertises and executes Android and Apple inventory projections", async () =
     operation: "project_android_application_graph",
     provider: { id: "rea-android-application" },
   });
+  const androidEvidence = parseEvidence(android.structuredContent);
+  const androidBundle = await client.callTool({
+    name: "get_evidence_bundle",
+    arguments: {},
+  });
+  expect(androidBundle.structuredContent).toMatchObject({
+    result: {
+      records: expect.arrayContaining([...apkSources, androidEvidence]),
+    },
+  });
+
+  const tamperedSource = {
+    ...apkSources[0]!,
+    evidence_id: apkSources[1]!.evidence_id,
+  };
+  const rejected = await client.callTool({
+    name: "project_android_application_graph",
+    arguments: { inventory_evidence: [tamperedSource] },
+  });
+  expect(rejected.isError).toBe(true);
+  const bundleAfterRejectedSource = await client.callTool({
+    name: "get_evidence_bundle",
+    arguments: {},
+  });
+  expect(bundleAfterRejectedSource.structuredContent).toMatchObject({
+    result: {
+      records: expect.arrayContaining([...apkSources, androidEvidence]),
+    },
+  });
+  expect(bundleAfterRejectedSource.structuredContent).toEqual(
+    androidBundle.structuredContent,
+  );
 
   const ipaInventory = parseEvidence(
     await runProviderAnalysis(await writeIpa(root), "inventory_artifact", {}),
@@ -109,41 +143,66 @@ it("advertises and executes Android and Apple inventory projections", async () =
   });
 });
 
-it("retains Harmony unavailable components and their source Evidence through MCP", async () => {
-  const client = await connect();
-  const root = await createTestTempDirectory("rea-harmony-graph-mcp-");
-  const path = join(root, "Locked.hap");
-  const writer = new ZipWriter(new Uint8ArrayWriter());
-  await writer.add("module.json", new TextReader("{}"));
-  await writer.add("ets/modules.abc", new TextReader("opaque bytecode"), {
-    password: "fixture-only",
-  });
-  await writeFile(path, await writer.close());
-  const inventory = parseEvidence(
-    await runProviderAnalysis(path, "inventory_artifact", {}),
-  );
-  const reply = await client.callTool({
-    name: "project_harmony_application_graph",
-    arguments: { inventory_evidence: [inventory] },
-  });
-  if (reply.isError === true) throw new Error(JSON.stringify(reply));
-  const evidence = parseEvidence(reply.structuredContent);
-  expect(evidence.normalized_result).toMatchObject({
-    unavailable_components: [
-      expect.objectContaining({
-        path: "ets/modules.abc",
-        artifact_id: null,
-        sha256: null,
-        encrypted: true,
-      }),
-    ],
-    coverage: { status: "partial", inventory_complete: true },
-  });
-  const bundle = await client.callTool({
-    name: "get_evidence_bundle",
-    arguments: {},
-  });
-  expect(bundle.structuredContent).toMatchObject({
-    result: { records: expect.arrayContaining([inventory, evidence]) },
-  });
-});
+it.each([
+  {
+    family: "Harmony",
+    name: "Locked.hap",
+    manifest: "module.json",
+    unread: "ets/modules.abc",
+    operation: "project_harmony_application_graph",
+  },
+  {
+    family: "Android",
+    name: "Locked.apk",
+    manifest: "AndroidManifest.xml",
+    unread: "classes.dex",
+    operation: "project_android_application_graph",
+  },
+  {
+    family: "Apple",
+    name: "Locked.ipa",
+    manifest: "Payload/Locked.app/Info.plist",
+    unread: "Payload/Locked.app/libentry.dylib",
+    operation: "project_apple_application_graph",
+  },
+])(
+  "retains $family unavailable components and their source Evidence through MCP",
+  async ({ name, manifest, unread, operation }) => {
+    const client = await connect();
+    const root = await createTestTempDirectory("rea-harmony-graph-mcp-");
+    const path = join(root, name);
+    const writer = new ZipWriter(new Uint8ArrayWriter());
+    await writer.add(manifest, new TextReader("{}"));
+    await writer.add(unread, new TextReader("opaque bytecode"), {
+      password: "fixture-only",
+    });
+    await writeFile(path, await writer.close());
+    const inventory = parseEvidence(
+      await runProviderAnalysis(path, "inventory_artifact", {}),
+    );
+    const reply = await client.callTool({
+      name: operation,
+      arguments: { inventory_evidence: [inventory] },
+    });
+    if (reply.isError === true) throw new Error(JSON.stringify(reply));
+    const evidence = parseEvidence(reply.structuredContent);
+    expect(evidence.normalized_result).toMatchObject({
+      unavailable_components: [
+        expect.objectContaining({
+          path: unread,
+          artifact_id: null,
+          sha256: null,
+          encrypted: true,
+        }),
+      ],
+      coverage: { status: "partial", inventory_complete: true },
+    });
+    const bundle = await client.callTool({
+      name: "get_evidence_bundle",
+      arguments: {},
+    });
+    expect(bundle.structuredContent).toMatchObject({
+      result: { records: expect.arrayContaining([inventory, evidence]) },
+    });
+  },
+);

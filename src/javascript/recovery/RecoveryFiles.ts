@@ -1,3 +1,4 @@
+import { regularFileCancellation } from "../../filesystem/OwnedRegularFile.js";
 import { createHash } from "node:crypto";
 import { lstat, mkdir, opendir, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -7,6 +8,7 @@ import {
   AnalysisCancelledError,
   AnalysisInputError,
   AnalysisOutputError,
+  AnalysisResourceConstraintError,
   AnalysisTimeoutError,
 } from "../../domain/analysisErrorCore.js";
 import {
@@ -14,13 +16,31 @@ import {
   openRegularFile,
   RegularFileAdmissionFailure,
 } from "../../filesystem/RegularFile.js";
-import { RECOVERY_LIMITS } from "./WakaruRelease.js";
+import { RECOVERY_LIMITS, wakaruFixedLimitRecovery } from "./WakaruRelease.js";
 
 const OPERATION = "recover_javascript_sources";
 
 /** Fingerprint exact selected or derived bytes. */
 export const recoveryDigest = (bytes: Uint8Array): string =>
   createHash("sha256").update(bytes).digest("hex");
+
+/** A file exceeded the byte bound its caller selected; the caller owns what that bound means. */
+class RecoveryFileSizeError extends AnalysisOutputError {
+  constructor(
+    reason: string,
+    readonly maximum: number,
+  ) {
+    super(OPERATION, reason);
+  }
+}
+
+/** A bounded read stopped because the regular file exceeded the caller's maximum. */
+export const isRecoveryFileSizeError = (
+  cause: unknown,
+  maximum?: number,
+): boolean =>
+  cause instanceof RecoveryFileSizeError &&
+  (maximum === undefined || cause.maximum === maximum);
 
 /** Read a stable regular file without retaining bytes during engine fingerprinting. */
 const scanRecoveryFile = async (
@@ -37,7 +57,11 @@ const scanRecoveryFile = async (
     // A descriptor whose close failed stays owned by its error, even when
     // cancellation was also requested.
     if (cause instanceof RegularFileAdmissionFailure) throw cause;
-    checkRecoveryCancellation(signal);
+    const cancellation = regularFileCancellation(cause);
+    if (cancellation !== undefined)
+      throw new AnalysisCancelledError(OPERATION, {
+        cause: cancellation.reason,
+      });
     if (cause instanceof NonRegularFileReadError)
       throw new AnalysisOutputError(
         OPERATION,
@@ -49,9 +73,9 @@ const scanRecoveryFile = async (
   try {
     const before = await handle.stat();
     if (before.size > maximum)
-      throw new AnalysisOutputError(
-        OPERATION,
+      throw new RecoveryFileSizeError(
         `Expected a regular file no larger than ${String(maximum)} bytes: ${path}`,
+        maximum,
       );
     let bytes = 0;
     for await (const raw of handle.createReadStream({ autoClose: false })) {
@@ -59,9 +83,9 @@ const scanRecoveryFile = async (
       const chunk = Buffer.isBuffer(raw) ? raw : Buffer.from(raw);
       bytes += chunk.length;
       if (bytes > maximum)
-        throw new AnalysisOutputError(
-          OPERATION,
+        throw new RecoveryFileSizeError(
           `File exceeds ${String(maximum)} bytes: ${path}`,
+          maximum,
         );
       hash.update(chunk);
       consume(chunk);
@@ -133,14 +157,42 @@ const snapshotRecoveryInput = async (
   let bytes: Buffer;
   try {
     bytes = await readRecoveryFile(path, maximum, signal);
-    new TextDecoder("utf-8", { fatal: true }).decode(bytes);
   } catch (cause: unknown) {
     if (cause instanceof AnalysisCancelledError) throw cause;
+    // The operation-wide input allowance is a deterministic byte budget, not
+    // a malformed argument; the same selection fails again unchanged.
+    if (cause instanceof RecoveryFileSizeError)
+      throw new AnalysisResourceConstraintError(
+        OPERATION,
+        "file-size",
+        `Selected JavaScript input ${path} exceeds the ${String(cause.maximum)} bytes remaining of the ${String(RECOVERY_LIMITS.inputBytes)}-byte total input allowance`,
+        {
+          maximum_input_bytes: RECOVERY_LIMITS.inputBytes,
+          remaining_input_bytes: cause.maximum,
+        },
+        {
+          cause,
+          retryable: false,
+          remediationAction: `Select JavaScript inputs whose combined size is within the ${String(RECOVERY_LIMITS.inputBytes)}-byte total input allowance (maximum_input_bytes). This release has no runtime override. Raising max_heap_mb does not raise it. Do not truncate required source; retrying the unchanged selection will fail again.`,
+        },
+      );
     throw recoveryInputFailure(
       "path",
       `Cannot snapshot UTF-8 JavaScript input ${path}: ${recoveryFailureMessage(cause)}`,
       cause,
     );
+  }
+  try {
+    new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch (cause: unknown) {
+    throw new AnalysisInputError(OPERATION, { cause }, [
+      {
+        path: ["path"],
+        reason: "invalid_format",
+        expected: "UTF-8",
+        message: `JavaScript input is not valid UTF-8: ${path}`,
+      },
+    ]);
   }
   await mkdir(dirname(snapshotPath), { recursive: true, mode: 0o700 });
   await writeFile(snapshotPath, bytes, { flag: "wx", mode: 0o600 });
@@ -246,6 +298,9 @@ export const inventoryRecoveryFiles = async (
           throw new AnalysisOutputError(
             OPERATION,
             "Recovery staging exceeds the 10000-entry resource limit",
+            wakaruFixedLimitRecovery(
+              `Recovery staging exceeds the ${String(RECOVERY_LIMITS.outputEntries)}-entry resource limit`,
+            ),
           );
         children.push(entry.name);
       }
@@ -269,6 +324,9 @@ export const inventoryRecoveryFiles = async (
           throw new AnalysisOutputError(
             OPERATION,
             "Recovery staging exceeds the 128 MiB resource limit",
+            wakaruFixedLimitRecovery(
+              `Recovery staging exceeds the ${String(RECOVERY_LIMITS.outputBytes)}-byte output allowance`,
+            ),
           );
         files.push({ relativePath, path, bytes: info.size });
       }
@@ -304,5 +362,8 @@ export const checkRecoveryDeadline = (
 ): void => {
   checkRecoveryCancellation(signal);
   if (performance.now() >= deadline)
-    throw new AnalysisTimeoutError(OPERATION, RECOVERY_LIMITS.timeoutMs);
+    throw new AnalysisTimeoutError(OPERATION, RECOVERY_LIMITS.timeoutMs, {
+      userMessage: `JavaScript source recovery reached its ${String(RECOVERY_LIMITS.timeoutMs)} ms Wakaru adapter deadline. This is REA's fixed per-operation deadline, not the MCP client deadline.`,
+      remediationAction: `This release has no runtime override for the ${String(RECOVERY_LIMITS.timeoutMs)} ms Wakaru recovery deadline. Raising analysis_timeout_ms or max_heap_mb does not raise it. A smaller complete input may finish inside this deadline. An unchanged retry may hit this deadline again. Allow execution, cleanup and delivery headroom in the outer MCP client deadline. Confirm outstanding work and cleanup before retrying.`,
+    });
 };

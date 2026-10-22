@@ -114,29 +114,30 @@ const accessibilityDimension = (
   const afterAccess = accessibilityComparable(after);
   const textComparable = beforeAccess.text && afterAccess.text;
   const nodesComparable = beforeAccess.nodes && afterAccess.nodes;
+  const reason =
+    "Accessibility tree or text capture was incomplete in at least one observation.";
+  if (!nodesComparable)
+    return {
+      status: "unknown",
+      total_changes: 0,
+      changes: [],
+      reason,
+    };
   return compareDimension(
     singleton(
       "accessibility_tree",
       digestCanonicalValue(
-        accessibilityProjection(
-          before.accessibility,
-          textComparable,
-          nodesComparable,
-        ),
+        accessibilityProjection(before.accessibility, textComparable),
       ),
     ),
     singleton(
       "accessibility_tree",
       digestCanonicalValue(
-        accessibilityProjection(
-          after.accessibility,
-          textComparable,
-          nodesComparable,
-        ),
+        accessibilityProjection(after.accessibility, textComparable),
       ),
     ),
     beforeAccess.complete && afterAccess.complete,
-    "Accessibility tree or text capture was incomplete in at least one observation.",
+    reason,
   );
 };
 
@@ -366,6 +367,26 @@ const networkInventoryComplete = (
     (section) => inspection.completeness.dropped_events[section] === 0,
   );
 
+type WebSocketEvent =
+  WebPageInspection["network"]["websocket_connections"][number]["events"][number];
+
+const webSocketEventHasOpcode = (
+  event: WebSocketEvent | undefined,
+): event is WebSocketEvent => event !== undefined && event.opcode !== null;
+
+const webSocketEventHasPayloadBytes = (
+  event: WebSocketEvent | undefined,
+): boolean => webSocketEventHasOpcode(event) && event.payload_bytes !== null;
+
+const webSocketEventHasPayloadShape = (
+  event: WebSocketEvent | undefined,
+): boolean => webSocketEventHasOpcode(event) && event.payload_shape !== null;
+
+const webSocketOpcodesKnown = (inspection: WebPageInspection): boolean =>
+  inspection.network.websocket_connections.every((connection) =>
+    connection.events.every(webSocketEventHasOpcode),
+  );
+
 const networkDimension = (
   before: WebPageInspection,
   after: WebPageInspection,
@@ -373,11 +394,12 @@ const networkDimension = (
   const requestsComplete = [before, after].every((inspection) =>
     networkInventoryComplete(inspection, ["network_requests"]),
   );
-  const webSocketInventoryComplete = [before, after].every((inspection) =>
-    networkInventoryComplete(inspection, [
-      "websocket_connections",
-      "websocket_frames",
-    ]),
+  const webSocketInventoryComplete = [before, after].every(
+    (inspection) =>
+      networkInventoryComplete(inspection, [
+        "websocket_connections",
+        "websocket_frames",
+      ]) && webSocketOpcodesKnown(inspection),
   );
   const requestIdentities = networkIdentityCoverage(before, after);
   const metadata = sharedNetworkMetadata(before, after);
@@ -431,12 +453,12 @@ const networkDimension = (
       (inspection) =>
         sectionsComplete(inspection, ["websocket_shapes"]) &&
         inspection.network.websocket_connections.every((connection) =>
-          connection.events.every((event) => event.payload_shape !== null),
+          connection.events.every(webSocketEventHasPayloadShape),
         ),
     );
   const webSocketPayloadBytesComplete = [before, after].every((inspection) =>
     inspection.network.websocket_connections.every((connection) =>
-      connection.events.every((event) => event.payload_bytes !== null),
+      connection.events.every(webSocketEventHasPayloadBytes),
     ),
   );
   const beforeWebSockets = webSocketGroups(before);
@@ -632,11 +654,11 @@ const webSocketPayloadMaps = (
     const comparableShapes = new Set<number>();
     for (let index = 0; index < eventCount; index += 1) {
       if (
-        beforeGroup.connections.every(
-          (connection) => connection.events[index]?.payload_bytes !== null,
+        beforeGroup.connections.every((connection) =>
+          webSocketEventHasPayloadBytes(connection.events[index]),
         ) &&
-        afterGroup.connections.every(
-          (connection) => connection.events[index]?.payload_bytes !== null,
+        afterGroup.connections.every((connection) =>
+          webSocketEventHasPayloadBytes(connection.events[index]),
         )
       )
         comparableBytes.add(index);
@@ -644,11 +666,11 @@ const webSocketPayloadMaps = (
       // on both sides; this avoids assigning an unknown shape to a known one.
       if (
         selected &&
-        beforeGroup.connections.every(
-          (connection) => connection.events[index]?.payload_shape !== null,
+        beforeGroup.connections.every((connection) =>
+          webSocketEventHasPayloadShape(connection.events[index]),
         ) &&
-        afterGroup.connections.every(
-          (connection) => connection.events[index]?.payload_shape !== null,
+        afterGroup.connections.every((connection) =>
+          webSocketEventHasPayloadShape(connection.events[index]),
         )
       )
         comparableShapes.add(index);
@@ -850,20 +872,32 @@ const accessibilityComparable = (
   const text =
     inspection.accessibility.text_capture.status === "included" &&
     inspection.accessibility.text_capture.excluded_fields === 0;
+  const { completeness } = inspection;
+  const exclusions = completeness.excluded.filter(
+    ({ section }) => section === "accessibility",
+  );
+  const textOnlyPolicyFilter =
+    inspection.accessibility.text_capture.status === "not_approved" &&
+    exclusions.length > 0 &&
+    exclusions.every(({ reason }) => reason === "not_approved");
   const nodes =
+    [
+      completeness.truncated_sections,
+      completeness.unavailable_sections,
+      completeness.attach_limited_sections,
+    ].every((sections) => !sections.includes("accessibility")) &&
+    (!completeness.policy_filtered_sections.includes("accessibility") ||
+      textOnlyPolicyFilter) &&
     inspection.accessibility.total_nodes ===
-    inspection.accessibility.nodes.length;
-  const complete =
-    text && nodes && sectionsComplete(inspection, ["accessibility"]);
+      inspection.accessibility.nodes.length;
+  const complete = text && nodes;
   return { text, nodes, complete };
 };
 
 const accessibilityProjection = (
   accessibility: WebPageInspection["accessibility"],
   includeText: boolean,
-  includeNodes: boolean,
 ): unknown => {
-  if (!includeNodes) return { total_nodes: accessibility.total_nodes };
   const nodeIndexes = new Map(
     accessibility.nodes.map((node, index) => [node.node_id, index]),
   );

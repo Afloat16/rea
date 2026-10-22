@@ -20,20 +20,60 @@ import {
 import { hostExecutableMarking } from "./hostExecutableMarking.js";
 import { OwnedDirectoryHandle } from "../filesystem/OwnedDirectoryHandle.js";
 import { OwnedFileHandle } from "../filesystem/OwnedFileHandle.js";
-import { readFileHandleChunks } from "../filesystem/readFileHandleChunks.js";
+import { readArtifactFileChunks } from "./readArtifactFileChunks.js";
+import {
+  withOwnedFileHandle,
+  RegularFileCleanupFailure,
+  RegularFileCancelled,
+} from "../filesystem/OwnedRegularFile.js";
+import { RegularFileOperationCancelled } from "../filesystem/RegularFile.js";
+import {
+  ArtifactFileCancelled,
+  ArtifactFileCleanupFailure,
+} from "./ArtifactFileOperation.js";
+import { AnalysisCleanupLease } from "./AnalysisCleanupLease.js";
+
+export type DirectoryArtifactEntry = ArtifactEntry & {
+  readonly kind: "file" | "directory" | "symlink";
+};
+
+interface DirectoryArtifactRoot {
+  readonly canonicalPath: string;
+  readonly identity: { readonly dev: bigint; readonly ino: bigint };
+}
 
 interface DirectoryTraversalOptions extends ArtifactTraversalOptions {
   readonly descendInto?: (path: string) => boolean;
+  /** Bound examined children, including omitted special entries. */
+  readonly maximumEntries?: number;
 }
+
+/** Exhausted an examined-entry budget; unrelated I/O and cleanup failures stay distinct. */
+export class DirectoryArtifactTraversalLimit extends ArtifactReaderFailure {
+  constructor(
+    readonly examinedEntries: number,
+    readonly maximumEntries: number,
+  ) {
+    super("limit", "Directory traversal reached its examined-entry budget", {
+      boundary: "capacity",
+    });
+  }
+}
+
+/**
+ * The selected root could not be admitted or opened. The consumer that owns
+ * the caller's selection classifies it; `cause` retains the host failure.
+ */
+export class DirectoryArtifactRootFailure extends ArtifactReaderFailure {}
 
 /** Non-symlink-following directory reader. */
 export class DirectoryArtifactReader implements ArtifactReader {
   readonly format = "directory" as const;
-  #rootPromise: Promise<string> | undefined;
-  #rootIdentity: { readonly dev: bigint; readonly ino: bigint } | undefined;
+  #rootPromise: Promise<DirectoryArtifactRoot> | undefined;
   readonly #rootPath: string;
   readonly #directories = new Set<OwnedDirectoryHandle>();
   readonly #files = new Map<OwnedFileHandle, string>();
+  readonly #fileCleanup = new WeakMap<OwnedFileHandle, AnalysisCleanupLease>();
 
   constructor(root: string) {
     this.#rootPath = root;
@@ -43,58 +83,100 @@ export class DirectoryArtifactReader implements ArtifactReader {
   async *entries(
     signal?: AbortSignal,
     selection?: DirectoryTraversalOptions | ((path: string) => boolean),
-  ): AsyncIterable<ArtifactEntry> {
-    const root = await this.#resolveRoot();
+  ): AsyncIterable<DirectoryArtifactEntry> {
+    const admittedRoot = await this.#resolveRoot();
+    const root = admittedRoot.canonicalPath;
     const options =
       typeof selection === "function" ? { descendInto: selection } : selection;
+    const maximum = options?.maximumEntries;
+    if (
+      maximum !== undefined &&
+      (!Number.isSafeInteger(maximum) || maximum < 0)
+    )
+      throw new RangeError(
+        "Directory traversal maximumEntries must be a nonnegative safe integer",
+      );
+    let examined = 0;
+    const examine = () => {
+      if (maximum !== undefined && examined >= maximum)
+        throw new DirectoryArtifactTraversalLimit(examined, maximum);
+      examined += 1;
+    };
     const pending = [root];
     while (pending.length > 0) {
       abortIfNeeded(signal);
       const directory = pending.pop();
       if (directory === undefined) break;
       await withDirectoryIoContext("inspect directory", directory, () =>
-        assertContainedDirectory(root, directory, this.#rootIdentity),
+        assertContainedDirectory(root, directory, admittedRoot.identity),
       );
       for await (const entry of this.#readDirectory(
         directory,
         pending,
         signal,
         options,
+        examine,
       ))
         yield entry;
       await withDirectoryIoContext("inspect directory", directory, () =>
-        assertContainedDirectory(root, directory, this.#rootIdentity),
+        assertContainedDirectory(root, directory, admittedRoot.identity),
       );
     }
   }
 
-  async #resolveRoot(): Promise<string> {
+  /** Admission facts, shared with traversal; the selected root may be a symlink. */
+  rootObservation(): Promise<DirectoryArtifactRoot> {
+    return this.#resolveRoot();
+  }
+
+  async #resolveRoot(): Promise<DirectoryArtifactRoot> {
     return (this.#rootPromise ??= (async () => {
       const root = await realpath(this.#rootPath);
       const metadata = await lstat(root, { bigint: true });
-      if (metadata.isSymbolicLink() || !metadata.isDirectory())
+      if (metadata.isSymbolicLink())
         throw new ArtifactReaderFailure(
           "path",
           "Artifact root changed during traversal",
         );
-      this.#rootIdentity = { dev: metadata.dev, ino: metadata.ino };
-      return root;
+      if (!metadata.isDirectory())
+        throw new DirectoryArtifactRootFailure(
+          "path",
+          "Artifact root must be a directory",
+        );
+      return Object.freeze({
+        canonicalPath: root,
+        identity: Object.freeze({ dev: metadata.dev, ino: metadata.ino }),
+      });
     })().catch((cause: unknown) => {
       if (cause instanceof ArtifactReaderFailure) throw cause;
-      throw directoryIoFailure("resolve artifact root", this.#rootPath, cause);
+      throw directoryIoFailure(
+        "resolve artifact root",
+        this.#rootPath,
+        cause,
+        DirectoryArtifactRootFailure,
+      );
     }));
   }
 
   async *#readDirectory(
     directory: string,
     pending: string[],
-    signal?: AbortSignal,
-    options?: DirectoryTraversalOptions,
-  ): AsyncIterable<ArtifactEntry> {
-    const root = await this.#resolveRoot();
+    signal: AbortSignal | undefined,
+    options: DirectoryTraversalOptions | undefined,
+    examine: () => void,
+  ): AsyncIterable<DirectoryArtifactEntry> {
+    const admittedRoot = await this.#resolveRoot();
+    const root = admittedRoot.canonicalPath;
     const handle = new OwnedDirectoryHandle(
       await opendir(directory).catch((cause: unknown) => {
-        throw directoryIoFailure("open directory", directory, cause);
+        throw directoryIoFailure(
+          "open directory",
+          directory,
+          cause,
+          directory === root
+            ? DirectoryArtifactRootFailure
+            : ArtifactReaderFailure,
+        );
       }),
     );
     this.#directories.add(handle);
@@ -107,10 +189,11 @@ export class DirectoryArtifactReader implements ArtifactReader {
     try {
       for (;;) {
         await withDirectoryIoContext("inspect directory", directory, () =>
-          assertContainedDirectory(root, directory, this.#rootIdentity),
+          assertContainedDirectory(root, directory, admittedRoot.identity),
         );
         const child = await handle.handle.read();
         if (child === null) break;
+        examine();
         abortIfNeeded(signal);
         const absolute = join(directory, child.name);
         const metadata = await lstat(absolute, { bigint: true }).catch(
@@ -168,7 +251,10 @@ export class DirectoryArtifactReader implements ArtifactReader {
     }
   }
 
-  async open(entry: ArtifactEntry, signal?: AbortSignal): Promise<Readable> {
+  async #openFile(
+    entry: ArtifactEntry,
+    signal?: AbortSignal,
+  ): Promise<OwnedFileHandle<FileHandle>> {
     abortIfNeeded(signal);
     if (entry.kind !== "file")
       throw new ArtifactReaderFailure(
@@ -203,14 +289,7 @@ export class DirectoryArtifactReader implements ArtifactReader {
         );
       }
       abortIfNeeded(signal);
-      const source = Readable.from(
-        mapStableFileRead(owner.handle, entry, signal),
-        { objectMode: false },
-      );
-      source.once("close", () => {
-        void this.#closeFile(owner).catch(() => undefined);
-      });
-      return source;
+      return owner;
     } catch (cause: unknown) {
       try {
         await this.#closeFile(owner);
@@ -231,11 +310,89 @@ export class DirectoryArtifactReader implements ArtifactReader {
     }
   }
 
+  /** Borrow an admitted entry for bounded random reads; retain failed cleanup. */
+  async inspectFile<Value>(
+    entry: ArtifactEntry,
+    inspect: (file: FileHandle) => Promise<Value>,
+    signal?: AbortSignal,
+  ): Promise<Value> {
+    const owner = await this.#openFile(entry, signal);
+    try {
+      const value = await withOwnedFileHandle(
+        entry.adapterKey,
+        owner,
+        signal === undefined ? {} : { signal },
+        async (file) => {
+          let outcome:
+            | { kind: "completed"; value: Value }
+            | { kind: "failed"; cause: unknown };
+          try {
+            outcome = { kind: "completed", value: await inspect(file) };
+          } catch (cause: unknown) {
+            outcome = { kind: "failed", cause };
+          }
+          const [opened, named] = await Promise.all([
+            file.stat({ bigint: true }),
+            lstat(entry.adapterKey, { bigint: true }),
+          ]);
+          abortIfNeeded(signal);
+          if (
+            !opened.isFile() ||
+            !named.isFile() ||
+            !sameArtifactSourceIdentity(entry.sourceIdentity, opened) ||
+            !sameArtifactSourceIdentity(entry.sourceIdentity, named)
+          )
+            throw new ArtifactReaderFailure(
+              "integrity",
+              `Directory entry changed during inspection: ${entry.path}`,
+            );
+          if (outcome.kind === "failed") throw outcome.cause;
+          return outcome.value;
+        },
+      );
+      this.#files.delete(owner);
+      return value;
+    } catch (cause: unknown) {
+      if (cause instanceof RegularFileCleanupFailure) {
+        const lease = new AnalysisCleanupLease(
+          () => this.#closeFile(owner),
+          [entry.adapterKey],
+        );
+        this.#fileCleanup.set(owner, lease);
+        throw new ArtifactFileCleanupFailure(cause, lease);
+      }
+      this.#files.delete(owner);
+      if (cause instanceof RegularFileCancelled)
+        throw new ArtifactFileCancelled(cause);
+      if (cause instanceof RegularFileOperationCancelled)
+        throw new ArtifactReaderFailure(
+          "cancelled",
+          "Directory inspection cancelled",
+          { cause: cause.reason },
+        );
+      throw directoryIoFailure("inspect entry", entry.adapterKey, cause);
+    }
+  }
+
+  async open(entry: ArtifactEntry, signal?: AbortSignal): Promise<Readable> {
+    const owner = await this.#openFile(entry, signal);
+    const source = Readable.from(
+      mapStableFileRead(owner.handle, entry, signal),
+      { objectMode: false },
+    );
+    source.once("close", () => {
+      void this.#closeFile(owner).catch(() => undefined);
+    });
+    return source;
+  }
+
   async close(): Promise<void> {
     const failures: unknown[] = [];
     for (const [owner, path] of this.#files) {
       try {
-        await this.#closeFile(owner);
+        const lease = this.#fileCleanup.get(owner);
+        if (lease === undefined) await this.#closeFile(owner);
+        else await lease.release();
       } catch (cause: unknown) {
         failures.push(directoryIoFailure("close opened entry", path, cause));
       }
@@ -272,6 +429,7 @@ export class DirectoryArtifactReader implements ArtifactReader {
   async #closeFile(owner: OwnedFileHandle<FileHandle>): Promise<void> {
     await owner.close();
     this.#files.delete(owner);
+    this.#fileCleanup.delete(owner);
   }
 
   provenance(): readonly [] {
@@ -296,7 +454,7 @@ const artifactEntry = (
   path: string,
   absolute: string,
   metadata: BigIntStats,
-): ArtifactEntry | undefined => {
+): DirectoryArtifactEntry | undefined => {
   const kind = metadata.isSymbolicLink()
     ? "symlink"
     : metadata.isDirectory()
@@ -313,7 +471,7 @@ const artifactEntry = (
     executable: hostExecutableMarking(absolute, metadata),
     encrypted: false,
     byteOffset: null,
-    declaredSha256: null,
+    declaredIntegrity: null,
     unpacked: false,
     limitations:
       kind === "symlink"
@@ -344,6 +502,7 @@ const directoryIoFailure = (
   operation: string,
   path: string,
   cause: unknown,
+  Failure: typeof ArtifactReaderFailure = ArtifactReaderFailure,
 ): ArtifactReaderFailure => {
   if (cause instanceof ArtifactReaderFailure) return cause;
   const code =
@@ -354,7 +513,7 @@ const directoryIoFailure = (
       ? ` (${cause.code})`
       : "";
   const detail = failureMessage(cause);
-  return new ArtifactReaderFailure(
+  return new Failure(
     "io",
     `Could not ${operation} at ${path}${code}: ${detail}`,
     { cause },
@@ -377,7 +536,7 @@ const mapStableFileRead = async function* (
         "integrity",
         `Directory entry has no captured file state: ${entry.path}`,
       );
-    for await (const chunk of readFileHandleChunks(handle, {
+    for await (const chunk of readArtifactFileChunks(handle, {
       // Include one extra byte so a growing file cannot make this read unbounded.
       end: expectedBytes,
       signal,
@@ -404,12 +563,6 @@ const mapStableFileRead = async function* (
         `Directory entry changed during read: ${entry.path}`,
       );
   } catch (cause: unknown) {
-    if (signal?.aborted === true)
-      throw new ArtifactReaderFailure(
-        "cancelled",
-        "Directory artifact read cancelled",
-        { cause },
-      );
     if (
       cause instanceof Error &&
       "code" in cause &&
@@ -443,6 +596,7 @@ const abortIfNeeded = (signal?: AbortSignal): void => {
     throw new ArtifactReaderFailure(
       "cancelled",
       "Artifact traversal cancelled",
+      { cause: signal.reason },
     );
 };
 

@@ -9,6 +9,33 @@ import { parseInterfaceBuilderRecords } from "./interfaceBuilderKeyedArchive.js"
 
 const hash = "a".repeat(64);
 
+it("requires resource-root provenance when executable identity is unknown", () => {
+  const resourceRoot = {
+    caller_path: "/tmp/Fixture.app",
+    canonical_path: "/tmp/Fixture.app",
+    info_plist_path: "/tmp/Fixture.app/Info.plist",
+    layout: "root" as const,
+    executable_sha256: null,
+  };
+  const result = buildInterfaceBuilderAnalysis({
+    targetSha256: null,
+    resourceRoot,
+    toolVersion: "test",
+    documents: [],
+    limits: interfaceBuilderLimitsSchema.parse({}),
+  });
+  expect(result.target_sha256).toBeNull();
+  expect(result.resource_root).toEqual(resourceRoot);
+  expect(() =>
+    buildInterfaceBuilderAnalysis({
+      targetSha256: null,
+      toolVersion: "test",
+      documents: [],
+      limits: interfaceBuilderLimitsSchema.parse({}),
+    }),
+  ).toThrow();
+});
+
 describe("compiled Interface Builder graph projection", () => {
   it("normalizes object, hierarchy, action, outlet, and segue facts", () => {
     const raw = {
@@ -153,6 +180,90 @@ describe("compiled Interface Builder graph projection", () => {
         name: "Build",
       },
     ]);
+  });
+});
+
+describe("keyed archive objects with unresolved classes", () => {
+  it("keeps an archived object whose class reference cannot be resolved", () => {
+    const parsed = parseInterfaceBuilderRecords({
+      $archiver: "NSKeyedArchiver",
+      $version: 100000,
+      $objects: [
+        "$null",
+        { $class: { UID: 99 }, label: "Unresolved object" },
+        { $classname: "UIView", $classes: ["UIView", "NSObject"] },
+        { $class: { UID: 2 }, "NS.string": "ok" },
+        "plain scalar",
+      ],
+      $top: { root: { UID: 3 } },
+    });
+    // The class descriptor and the scalar are not archived objects.
+    expect(parsed.objects).toMatchObject([
+      {
+        id: "1",
+        kind: "other",
+        class_name: null,
+        name: "Unresolved object",
+        attributes: { label: "Unresolved object", $class: { UID: 99 } },
+      },
+      { id: "3", kind: "view", class_name: "UIView" },
+    ]);
+    expect(parsed.objects[1]?.attributes).not.toHaveProperty("$class");
+    expect(parsed.objectCount).toBe(2);
+  });
+
+  it("keeps an unresolved hierarchy root's label and coverage in the graph", () => {
+    const result = buildInterfaceBuilderAnalysis({
+      targetSha256: hash,
+      toolVersion: "test",
+      documents: [
+        {
+          relativePath: "Main.nib",
+          archiveSha256: hash,
+          documentKind: "nib",
+          raw: {
+            $archiver: "NSKeyedArchiver",
+            $version: 100000,
+            $objects: [
+              "$null",
+              { $class: { UID: 99 }, label: "Unresolved object" },
+              { $classname: "UIView", $classes: ["UIView", "NSObject"] },
+              { $class: { UID: 2 }, "NS.string": "ok" },
+            ],
+            $top: { root: { UID: 1 } },
+          },
+        },
+      ],
+      limits: interfaceBuilderLimitsSchema.parse({}),
+    });
+    const objectNodes = result.graph.nodes.filter(
+      ({ attributes }) => attributes.interface_builder_object_id !== undefined,
+    );
+    expect(objectNodes).toMatchObject([
+      {
+        kind: "unknown",
+        name: "Unresolved object",
+        attributes: { interface_builder_object_id: "1", class_name: null },
+      },
+      { kind: "view", attributes: { interface_builder_object_id: "3" } },
+    ]);
+    expect(result.documents[0]?.object_count).toBe(2);
+    expect(
+      result.graph.edges.some(
+        ({ relation, to, resolution }) =>
+          relation === "contains" &&
+          to === objectNodes[0]?.id &&
+          resolution === "observed",
+      ),
+    ).toBe(true);
+    expect(result.graph.coverage).toContainEqual(
+      expect.objectContaining({
+        facet: "objects:Main.nib",
+        status: "complete",
+        examined: 2,
+        omitted: 0,
+      }),
+    );
   });
 });
 
@@ -397,6 +508,93 @@ describe("Interface Builder hierarchy completeness", () => {
   });
 });
 
+describe("Interface Builder hierarchy record limits", () => {
+  const analyze = (
+    hierarchy: unknown[],
+    maxObjects?: number,
+    objects: Record<string, unknown> = {},
+  ) =>
+    buildInterfaceBuilderAnalysis({
+      targetSha256: hash,
+      toolVersion: "test",
+      documents: [
+        {
+          relativePath: "Main.nib",
+          archiveSha256: hash,
+          documentKind: "nib",
+          raw: {
+            "com.apple.ibtool.document.objects": objects,
+            "com.apple.ibtool.document.hierarchy": hierarchy,
+          },
+        },
+      ],
+      limits: interfaceBuilderLimitsSchema.parse(
+        maxObjects === undefined ? {} : { max_objects: maxObjects },
+      ),
+    });
+  const hierarchyFacet = (result: ReturnType<typeof analyze>) =>
+    result.graph.coverage.find(({ facet }) => facet === "hierarchy:Main.nib");
+
+  it("keeps an identified record after more than 20,000 structural records", () => {
+    const hierarchy: unknown[] = Array.from({ length: 20_001 }, () => ({
+      children: [],
+    }));
+    hierarchy[20_000] = { objectID: "tail", children: [] };
+
+    const result = analyze(hierarchy);
+
+    expect(
+      result.graph.nodes.map(
+        ({ attributes }) => attributes.interface_builder_object_id,
+      ),
+    ).toContain("tail");
+    expect(result.graph.edges).toHaveLength(1);
+    expect(result.graph.truncated).toBe(false);
+    expect(hierarchyFacet(result)).toMatchObject({
+      status: "complete",
+      examined: 1,
+      omitted: 0,
+    });
+  });
+
+  it("counts identified records beyond the object limit as omitted", () => {
+    const result = analyze(
+      ["a", "b", "c", "d"].map((objectID) => ({ objectID, children: [] })),
+      2,
+    );
+
+    expect(result.documents[0]?.hierarchy_complete).toBe(false);
+    expect(result.graph.truncated).toBe(true);
+    expect(hierarchyFacet(result)).toMatchObject({
+      status: "partial",
+      reason: "graph_limit_reached",
+      examined: 2,
+      omitted: 2,
+    });
+  });
+
+  it("stays complete when the identified records exactly reach the object limit", () => {
+    // The root and both objects fill the three graph nodes; the third
+    // hierarchy record reaches the hierarchy limit and has a structural child.
+    const result = analyze(
+      [
+        { objectID: "a", children: [{ objectID: "b", children: [] }] },
+        { objectID: "b", children: [{ children: [] }] },
+      ],
+      3,
+      { a: { class: "UIView" }, b: { class: "UIView" } },
+    );
+
+    expect(result.documents[0]?.hierarchy_complete).toBe(true);
+    expect(result.graph.truncated).toBe(false);
+    expect(hierarchyFacet(result)).toMatchObject({
+      status: "complete",
+      examined: 3,
+      omitted: 0,
+    });
+  });
+});
+
 describe("keyed archive object references", () => {
   it("keeps referenced objects as stubs so shared and cyclic references stay finite", () => {
     // Each view references its window, superview, and next key view, so
@@ -536,7 +734,170 @@ describe("AppKit keyed archive connectors", () => {
       }),
     ]);
   });
+});
 
+describe("unsupported keyed archive connections", () => {
+  it("keeps unsupported binding connectors in connection coverage", () => {
+    const raw = {
+      $archiver: "NSKeyedArchiver",
+      $objects: [
+        "$null",
+        { $class: { UID: 6 } },
+        { $class: { UID: 6 } },
+        {
+          $class: { UID: 7 },
+          NSSource: { UID: 1 },
+          NSDestination: { UID: 2 },
+          NSLabel: "outlet",
+        },
+        {
+          $class: { UID: 8 },
+          NSSource: { UID: 1 },
+          NSDestination: { UID: 2 },
+          NSLabel: "performAction:",
+        },
+        {
+          $class: { UID: 9 },
+          NSSource: { UID: 1 },
+          NSDestination: { UID: 2 },
+          NSLabel: "value",
+        },
+        { $classname: "NSView", $classes: ["NSView", "NSObject"] },
+        {
+          $classname: "NSNibOutletConnector",
+          $classes: ["NSNibOutletConnector", "NSNibConnector", "NSObject"],
+        },
+        {
+          $classname: "NSNibControlConnector",
+          $classes: ["NSNibControlConnector", "NSNibConnector", "NSObject"],
+        },
+        {
+          $classname: "NSNibBindingConnector",
+          $classes: ["NSNibBindingConnector", "NSNibConnector", "NSObject"],
+        },
+      ],
+      $top: {},
+    };
+
+    const parsed = parseInterfaceBuilderRecords(raw);
+    expect(parsed.connections.map(({ kind }) => kind)).toEqual([
+      "outlet",
+      "action",
+      "other",
+    ]);
+
+    const analysis = buildInterfaceBuilderAnalysis({
+      targetSha256: hash,
+      toolVersion: "test",
+      documents: [
+        {
+          relativePath: "MainMenu.nib",
+          archiveSha256: hash,
+          documentKind: "nib",
+          raw,
+        },
+      ],
+      limits: interfaceBuilderLimitsSchema.parse({}),
+    });
+    expect(analysis.documents[0]?.connection_count).toBe(3);
+    expect(analysis.graph.coverage).toContainEqual(
+      expect.objectContaining({
+        facet: "connections:MainMenu.nib",
+        status: "partial",
+        reason: "unsupported_connection_type",
+        examined: 3,
+        omitted: 0,
+      }),
+    );
+    expect(analysis.graph.edges).toContainEqual(
+      expect.objectContaining({
+        relation: "contains",
+        reason: "unsupported_connection_type",
+        evidence: [
+          expect.objectContaining({ description: "connection type other" }),
+        ],
+      }),
+    );
+  });
+});
+
+describe("keyed archive class identity", () => {
+  it("does not classify a custom class containing Connector as a connection", () => {
+    const parsed = parseInterfaceBuilderRecords({
+      $archiver: "NSKeyedArchiver",
+      $objects: [
+        "$null",
+        {
+          $class: { UID: 2 },
+          NSSource: { UID: 1 },
+          NSDestination: { UID: 1 },
+        },
+        {
+          $classname: "TelemetryConnectorState",
+          $classes: ["TelemetryConnectorState", "NSObject"],
+        },
+      ],
+      $top: {},
+    });
+
+    expect(parsed.objects).toContainEqual(
+      expect.objectContaining({
+        class_name: "TelemetryConnectorState",
+        id: "1",
+      }),
+    );
+    expect(parsed.connections).toEqual([]);
+    expect(parsed.unresolvedConnections).toBe(0);
+
+    const inheritedConnector = parseInterfaceBuilderRecords({
+      $archiver: "NSKeyedArchiver",
+      $objects: [
+        "$null",
+        {
+          $class: { UID: 3 },
+          NSSource: { UID: 1 },
+          NSDestination: { UID: 1 },
+        },
+        { $classname: "NSNibConnector", $classes: ["NSNibConnector"] },
+        {
+          $classname: "CustomBindingConnector",
+          $classes: ["CustomBindingConnector", "NSNibConnector", "NSObject"],
+        },
+      ],
+      $top: {},
+    });
+    expect(inheritedConnector.connections).toMatchObject([
+      { kind: "other", source_id: "1", destination_id: "1" },
+    ]);
+  });
+
+  it("preserves a malformed class UID without inferring a connector", () => {
+    const parsed = parseInterfaceBuilderRecords({
+      $archiver: "NSKeyedArchiver",
+      $objects: [
+        "$null",
+        {
+          $class: { UID: 99 },
+          NSSource: { UID: 1 },
+          NSDestination: { UID: 1 },
+        },
+      ],
+      $top: {},
+    });
+
+    expect(parsed.objects).toContainEqual(
+      expect.objectContaining({
+        class_name: null,
+        id: "1",
+        attributes: expect.objectContaining({ $class: { UID: 99 } }),
+      }),
+    );
+    expect(parsed.connections).toEqual([]);
+    expect(parsed.unresolvedConnections).toBe(0);
+  });
+});
+
+describe("AppKit control connectors", () => {
   it("projects an AppKit action from the control through the selector to its target", () => {
     const analysis = buildInterfaceBuilderAnalysis({
       targetSha256: hash,

@@ -14,6 +14,7 @@ import {
 } from "./domain/javascript/javascriptRuntimeObservation.js";
 import { analysisInputErrorFromIssues } from "./domain/inputIssueProjection.js";
 import { projectAnalysisError } from "./domain/analysisErrorProjection.js";
+import { finishAnalysisCommand } from "./cli/finishAnalysisCommand.js";
 import type { JsonValue } from "./domain/jsonValue.js";
 import type { Logger } from "pino";
 import { withCommandCancellation } from "./cli/commandCancellation.js";
@@ -36,6 +37,7 @@ const observeOptionsSchema = z.object({
 export const registerJavaScriptRuntimeObservationCommands = (
   cli: ReturnType<typeof Cli.create>,
   logger: Logger,
+  environment: Readonly<Record<string, string | undefined>>,
 ): void => {
   cli.command(CLI_COMMANDS.listJavaScriptRuntimeTargets, {
     description: "List Node/Electron V8 Inspector targets",
@@ -48,7 +50,7 @@ export const registerJavaScriptRuntimeObservationCommands = (
           logger,
           CLI_COMMANDS.listJavaScriptRuntimeTargets,
           async () => {
-            const context = runtimeContext();
+            const context = runtimeContext(environment);
             const input = {
               inspector_endpoint: args.endpoint,
             };
@@ -62,12 +64,17 @@ export const registerJavaScriptRuntimeObservationCommands = (
                   input,
                 ),
               );
-            const result = await listJavaScriptRuntimeTargets(
-              context.provider,
-              parsed.data,
-              { signal },
+            return await finishAnalysisCommand(
+              () =>
+                listJavaScriptRuntimeTargets(context.provider, parsed.data, {
+                  signal,
+                }),
+              { close: () => context.provider.close?.() ?? Promise.resolve() },
+              context.provider.identity().id,
+              "list_javascript_runtime_targets",
+              signal,
+              "V8 Inspector resources",
             );
-            return result.ok ? result.value : cliError(result.error);
           },
         ),
       ),
@@ -88,7 +95,7 @@ export const registerJavaScriptRuntimeObservationCommands = (
           logger,
           CLI_COMMANDS.observeJavaScriptRuntime,
           async () => {
-            const context = runtimeContext();
+            const context = runtimeContext(environment);
             const input = {
               inspector_endpoint: args.endpoint,
               target_id: args.targetId,
@@ -104,20 +111,27 @@ export const registerJavaScriptRuntimeObservationCommands = (
                   input,
                 ),
               );
-            const result = await observeJavaScriptRuntime(
-              context.provider,
-              parsed.data,
-              { signal },
+            return await finishAnalysisCommand(
+              () =>
+                observeJavaScriptRuntime(context.provider, parsed.data, {
+                  signal,
+                }),
+              { close: () => context.provider.close?.() ?? Promise.resolve() },
+              context.provider.identity().id,
+              "observe_javascript_runtime",
+              signal,
+              "V8 Inspector resources",
             );
-            return result.ok ? result.value : cliError(result.error);
           },
         ),
       ),
   });
 };
 
-const runtimeContext = () => ({
-  provider: createJavaScriptRuntimeObservationProvider(),
+const runtimeContext = (
+  environment: Readonly<Record<string, string | undefined>>,
+) => ({
+  provider: createJavaScriptRuntimeObservationProvider(environment),
 });
 
 const cliError = (

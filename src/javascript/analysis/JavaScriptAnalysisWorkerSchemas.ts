@@ -1,6 +1,8 @@
+import { javaScriptSemanticUnknownOmissionsSchema } from "../../domain/javascript/javascriptSemanticGraphSchemas.js";
 import { z } from "zod";
 import { digestSchema } from "../../domain/digests.js";
 import type { JavaScriptStaticAnalysis } from "../../domain/javascript/javascriptStaticAnalysisTypes.js";
+import { javaScriptRouteSourceFactsSchema } from "../../domain/javascript/javascriptRouteFacts.js";
 import { JAVASCRIPT_AST_FINGERPRINT_ALGORITHM } from "../../domain/javascript/javascriptStaticAnalysisTypes.js";
 import type {
   JavaScriptSemanticProperty,
@@ -16,7 +18,7 @@ import {
 
 const range =
   javaScriptSemanticNodeSchema.shape.identity.shape.source_range.unwrap();
-const count = z.number().int().nonnegative();
+const count = z.int().nonnegative();
 const strings = z.array(z.string());
 const pathContext = z.enum(["module-specifier", "filesystem-expression"]);
 const findingContext = {
@@ -140,6 +142,7 @@ const windowShape = {
   web_preferences: z.array(
     z.strictObject({ name: z.string(), value: staticValue }),
   ),
+  resolution_sources: z.array(range).exactOptional(),
 };
 const bridgeShape = {
   resolution_basis: z.literal("wrapper-substitution").optional(),
@@ -153,6 +156,9 @@ const bridgeShape = {
 const utilityShape = { ...findingContext, service_name: z.string().nullable() };
 const electron = z
   .strictObject({
+    app_path_changes: z
+      .array(z.strictObject(findingContext).transform(withRuntime))
+      .optional(),
     call_paths: z
       .array(
         z.strictObject({
@@ -283,8 +289,9 @@ const electron = z
       }),
     ),
   })
-  .transform(({ call_paths, ...rest }) => ({
+  .transform(({ call_paths, app_path_changes, ...rest }) => ({
     ...rest,
+    ...(app_path_changes === undefined ? {} : { app_path_changes }),
     ...(call_paths === undefined ? {} : { call_paths }),
   }));
 const referenceShape = {
@@ -302,6 +309,7 @@ const referenceShape = {
 export const javaScriptWorkerStaticAnalysisSchema = z
   .strictObject({
     parse_status: z.enum(["complete", "partial", "failed"]),
+    routes: javaScriptRouteSourceFactsSchema.exactOptional(),
     parse_error_count: count,
     visited_ast_nodes: count,
     references: z.array(
@@ -329,6 +337,7 @@ export const javaScriptWorkerStaticAnalysisSchema = z
         value: z.string(),
         mechanism: z.string(),
         interpretation: z.literal("candidate").exactOptional(),
+        resolution: z.literal("partial").exactOptional(),
       }),
     ),
     storage: z.array(
@@ -341,6 +350,7 @@ export const javaScriptWorkerStaticAnalysisSchema = z
           "cache-storage",
           "sqlite",
         ]),
+        interpretation: z.literal("candidate").exactOptional(),
         name: z.string().nullable(),
         mechanism: z.string(),
       }),
@@ -417,6 +427,8 @@ const resourceLimit = z.enum([
   "primitive-candidates",
   "primitive-bytes",
   "expression-depth",
+  "getter-expansion",
+  "alias-selections",
 ]);
 const primitive = z.union([z.string(), z.number(), z.boolean(), z.null()]);
 const property: z.ZodType<JavaScriptSemanticProperty> = z.lazy(() =>
@@ -523,23 +535,29 @@ const coverage = z
       status: z.literal("complete"),
       omittedCount: z.literal(0),
       resourceLimits: z.array(resourceLimit).optional(),
+      widenedReturnedReferences: z.array(range).optional(),
     }),
     z.strictObject({
       status: z.literal("partial"),
       omittedCount: z.union([z.literal(0), z.null()]),
       resourceLimits: z.array(resourceLimit).optional(),
+      widenedReturnedReferences: z.array(range).optional(),
     }),
     z.strictObject({
       status: z.literal("failed"),
       omittedCount: z.null(),
       resourceLimits: z.array(resourceLimit).optional(),
+      widenedReturnedReferences: z.array(range).optional(),
     }),
   ])
   .transform((value) => {
-    const { resourceLimits, ...rest } = value;
+    const { resourceLimits, widenedReturnedReferences, ...rest } = value;
     return {
       ...rest,
       ...(resourceLimits === undefined ? {} : { resourceLimits }),
+      ...(widenedReturnedReferences === undefined
+        ? {}
+        : { widenedReturnedReferences }),
     };
   });
 const moduleLink = z
@@ -614,6 +632,7 @@ const callable = z.strictObject({
       returnSiteId: z.string(),
       location: range,
       identityReferenceLocation: range.nullable(),
+      valueExpressionLocation: range.nullable(),
       value: semanticValue,
     }),
   ),
@@ -650,8 +669,10 @@ export const javaScriptWorkerGraphRecordSchema = z.discriminatedUnion("kind", [
 
 /** Portable per-file header, before any graph binding or immutable proof. */
 export const javaScriptWorkerProjectionHeaderSchema = z.strictObject({
+  omittedUnknownOccurrences:
+    javaScriptSemanticUnknownOmissionsSchema.exactOptional(),
   roots: z.array(javaScriptSemanticNodeSchema.shape.node_id),
-  truncated: z.boolean(),
+  nodesTruncated: z.boolean(),
 });
 
 /** Module facts are transferred individually to avoid a whole-IR JSON string. */

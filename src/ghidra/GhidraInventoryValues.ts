@@ -1,10 +1,14 @@
+import { nativeByteReadSchema } from "../domain/native/nativeByteRead.js";
 import { z } from "zod";
 import {
   bytePatternFields,
   validateBytePattern,
   byteSearchResultSchema,
 } from "../domain/native/bytePattern.js";
-import { nativeLoadImageObservationSchema } from "../domain/native/nativeLoadImage.js";
+import {
+  nativeLoadImageObservationSchema,
+  type NativeLoadImageObservation,
+} from "../domain/native/nativeLoadImage.js";
 
 import {
   type AnalysisInputError,
@@ -13,6 +17,7 @@ import {
 import {
   functionBodySchema,
   functionBodyEntryAgrees,
+  projectBinaryOverview,
 } from "../domain/hopperValues.js";
 import { jsonValueSchema, type JsonValue } from "../domain/jsonValue.js";
 import { err, ok, type Result } from "../domain/result.js";
@@ -23,6 +28,7 @@ import { analysisInputErrorFromIssues } from "../domain/inputIssueProjection.js"
  * except the naming operations, which edit the ephemeral session database.
  */
 export const GHIDRA_INVENTORY_OPERATIONS = [
+  "read_binary_inventory_summary",
   "inspect_native_load_image",
   "read_bytes",
   "search_bytes",
@@ -78,13 +84,14 @@ const searchInput = {
 };
 
 const inputSchemas = {
+  read_binary_inventory_summary: z.strictObject({}),
   search_bytes: z
     .strictObject({
       ...bytePatternFields,
       document,
       start: explicitAddress.optional(),
       end: explicitAddress.optional(),
-      limit: z.number().int().min(1).max(1000).default(100),
+      limit: z.int().min(1).max(1000).default(100),
       cursor: z.string().min(1).optional(),
     })
     .superRefine(validateBytePattern),
@@ -92,7 +99,7 @@ const inputSchemas = {
   read_bytes: z.strictObject({
     document,
     address: explicitAddress,
-    length: z.number().int().min(1).max(Number.MAX_SAFE_INTEGER).default(256),
+    length: z.int().min(1).max(Number.MAX_SAFE_INTEGER).default(256),
   }),
   address_to_file_offset: z.strictObject({
     document,
@@ -210,7 +217,7 @@ const stringFacts = z
   .object({
     encoding: z.string().min(1),
     termination: z.enum(["missing", "present_or_not_required"]),
-    byte_length: z.number().int().min(0),
+    byte_length: z.int().min(0),
   })
   .strict();
 const baseItem = {
@@ -287,6 +294,14 @@ const containingProcedure = z.discriminatedUnion("found", [
 ]);
 
 const resultSchemas = {
+  read_binary_inventory_summary: z
+    .strictObject({
+      document: identifier,
+      segments: z.array(segment),
+      procedure_count: z.int().min(0).max(Number.MAX_SAFE_INTEGER),
+      string_count: z.int().min(0).max(Number.MAX_SAFE_INTEGER),
+    })
+    .transform(projectBinaryOverview),
   search_bytes: byteSearchResultSchema.superRefine((value, context) => {
     const addresses = [
       ...value.matches.flatMap((match) => [
@@ -306,28 +321,12 @@ const resultSchemas = {
       });
   }),
   inspect_native_load_image: nativeLoadImageObservationSchema,
-  read_bytes: z
-    .strictObject({
-      address: canonicalAddress,
-      requested_bytes: z.number().int().min(1),
-      returned_bytes: z.number().int().min(0),
-      bytes_hex: z.string().regex(/^(?:[a-f0-9]{2})*$/u),
-      complete: z.boolean(),
-    })
-    .superRefine((value, context) => {
-      if (
-        value.returned_bytes * 2 !== value.bytes_hex.length ||
-        value.returned_bytes > value.requested_bytes ||
-        value.complete !== (value.returned_bytes === value.requested_bytes)
-      )
-        context.addIssue({
-          code: "custom",
-          message: "Read-byte length and completeness disagree",
-        });
-    }),
+  read_bytes: nativeByteReadSchema
+    .safeExtend({ address: canonicalAddress })
+    .strict(),
   address_to_file_offset: z.strictObject({
     address: canonicalAddress,
-    file_offset: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
+    file_offset: z.int().min(0).max(Number.MAX_SAFE_INTEGER),
   }),
   address_name: z.string().nullable(),
   list_documents: z.array(z.string().min(1)).length(1),
@@ -343,19 +342,56 @@ const resultSchemas = {
   set_addresses_names: z.record(z.string(), z.boolean()),
 } satisfies Readonly<Record<GhidraInventoryOperation, z.ZodType>>;
 
-/** Validate exact Java-bridge output before creating Evidence. */
-export const parseGhidraInventoryResult = (
+/** The format owner retains raw output only when projection omits reported facts. */
+export interface ParsedGhidraInventoryResult<Value = JsonValue> {
+  readonly value: Value;
+  readonly rawResult?: JsonValue;
+}
+
+/** Validate exact Java-bridge output and own its Evidence representation. */
+export function parseGhidraInventoryResult(
+  operation: "inspect_native_load_image",
+  value: JsonValue,
+): Result<
+  ParsedGhidraInventoryResult<NativeLoadImageObservation>,
+  AnalysisOutputError
+>;
+export function parseGhidraInventoryResult(
   operation: GhidraInventoryOperation,
   value: JsonValue,
-): Result<JsonValue, AnalysisOutputError> => {
+): Result<ParsedGhidraInventoryResult, AnalysisOutputError>;
+export function parseGhidraInventoryResult(
+  operation: GhidraInventoryOperation,
+  value: JsonValue,
+): Result<
+  ParsedGhidraInventoryResult<JsonValue | NativeLoadImageObservation>,
+  AnalysisOutputError
+> {
+  if (operation === "inspect_native_load_image") {
+    const parsed = resultSchemas.inspect_native_load_image.safeParse(value);
+    return parsed.success
+      ? ok({ value: parsed.data, rawResult: value })
+      : err(inventoryOutputFailure(operation, parsed.error));
+  }
   const parsed = resultSchemas[operation].safeParse(value);
   return parsed.success
-    ? ok(jsonValueSchema.parse(parsed.data))
-    : err(
-        new AnalysisOutputError(
-          operation,
-          "Ghidra bridge output did not match the inventory contract",
-          { cause: parsed.error },
-        ),
-      );
-};
+    ? ok({
+        value: jsonValueSchema.parse(parsed.data),
+        // The overview omits detailed segment permissions, sections and provenance.
+        // Load-image observations above undergo separate local attestation.
+        ...(operation === "read_binary_inventory_summary"
+          ? { rawResult: value }
+          : {}),
+      })
+    : err(inventoryOutputFailure(operation, parsed.error));
+}
+
+const inventoryOutputFailure = (
+  operation: GhidraInventoryOperation,
+  cause: unknown,
+): AnalysisOutputError =>
+  new AnalysisOutputError(
+    operation,
+    "Ghidra bridge output did not match the inventory contract",
+    { cause },
+  );

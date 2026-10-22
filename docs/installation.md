@@ -3,13 +3,13 @@
 Run REA, connect your selected agents, and check the tools needed for your task.
 Setup previews configuration changes and asks for approval before applying them.
 
-| Task                              | Section                                                                   |
-| --------------------------------- | ------------------------------------------------------------------------- |
-| Connect an agent                  | [Start setup](#start-setup), then [review changes](#review-setup-changes) |
-| Diagnose one task                 | [Scoped readiness checks](#check-readiness-for-your-task)                 |
-| Configure an analysis engine      | [Hopper](#hopper), [Ghidra](#ghidra), or the [IDA guide](ida-provider.md) |
-| Update or remove REA              | [Maintenance](#diagnose-update-and-remove)                                |
-| Resolve a client-specific problem | [Client configuration](client-configuration.md)                           |
+| Task                              | Section                                                                                             |
+| --------------------------------- | --------------------------------------------------------------------------------------------------- |
+| Connect an agent                  | [Start setup](#start-setup), then [review changes](#review-setup-changes)                           |
+| Diagnose one task                 | [Scoped readiness checks](#check-readiness-for-your-task)                                           |
+| Configure an analysis engine      | [Hopper](#hopper), [Ghidra](#ghidra), the [IDA guide](ida-provider.md), or [Kuna](kuna-provider.md) |
+| Update or remove REA              | [Maintenance](#diagnose-update-and-remove)                                                          |
+| Resolve a client-specific problem | [Client configuration](client-configuration.md)                                                     |
 
 ## Start setup
 
@@ -23,6 +23,10 @@ separate. Setup asks before changing agent configuration or installing Hopper.
 Restart the agents named in the completion message. Quit Claude Desktop fully
 before approving, because a running app can overwrite the registration; on
 Windows, see [where Claude Desktop reads its configuration](client-configuration.md#claude-desktop).
+
+During package resolution, npm may print a deprecation warning for `prebuild-install`
+from transitive native dependencies (such as Frida). This warning originates from
+the upstream dependency tree and does not affect REA or indicate setup failure.
 
 For the latest published release, use `npx rea-agents@latest setup`.
 [Package-runner and global-installation options](#package-runners-and-global-installation)
@@ -57,12 +61,26 @@ Before applying changes, REA checks your current configuration. The plan lists:
 Malformed or unsafe existing configuration blocks the whole transaction before
 Hopper installation or any file write. Declining or pressing Ctrl-C makes no
 changes. Agent configuration writes preserve unrelated entries and comments,
-create backups, use atomic replacement, and verify their result. Setup and
-uninstall retain an existing `.rea.backup` rather than replacing the first snapshot.
-If that snapshot differs from the current configuration, setup previews and
-preserves a verified `.rea.backup.<sha256>.recovery` copy of the current bytes.
-Both snapshots remain available; a failed rollback reports the current recovery
-copy's path and the restore failure.
+create backups, stage changes in a private directory, and verify their result.
+Before publication, they refuse detected changes to the selected configuration.
+Replacement uses an explicit destination under the selected canonical parent;
+it does not follow a newly inserted destination symlink. First-run setup uses
+an exclusive hard link and fails without overwriting a newly created destination;
+filesystems without hard-link support cannot publish a first-run configuration.
+Setup and uninstall retain an existing `.rea.backup` rather than replacing the
+first snapshot.
+If that snapshot differs from the current configuration, setup and uninstall
+preserve a verified `.rea.backup.<sha256>.recovery` copy of the current bytes
+before editing; setup also previews it. Both snapshots remain available.
+When an edit made a backup, a failed uninstall update or restore, and a failed
+setup readback or rollback, name the backup path that holds the bytes from just
+before that edit.
+If setup cannot verify a newly created configuration, it retains the file and
+reports manual recovery instead of deleting a pathname that may have changed.
+For an existing configuration, setup and uninstall recovery refuse a detected
+replacement or edit and name the recovery backup. Quit clients before editing their configuration;
+these checks do not lock out another writer modifying the same file in place,
+or exclude pathname changes between the final check and publication.
 Setup also retains valid environment overrides in REA's existing server entry,
 such as `REA_MCP_INPUT_SCHEMA_PROFILE`, `REA_MCP_OUTPUT_SCHEMA_PROFILE`, and
 `REA_MCP_MAX_RESPONSE_BYTES`.
@@ -179,6 +197,8 @@ as well, so it is broader than this Claude-only migration.
 history under `CLAUDE_CONFIG_DIR`. Setup follows the same
 variable: it writes the registration to `$CLAUDE_CONFIG_DIR/.claude.json` and
 the skill to `$CLAUDE_CONFIG_DIR/skills`.
+For REA setup, an empty `CLAUDE_CONFIG_DIR` is treated as unset: registration
+goes to `~/.claude.json` and the skill goes to `~/.claude/skills`.
 
 ```bash
 CLAUDE_CONFIG_DIR=~/.claude-rea npx rea-agents setup --client claude_code
@@ -260,14 +280,14 @@ Register with the variable unset:
 <!-- x-release-please-start-version -->
 
 ```bash
-claude mcp add --scope local rea -- npx -y rea-agents@6.5.0 mcp
+claude mcp add --scope local rea -- npx -y rea-agents@6.7.0 mcp
 ```
 
 On native Windows, use the same project directory and wrap the package-runner
 shim so the stdio client can launch it:
 
 ```powershell
-claude mcp add --scope local rea -- cmd.exe /d /c npx -y rea-agents@6.5.0 mcp
+claude mcp add --scope local rea -- cmd.exe /d /c npx -y rea-agents@6.7.0 mcp
 ```
 
 <!-- x-release-please-end -->
@@ -324,6 +344,13 @@ A scoped report has `scope.mode: "explicit"`. Its `scope_checks` determine
 `environment_healthy` summarizes the full audit. `--target` adds a target check,
 but the report remains audit-wide unless a scope option is also supplied.
 
+An invalid `REA_LOG_LEVEL` fails every scope, including one client or the
+installed skill, because the executable rejects it before any command. A
+selected client also fails for every other setting that MCP startup rejects,
+including `REA_GHIDRA_STARTUP_TIMEOUT_MS` and `REA_HOPPER_STARTUP_TIMEOUT_MS`.
+Those settings still fail a selected provider and the audit-wide result. A
+skill-only report leaves them informational.
+
 Follow the remediation for the failed check. If a native target has several
 available providers, choose one with `--provider` on the CLI or `provider_id`
 on `open_binary`. A `capability_unavailable` failure carries
@@ -360,7 +387,17 @@ Uninstall preserves Hopper, Node.js, Evidence files, captures, unrelated skills
 and other MCP servers. Purging removes only REA's cache and state under
 `~/.rea`. A client configuration that is malformed, unreadable, or at an unsafe
 path stops the operation before anything is removed, and a client that fails
-while being updated stops the remaining removals. A purge path that is a
+while being updated stops the remaining removals. Uninstall reports each
+candidate `configuration_path` with its outcome. A client with multiple files
+keeps their individual `actions` alongside its aggregate status and detail,
+including earlier removals when a later file fails. The paths name
+the discovered configuration candidates, not resolved physical file identities.
+For JSON clients, uninstall removes every repeated `rea` member in the effective
+server table only when each registration is REA-owned. An unowned earlier
+member, or an unowned OpenCode V1 entry that removing V2 would expose, stops
+preflight before any
+removal. Repeats inside an inactive earlier copy of the server table stay
+unchanged. A purge path that is a
 symbolic link is retained and reported rather than followed. Uninstall checks
 REA's managed shared and Claude Code personal skill locations. See the
 [CLI guide](cli.md#output-and-exit-status) for exit statuses.
@@ -398,8 +435,9 @@ running server or its registration.
 The npm release checked on **2026-10-11** was **6.4.0**, published from
 [`a56f7bb6`](https://github.com/morluto/rea/commit/a56f7bb668ab23fec8d33f7af353ac7ed2fe1895).
 The actual registry package accepted dry-run setup plans for the 17 client IDs
-in that release, including Qwen Code, Pi and Hermes. DeepSeek Harness (`dsh`)
-is included from 6.5.0 and was absent from the checked npm 6.4.0 package.
+in that release, including Qwen Code, Pi and Hermes. Seven client IDs are
+included from 6.5.0 and were absent from the checked npm 6.4.0 package: `droid`,
+`dsh`, `kimi`, `qoder`, `trae`, `workbuddy` and `zcode`.
 The 6.4.0 registry check does not establish 6.5.0 publication or live DeepSeek
 API integration.
 OpenCode's plan selected
@@ -482,8 +520,8 @@ hosted connector; see [its configuration](client-configuration.md#other-client-s
 | ZCode              | `zcode`          |
 | DeepSeek Harness   | `dsh`            |
 
-`dsh`, `kimi`, and `workbuddy` require a release containing them. The registry
-check above does not cover them.
+`droid`, `dsh`, `kimi`, `qoder`, `trae`, `workbuddy`, and `zcode` require
+`rea-agents@6.5.0` or later. The 6.4.0 registry check above does not cover them.
 
 See [client configuration and troubleshooting](client-configuration.md) for
 configuration paths, profiles, trust policies, and schema-limit workarounds.
@@ -582,6 +620,20 @@ host mount and the rest of `/tmp` remain unchanged; this fallback never invokes
 `sudo`. `rea doctor --provider hopper --json` reports the selected
 strategy and both host and effective mount facts.
 
+Hopper also embeds Python; the Python executable and standard library alone
+are insufficient on Ubuntu. Approved setup checks the system interpreter
+at `/usr/bin/python3` and, when necessary, installs its matching
+`libpython3.X` package, then verifies that its shared library can load.
+APT resolves the concrete package (for example, `libpython3.12t64` on Ubuntu
+24.04). Doctor includes these fresh observations in the `embedded_python`
+details of its `hopper-demo-runtime` check, alongside the private-display
+diagnostic. Failed inspections remain unknown rather than proving a library
+absent. Run `rea setup --yes --install-hopper` to repair a supported install.
+This prerequisite check does not launch the bridge or validate a custom Python
+interpreter configured inside Hopper; that interpreter needs its own matching
+shared runtime. Custom installation prefixes or shared-library ABIs require
+manual dependency repair.
+
 When the package-manager step fails, setup reports the failing command and its
 captured output, so a package conflict is distinguishable from an authorization
 failure. On CachyOS, an unversioned compatibility package such as
@@ -634,6 +686,11 @@ bridge readiness. For large targets, set `REA_HOPPER_STARTUP_TIMEOUT_MS` to a
 decimal integer from 1 to 2,147,483,647 milliseconds in the environment that
 starts REA. CLI and MCP use the same setting; invalid values fail configuration
 validation. An MCP client's own request timeout must also allow enough time.
+`open_binary` validates and selects a target without waiting for native provider
+readiness. During Hopper startup, `binary_session.provider_operation_health`
+reports `busy` at stage `launch`; `analysis_activity` describes bridge requests
+and can remain idle until the socket is ready. Cleanup work reports `busy` at
+stage `connection`.
 
 If macOS denies Apple Events, allow the application that starts REA under
 **System Settings → Privacy & Security → Automation**, then retry. REA releases
@@ -643,9 +700,12 @@ Arguments containing quotes, backslashes, or line breaks remain unchanged but
 cannot establish that a failed handoff opened no document. Other failed handoffs
 retain ownership until document closure is confirmed. If a timed-out bridge
 becomes ready later, `close_binary` connects to that run, authenticates its
-identity, and requests document shutdown. After a connection drops, the bridge
-allows 30 seconds for an authenticated cleanup reconnect, then releases Hopper's
-Python execution thread. Expiry does not establish document closure, so REA
+identity, and requests document shutdown. Once its listener is ready, the bridge
+allows 30 seconds for the first connection and capability validation. After a
+connection drops, it allows the same grace period for an authenticated cleanup
+reconnect, then releases Hopper's Python execution thread. Initial analysis is
+outside this listener grace period, and authenticated native work is not bounded
+by it. Expiry does not establish document closure, so REA
 retains unconfirmed ownership. Retry close while the bridge remains available.
 
 If a Linux launcher exists but cannot start, inspect its shared libraries:
@@ -735,9 +795,17 @@ Once document and process closure are confirmed, the lease can be released even
 if temporary-file cleanup fails. Another client can then launch, but the owning
 client must finish its retained cleanup before starting again.
 An unconfirmed external document can be retried while its authenticated bridge
-remains connected. If that bridge has disconnected, another close cannot confirm
-the document: inspect and close the reported document in Hopper before ending
-the owning REA connection.
+remains available. The same authentication and process-identity capture apply
+when the first successful handshake occurs during cleanup after a startup
+timeout. REA can confirm closure if that exact authenticated process exits,
+including while a shutdown request is in flight. A helper exit alone is
+insufficient, and an application that never authenticated has no verified
+process identity. If no matching bridge becomes available, inspect and close
+the reported document in Hopper before ending the owning REA connection.
+Export the Evidence bundle before `close_binary` clears session records.
+`binary_session.cleanup_pending` remains true while provider cleanup is retained,
+and provider health remains visible even with `open: false`; that flag alone
+does not establish successful cleanup.
 
 ### Hopper in CI
 
@@ -796,7 +864,7 @@ and `set_addresses_names` name a function entry or any other mapped address
 session metadata edits leave executable bytes unchanged and are discarded on close. GUI controls
 require Hopper; Windows P0 remains read-only.
 
-Windows P0 admits native x86 and x86-64 PE applications and DLLs, plus explicitly
+Windows P0 admits native x86, x86-64, ARMNT (Thumb-2) and ARM64 PE applications and DLLs, plus explicitly
 selected [raw NMOS 6502 images](raw-binary.md#nmos-6502) with a caller-supplied
 entry at file offset 0, on fixed local NTFS volumes. Other raw CPU families remain
 unsupported on Windows.
@@ -813,6 +881,16 @@ export JAVA_HOME=/absolute/path/to/jdk-21 # optional if java/javac are on PATH
 rea doctor --json
 rea setup
 ```
+
+On macOS, [Homebrew OpenJDK is keg-only](https://formulae.brew.sh/formula/openjdk)
+and may be unavailable to the system `java` wrapper. Set `JAVA_HOME` to the
+selected formula's `libexec/openjdk.jdk/Contents/Home`, for example
+`/opt/homebrew/opt/openjdk/libexec/openjdk.jdk/Contents/Home` or
+`/usr/local/opt/openjdk/libexec/openjdk.jdk/Contents/Home`. Use a JDK inside the
+Java version bounds declared by your Ghidra installation; REA does not select
+another installed JDK automatically. Doctor distinguishes an absent Java
+command from a command that runs and fails, and retains bounded probe output
+and any parsed properties when the selected runtime cannot be admitted.
 
 On Windows, configure the existing installation in PowerShell:
 
@@ -851,6 +929,34 @@ MCP clients do not depend on an incidental shell path. Setup shows every exact
 environment entry in its plan, writes only after approval, and never downloads,
 installs, upgrades, or modifies Ghidra or Java.
 
+Installation inspection derives the private configuration directory identity from
+`application.version` and `application.release.name` in
+`Ghidra/application.properties`. The directory's version spelling follows Ghidra
+(for example, `12.1.0` becomes
+`12.1`), while the reported provider version preserves the original value.
+The launcher uses that inspected coordinate; it does not reread the properties
+or guess from the extracted folder's name.
+If the identity is missing, malformed, or unsafe as a single path component,
+the launcher fails before preparing its home/cache/config/temp directories or
+starting Java. The client may already have allocated private runtime/endpoint
+resources and a target snapshot; existing startup-failure cleanup still applies.
+Restore the selected release's properties instead of renaming its installation folder.
+Inspection follows selected properties symlinks, admits only a regular file,
+and caps the metadata payload at 1 MiB under REA's resource budget. A final
+one-byte probe checks for growth. This is not a Java
+Properties format limit. Reads preserve Ghidra's Latin-1 byte mapping and check
+the descriptor and selected name for changes. Permission failures and resource
+refusals remain explicit; failed descriptor cleanup must succeed before that
+owner admits another inspection.
+Native decompiler compatibility inspection follows the selected executable symlink
+and reads at most the first 4096 bytes through the same descriptor owner. It
+checks the full extent and selected name for changes without reading the remainder.
+An unreadable or unrecognized header leaves compatibility unknown; diagnostics
+retain read failures. Cancellation and incomplete cleanup propagate as failures,
+and failed cleanup retains the exact descriptor for retry.
+This coordinate selects only REA's session-private configuration directory, not
+the installation or an existing user configuration directory.
+
 Each verified session uses an ephemeral temporary project and isolated
 home/cache/config/temp paths. REA passes `-readOnly`, `-deleteProject`, uses
 Ghidra's default analysis settings, and loads its packaged Java
@@ -866,6 +972,10 @@ ownership inspection, so retaining those wrappers would prevent verified
 process-group cancellation during startup.
 If ownership remains unverifiable, it reports the reason and retains the process
 supervisor and private runtime instead of removing files beneath a live provider.
+Startup preserves an observed launch failure when cancellation arrives during
+rollback. Producer cancellation retains the caller's exact reason separately
+from LaunchSupport warnings and cleanup failures. Failed rollback keeps the
+original process owner for a later cleanup retry.
 The experimental Windows transport uses authenticated IPv4 loopback with a
 private native-owned bearer descriptor and Job Object process ownership.
 
@@ -877,6 +987,9 @@ bridge, and health readiness. Large binaries can need more: set
 `REA_GHIDRA_STARTUP_TIMEOUT_MS` to an integer between 1 and 2,147,483,647
 milliseconds in the server environment. An absent setting uses the default;
 empty, invalid or out-of-range supplied values fail configuration validation.
+When the deadline elapses, the `provider_timeout` error names
+`REA_GHIDRA_STARTUP_TIMEOUT_MS` with the deadline that was applied and suggests
+`REA_GHIDRA_DISABLED_ANALYZERS` for analyzers that dominate the time.
 REA parses the supplied configuration environment and
 passes the deadline to each provider client; a startup failure is returned by the query that triggered it,
 without exposing partial analysis. This deadline is separate from MCP transport
@@ -884,6 +997,24 @@ initialization and the client's deadline for that individual tool call. A client
 can time out earlier even when Ghidra would complete within its startup deadline.
 See [Ghidra first-query deadlines and recovery](mcp-contracts.md#ghidra-first-query-deadlines-and-recovery)
 for client options and the close/reopen recovery flow.
+
+The 330-second default is configurable. Configuration is read when REA starts:
+changing an environment variable in another shell, or closing and reopening a
+binary in the same MCP server, does not change that server's startup allowance.
+For a CLI retry with an example 30-minute allowance:
+
+```sh
+REA_GHIDRA_STARTUP_TIMEOUT_MS=1800000 rea analyze /absolute/path/to/app.exe --provider ghidra --json
+```
+
+For MCP, export useful Evidence before restarting, close the binary and resolve
+any cleanup failure, update the environment in the client's REA server launch
+configuration, then restart REA and reconnect before reopening the target. Allow
+startup plus the query in the client's own tool-call deadline. Every retry uses
+a fresh ephemeral import; smaller result requests do not reduce the prerequisite
+auto-analysis. A larger time allowance does not raise the JVM heap limit or
+guarantee completion. Keep [heap and host CPU controls](#ghidra-heap-and-cpu-controls)
+appropriate for the machine.
 
 One session contains exactly one imported Program; use `provider_id: "ghidra"`, `--provider ghidra`, or
 `REA_ANALYSIS_PROVIDER=ghidra` when both Hopper and Ghidra support the target.
@@ -958,6 +1089,8 @@ export REA_GHIDRA_COMPILER_SPEC_ID="borlandcpp"   # optional; requires a languag
 
 REA passes `-processor`/`-cspec`, checks both against the installation's `.ldefs`, and records them in the analysis profile. DOS imports reject an override.
 
+Language definitions must be well-formed XML encoded as UTF-8 or BOM-marked UTF-16, with any encoding declaration matching the bytes. Literal Unicode replacement characters (U+FFFD) are accepted; malformed source bytes are rejected.
+
 To seed code that auto-analysis cannot reach (computed jumps, pointers in data):
 
 ```bash
@@ -985,9 +1118,14 @@ and hyphens; at most 32 names are admitted, each at most 120 characters.
 Names must identify analyzers registered for the selected program. Unknown names
 or options that remain enabled abort the headless import before auto-analysis
 and the bridge, so an unsuccessful override cannot produce a session claiming
-that the analyzer was disabled. For Windows PE resource analysis, the exact name
-is `WindowsResourceReference`. Disabling an analyzer skips the facts it would
-have produced.
+that the analyzer was disabled. The setting applies to every import in the REA
+server. A format-specific analyzer may not be registered for another target, so
+the same override can prevent that target from opening. For mixed-target work,
+omit the override or use a separate REA server configured for the affected
+format. Changing the environment requires restarting the server; reopening a
+target alone keeps the current setting. For Windows PE resource analysis, the
+exact name is `WindowsResourceReference`. Disabling an analyzer skips the facts
+it would have produced.
 
 ### Ghidra heap and CPU controls
 
@@ -1055,8 +1193,14 @@ truncation markers. Darwin ownership-helper compilation failures also retain
 the compiler outcome, exit code or signal, and bounded stderr; a timed-out
 compiler remains distinguishable from a compiler that exited with an error.
 The helper compile deadline defaults to 120,000 ms; set
-`REA_SWIFTC_COMPILE_TIMEOUT_MS` to an integer between 1 and 2,147,483,647 when
-a busy host needs longer.
+`REA_SWIFTC_COMPILE_TIMEOUT_MS` to an integer between 1 and 2,147,483,647 in
+the environment that starts REA when a busy host needs longer. Restart REA to
+apply a change; the next ownership-helper compile uses the new value. A
+timeout names that effective deadline.
+On macOS, the Java prerequisite probe waits for this independently bounded
+preparation before starting its five-second command deadline. Caller cancellation
+still interrupts preparation, and failed helper cleanup remains owned for retry.
+Linux process-table preparation remains inside the command deadline.
 Other rejection values retain their primitive value or an explicit type.
 Shutdown warnings include the failure
 kind, message, and diagnostics, while process and temporary-project cleanup
@@ -1103,7 +1247,7 @@ For a client that requires manual configuration, use:
   "mcpServers": {
     "rea": {
       "command": "npx",
-      "args": ["-y", "rea-agents@6.5.0", "mcp"]
+      "args": ["-y", "rea-agents@6.7.0", "mcp"]
     }
   }
 }
@@ -1167,6 +1311,21 @@ in the current project's `node_modules/.bin`; it does not make `rea` available
 on the shell `PATH`. Use the setup command above for the guided setup
 journey, `npx -y rea-agents@latest` for unattended one-off commands, or install globally
 with `npm install --global rea-agents` for a shell-visible `rea` command.
+
+For many concurrent agent sessions, run setup directly from a global installation
+to avoid keeping a separate npm launcher process for each MCP connection:
+
+```bash
+npm install --global rea-agents
+rea setup
+```
+
+Review the plan, approve the selected client changes, then restart those clients.
+This registers the installed entrypoint directly; installing the global package
+alone does not replace existing `npx` registrations. Each client still has its own
+REA process and analysis state. Direct registrations follow the installed CLI;
+use `rea update` to update it. Running setup through `npx` again selects the pinned
+package-runner command. Do not register paths inside npm's temporary package cache.
 
 The optional curl wrapper installs only the global npm package:
 

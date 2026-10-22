@@ -34,8 +34,25 @@ interface Section {
 const virtualExtent = (section: Section): number =>
   section.virtualSize === 0 ? section.size : section.virtualSize;
 
-/** Header admission and unambiguous file-backed RVA mapping, independent of section names. */
-export const readPeResourceLayout = (bytes: Buffer) => {
+// Intersection normalized with those ownership rules: a section without
+// virtual extent owns no byte and never conflicts, while an empty resource
+// owns exactly its start point, so a positive-extent section starting there
+// conflicts with header-backed ownership of the same RVA.
+const intersectsResource = (
+  section: Section,
+  rva: number,
+  size: number,
+): boolean => {
+  const extent = virtualExtent(section);
+  return (
+    extent > 0 &&
+    section.rva < rva + Math.max(size, 1) &&
+    rva < section.rva + extent
+  );
+};
+
+/** Shared PE header admission: signature, optional header, data directories, and a section table that fits inside SizeOfHeaders. */
+export const readPeHeaders = (bytes: Buffer) => {
   requirePeRange(bytes, 0, 64);
   if (bytes.readUInt16LE(0) !== 0x5a4d) peFailure("Expected an MZ PE image.");
   const pe = bytes.readUInt32LE(60);
@@ -61,6 +78,30 @@ export const readPeResourceLayout = (bytes: Buffer) => {
   requirePeRange(bytes, table, sectionCount * 40);
   if (headerSize < table + sectionCount * 40 || headerSize > bytes.length)
     peFailure("Invalid PE SizeOfHeaders.");
+  return {
+    pe,
+    sectionCount,
+    optional,
+    magic,
+    directoriesAt,
+    directoryCount,
+    headerSize,
+    table,
+  };
+};
+
+/** Header admission and unambiguous file-backed RVA mapping, independent of section names. */
+export const readPeResourceLayout = (bytes: Buffer) => {
+  const {
+    pe,
+    sectionCount,
+    optional,
+    magic,
+    directoriesAt,
+    directoryCount,
+    headerSize,
+    table,
+  } = readPeHeaders(bytes);
   const sections: Section[] = [];
   for (let index = 0; index < sectionCount; index++) {
     const at = table + index * 40;
@@ -94,17 +135,24 @@ export const readPeResourceLayout = (bytes: Buffer) => {
   }
   const map = (rva: number, size: number): number => {
     if (rva + size > 0x100000000) peFailure("Resource RVA range overflows.");
-    const candidates = sections.filter(
+    const containing = sections.filter(
       (section) =>
         rva >= section.rva && rva - section.rva < virtualExtent(section),
     );
+    // An empty interval reads no bytes, so the Windows resource loader also
+    // resolves it exactly at a section's virtual end. A section starting at
+    // that RVA still owns it.
+    const candidates =
+      size === 0 && containing.length === 0
+        ? sections.filter(
+            (section) =>
+              virtualExtent(section) > 0 &&
+              rva - section.rva === virtualExtent(section),
+          )
+        : containing;
     if (rva < headerSize) {
       if (
-        sections.some(
-          (section) =>
-            section.rva < rva + size &&
-            section.rva + virtualExtent(section) > rva,
-        ) ||
+        sections.some((section) => intersectsResource(section, rva, size)) ||
         size > headerSize - rva
       )
         peFailure("Ambiguous resource header RVA mapping.");
@@ -120,13 +168,11 @@ export const readPeResourceLayout = (bytes: Buffer) => {
       peFailure("Resource range leaves its section's virtual size.");
     if (within > section.size || size > section.size - within)
       peFailure("Resource range is not entirely file-backed in one section.");
-    // A second section starting inside the requested interval is ambiguous too.
+    // A second section with virtual extent inside the requested interval is
+    // ambiguous too; a zero-extent section owns no byte there.
     if (
       sections.some(
-        (other) =>
-          other !== section &&
-          other.rva < rva + size &&
-          other.rva + virtualExtent(other) > rva,
+        (other) => other !== section && intersectsResource(other, rva, size),
       )
     )
       peFailure("Resource interval intersects overlapping virtual sections.");

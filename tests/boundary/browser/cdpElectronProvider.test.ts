@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 
 import { CdpElectronProvider } from "../../../src/browser/CdpElectronProvider.js";
+import { AnalysisCancelledError } from "../../../src/domain/analysisErrorCore.js";
 import {
   inspectElectronPageInputSchema,
   listElectronTargetsInputSchema,
@@ -30,6 +31,44 @@ afterEach(async () => {
 });
 
 describe("CdpElectronProvider target access", () => {
+  it("retains a completed page observation when cancellation arrives during final detach", async () => {
+    const root = await electronFixture();
+    const controller = new AbortController();
+    const browser = await startFakeCdpBrowser({
+      electronFileUrl: pathToFileURL(join(root, "index.html")).href,
+      commandEvents: ({ method }) => {
+        if (method === "Target.detachFromTarget") controller.abort();
+        return undefined;
+      },
+    });
+    browsers.push(browser);
+
+    const result = await new CdpElectronProvider().inspectPage(
+      inspectElectronPageInputSchema.parse({
+        cdp_endpoint: browser.endpoint,
+        target_id: "electron-page",
+        observation_ms: 0,
+      }),
+      { signal: controller.signal },
+    );
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("Expected late cancellation");
+    expect(result.error).toBeInstanceOf(AnalysisCancelledError);
+    expect(result.error.partialObservation).toMatchObject({
+      kind: "electron-page-observation",
+      cleanup: "transport-closed",
+      inspection: { target: { file_path: join(root, "index.html") } },
+    });
+    expect(browser.commands.map(({ method }) => method)).toContain(
+      "Target.detachFromTarget",
+    );
+    const closeDeadline = Date.now() + 1_000;
+    while (browser.activeConnectionCount() !== 0 && Date.now() < closeDeadline)
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    expect(browser.activeConnectionCount()).toBe(0);
+  });
+
   it("returns every in-scope resource beyond the former collection ceiling", async () => {
     const root = await electronFixture();
     const index = join(root, "index.html");
@@ -343,6 +382,80 @@ describe("CdpElectronProvider malformed source replies", () => {
       });
       expect(browser.commands.map(({ method }) => method)).toContain(
         "Target.detachFromTarget",
+      );
+    },
+  );
+});
+
+describe("CdpElectronProvider malformed inventory replies", () => {
+  const inspectWith = async (
+    method: string,
+    reply: (fileUrl: string) => Readonly<Record<string, unknown>>,
+  ) => {
+    const root = await electronFixture();
+    const fileUrl = pathToFileURL(join(root, "index.html")).href;
+    const browser = await startFakeCdpBrowser({
+      electronFileUrl: fileUrl,
+      commandResult: (command) =>
+        command.method === method ? reply(fileUrl) : undefined,
+    });
+    browsers.push(browser);
+    const result = await new CdpElectronProvider().inspectPage(
+      inspectElectronPageInputSchema.parse({
+        cdp_endpoint: browser.endpoint,
+        target_id: "electron-page",
+        observation_ms: 0,
+      }),
+    );
+    if (!result.ok) throw result.error;
+    return result.value;
+  };
+
+  it("keeps documents unknown when the DOM string table is missing", async () => {
+    const inspected = await inspectWith("DOMSnapshot.captureSnapshot", () => ({
+      documents: [{ documentURL: 0, nodes: { nodeType: [] } }],
+    }));
+
+    expect(inspected.dom).toEqual({ total_nodes: 0, nodes: [] });
+    expect(inspected.completeness.unavailable_sections).toContain("dom");
+    expect(inspected.completeness.excluded).toContainEqual({
+      section: "dom",
+      reason: "invalid_protocol_value",
+      count: null,
+    });
+    expect(inspected.completeness.policy_filtered_sections).not.toContain(
+      "dom",
+    );
+  });
+
+  it.each([
+    ["dom", "DOMSnapshot.captureSnapshot", () => ({ strings: [] })],
+    [
+      "dom",
+      "DOMSnapshot.captureSnapshot",
+      (fileUrl: string) => ({
+        strings: [fileUrl],
+        documents: [{ documentURL: 0, nodes: { nodeType: null } }],
+      }),
+    ],
+    [
+      "resources",
+      "Page.getResourceTree",
+      (fileUrl: string) => ({
+        frameTree: { frame: { id: "main", url: fileUrl }, resources: null },
+      }),
+    ],
+    ["workers", "Target.getTargets", () => ({ targetInfos: null })],
+  ] as const)(
+    "keeps a malformed %s inventory incomplete (%s)",
+    async (section, method, reply) => {
+      const inspected = await inspectWith(method, reply);
+      expect(inspected.completeness.status).not.toBe("complete_within_window");
+      expect(inspected.completeness.excluded).toContainEqual(
+        expect.objectContaining({
+          section,
+          reason: "invalid_protocol_value",
+        }),
       );
     },
   );

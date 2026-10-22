@@ -1,4 +1,7 @@
-import type { ServerContext } from "@modelcontextprotocol/server";
+import type {
+  CallToolResult,
+  ServerContext,
+} from "@modelcontextprotocol/server";
 import type { Logger } from "pino";
 
 import type { ExecutionOptions } from "../application/AnalysisProvider.js";
@@ -20,6 +23,35 @@ export interface ContractToolService<TOperation extends string> {
     options?: ExecutionOptions,
   ): Promise<Result<Evidence, AnalysisError>>;
 }
+
+/** Record and deliver one Evidence result using the tool's exact contract. */
+export const deliverEvidenceResult = (
+  server: EvidenceMcpServer,
+  result: Result<Evidence, AnalysisError>,
+  contract: ToolContract,
+  recordEvidence?: EvidenceWriter["recordEvidence"],
+): CallToolResult => {
+  if (!result.ok) {
+    const partial = result.error.partialObservation;
+    if (
+      partial !== undefined &&
+      "evidence_id" in partial &&
+      typeof partial.evidence_id === "string"
+    ) {
+      const recorded = recordEvidence?.(partial);
+      if (recorded !== undefined)
+        return server.delivery.toRecordedPartialErrorToolResult(
+          result.error,
+          partial.evidence_id,
+          recorded,
+          contract.returnsTargetContent,
+        );
+    }
+    return server.delivery.toCallToolResult(result, contract);
+  }
+  const recorded = recordEvidence?.(result.value);
+  return server.delivery.toEvidenceToolResult(result.value, contract, recorded);
+};
 
 /**
  * Bind one service-backed handler to its exact named contract through the
@@ -61,26 +93,7 @@ export const createEvidenceToolHandler =
         const result = await logToolExecution(logger, name, () =>
           operation(input, { signal: context.mcpReq.signal }),
         );
-        if (!result.ok) {
-          const partial = result.error.partialObservation;
-          if (partial !== undefined && "evidence_id" in partial) {
-            const recorded = recordEvidence?.(partial);
-            if (recorded !== undefined)
-              return server.delivery.toRecordedPartialErrorToolResult(
-                result.error,
-                partial.evidence_id,
-                recorded,
-                contract.returnsTargetContent,
-              );
-          }
-          return server.delivery.toCallToolResult(result, contract);
-        }
-        const recorded = recordEvidence?.(result.value);
-        return server.delivery.toEvidenceToolResult(
-          result.value,
-          contract,
-          recorded,
-        );
+        return deliverEvidenceResult(server, result, contract, recordEvidence);
       };
       return runAdmittedToolOperation(
         server,

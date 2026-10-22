@@ -1,10 +1,8 @@
-import { isAbsolute } from "node:path";
 import type { ExecutionOptions } from "../AnalysisProvider.js";
 import type { SqliteDatabasePort } from "./SqliteDatabasePort.js";
 import type { AnalysisError } from "../../domain/analysisErrorBase.js";
 import {
   AnalysisCancelledError,
-  AnalysisInputError,
   AnalysisOutputError,
 } from "../../domain/analysisErrorCore.js";
 import {
@@ -18,6 +16,7 @@ import {
   type InspectSqliteDatabaseInput,
   type SqliteDatabase,
   SQLITE_ROW_LIMIT_DEFAULT,
+  DEFAULT_SQLITE_WORKER_TIMEOUT_MS,
   sqliteSchemaScope,
   sqliteInspectionParameters,
 } from "../../domain/sqlite/sqliteDatabase.js";
@@ -36,6 +35,9 @@ const matchesSelectedDatabase = (
   subject.path === input.path &&
   subject.sha256 === report.artifact.sha256 &&
   subject.format === "file" &&
+  // Fresh executions must report known settings; only historical parsing permits omission.
+  report.worker_timeout_ms ===
+    (input.worker_timeout_ms ?? DEFAULT_SQLITE_WORKER_TIMEOUT_MS) &&
   (report.wal === null || report.wal.path === `${input.path}-wal`) &&
   report.schema.scope === sqliteSchemaScope(input) &&
   (report.schema.scope !== "selected_table" ||
@@ -71,7 +73,11 @@ export class SqliteDatabaseService {
     options?: ExecutionOptions,
   ): Promise<Result<Evidence, AnalysisError>> {
     if (options?.signal?.aborted)
-      return err(new AnalysisCancelledError(OPERATION));
+      return err(
+        new AnalysisCancelledError(OPERATION, {
+          cause: options.signal.reason,
+        }),
+      );
     const input = inspectSqliteDatabaseInputSchema.safeParse(rawInput);
     if (!input.success)
       return err(
@@ -79,29 +85,19 @@ export class SqliteDatabaseService {
           cause: input.error,
         }),
       );
-    if (!isAbsolute(input.data.path))
-      return err(
-        new AnalysisInputError(OPERATION, undefined, [
-          {
-            path: ["path"],
-            reason: "invalid_format",
-            message: "Expected an absolute filesystem path on this host.",
-          },
-        ]),
-      );
     const inspected = await this.provider.inspect(input.data, options);
     if (!inspected.ok) return inspected;
     const execution = inspected.value;
     const report = sqliteDatabaseSchema.safeParse(execution.result);
     if (
       !report.success ||
-      execution.subject === null ||
+      execution.subject == null ||
       !matchesSelectedDatabase(report.data, input.data, execution.subject)
     )
       return err(
         new AnalysisOutputError(
           OPERATION,
-          "SQLite adapter returned malformed data or changed the selected database identity/table/row limit.",
+          "SQLite adapter returned malformed data or changed the selected database identity/table/row limit/worker budget.",
         ),
       );
     return ok(

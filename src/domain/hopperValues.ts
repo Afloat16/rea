@@ -7,11 +7,13 @@ import type { JsonValue } from "./jsonValue.js";
 import { err, ok, type Result } from "./result.js";
 import { nativeApiBoundarySchema } from "./native/nativeApiBoundary.js";
 import { nativeValueFlowSchema } from "./native/nativeValueFlow.js";
+import { nativeCallClassificationSchema } from "./native/nativeCallReference.js";
 import { AnalysisOutputError } from "./analysisErrorCore.js";
 
 export interface AddressedName {
   readonly address: string;
   readonly name: string;
+  readonly objc_class_label?: "hopper_legacy_class_object";
 }
 
 export interface SegmentSummary {
@@ -79,7 +81,7 @@ export const analysisStringSchema = z.object({
           "Whether the provider declares the encoding or REA infers it from the typed bytes and native display. This does not establish the original source's intended encoding.",
         ),
       termination: z.enum(["missing", "present_or_not_required"]),
-      byte_length: z.number().int().min(0),
+      byte_length: z.int().min(0),
     })
     .exactOptional(),
 });
@@ -104,13 +106,8 @@ export const functionBodySchema = z.discriminatedUnion("available", [
             .describe("Inclusive last address of this observed body range."),
         }),
       ),
-      total_bytes: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
-      span_bytes: z
-        .number()
-        .int()
-        .min(0)
-        .max(Number.MAX_SAFE_INTEGER)
-        .nullable(),
+      total_bytes: z.int().min(0).max(Number.MAX_SAFE_INTEGER),
+      span_bytes: z.int().min(0).max(Number.MAX_SAFE_INTEGER).nullable(),
       non_contiguous: z.boolean(),
       contains_entry: z.boolean(),
     })
@@ -248,7 +245,7 @@ export const functionInstructionWindowSchema = z
   })
   .strict();
 
-const availableReferenceKindSchema = z
+export const availableReferenceKindSchema = z
   .object({
     available: z.literal(true),
     provenance: z.string().min(1),
@@ -264,7 +261,7 @@ const availableReferenceKindSchema = z
     conditional: z.boolean(),
     terminal: z.boolean(),
     primary: z.boolean(),
-    operand_index: z.number().int(),
+    operand_index: z.int(),
     external: z.boolean(),
   })
   .strict();
@@ -315,7 +312,7 @@ export const swiftStringLiteralSchema = z.discriminatedUnion("representation", [
 
 const swiftStringLiteralOmissionFields = {
   source_address: swiftStringLiteralFields.source_address,
-  byte_length: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
+  byte_length: z.int().min(0).max(Number.MAX_SAFE_INTEGER),
   reason: z
     .enum(["capacity", "unresolved_jump"])
     .describe(
@@ -350,13 +347,7 @@ export const referenceEdgeSchema = z
     source_procedure: procedureIdentitySchema.nullable(),
     target_procedure: procedureIdentitySchema.nullable(),
     kind: referenceKindSchema,
-    call: z
-      .strictObject({
-        classification: z.enum(["none", "unknown", "direct", "objective_c"]),
-        provider_type: z.number().int(),
-        provenance: z.string().min(1),
-      })
-      .exactOptional(),
+    call: nativeCallClassificationSchema.exactOptional(),
   })
   .strict();
 const facetAvailabilitySchema = z.discriminatedUnion("available", [
@@ -525,6 +516,39 @@ export const parseSegmentImageBase = (
     segments.every((segment) => segment.image_base === base)
     ? base
     : undefined;
+};
+
+/** Project the same overview from complete lists or provider-owned aggregates. */
+export const projectBinaryOverview = (input: {
+  readonly document: string;
+  readonly procedure_count: number;
+  readonly string_count: number;
+  readonly segments?: readonly SegmentSummary[];
+}): JsonValue => {
+  const { document, procedure_count, string_count, segments } = input;
+  const imageBase =
+    segments === undefined ? undefined : parseSegmentImageBase(segments);
+  return {
+    document,
+    ...(imageBase === undefined ? {} : { image_base: imageBase }),
+    ...(segments === undefined
+      ? {}
+      : {
+          segments: segments.map(
+            ({ name, start, end, image_base, address_space }) => ({
+              name,
+              start,
+              end,
+              length: addressDistance(start, end),
+              ...(image_base === undefined ? {} : { image_base }),
+              ...(address_space === undefined ? {} : { address_space }),
+            }),
+          ),
+          segment_count: segments.length,
+        }),
+    procedure_count,
+    string_count,
+  };
 };
 
 /** Parse direct or wrapped provider document names. */

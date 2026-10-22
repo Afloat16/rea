@@ -24,7 +24,10 @@ matching bundled native controls and uses an owned Job Object with bidirectional
 stdio. A full JDK, including `jdk.compiler`, is required on every host; Windows
 `JAVA_HOME` selects `bin\java.exe`. Consult the Android guide for actual host
 verification coverage. Calls use one worker and provider deadlines; optional
-`REA_JADX_HEAP_MIB` selects the JVM heap. The APK is never launched,
+`REA_JADX_HEAP_MIB` selects the JVM heap and `REA_JADX_OPERATION_TIMEOUT_MS`
+the per-operation deadline (integer milliseconds from 1 to 2147483647, default
+120000; a change applies on the next process start; the MCP client's tool
+timeout must also allow it). The APK is never launched,
 and no emulator is required.
 
 Manifest entries and decompiled text are static observations, not execution or

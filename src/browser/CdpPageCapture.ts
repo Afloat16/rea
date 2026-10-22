@@ -170,6 +170,8 @@ const captureAuthorizedPage = async (
     operation: context.operation,
   });
   const completedUrl = mainFrameUrl(completedFrameResult) ?? "";
+  if (state.events.unknownRootIdentity)
+    throw new BrowserObservationError("inspect_web_page", "protocol_error");
   if (state.events.originViolation)
     throw new BrowserObservationError("inspect_web_page", "target_not_allowed");
   if (state.events.navigationDuringCapture || completedUrl !== attachedUrl)
@@ -264,6 +266,8 @@ const authorizeObservationWindow = async (
     context.operation,
     signal,
   );
+  if (events.unknownRootIdentity)
+    throw new BrowserObservationError("inspect_web_page", "protocol_error");
   if (events.originViolation)
     throw new BrowserObservationError("inspect_web_page", "target_not_allowed");
 };
@@ -414,6 +418,7 @@ const accessibilityForFrames = async (
   const capture = captureAccessibility(results, {
     includeText: context.input.include_accessibility_text,
     ...(results.length === 0 && unavailable ? { unavailable: true } : {}),
+    completeness: events.completeness,
   });
   if (!context.input.include_accessibility_text)
     events.completeness.exclude(
@@ -421,7 +426,8 @@ const accessibilityForFrames = async (
       "not_approved",
       capture.textCapture.excluded_fields,
     );
-  if (capture.treeIncomplete) events.completeness.truncate("accessibility");
+  if (capture.hasUnobservedChildren)
+    events.completeness.truncate("accessibility");
   return capture;
 };
 

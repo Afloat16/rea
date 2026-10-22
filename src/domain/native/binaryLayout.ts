@@ -1,13 +1,15 @@
 import { z } from "zod";
+import { canBorrowParsedJsonSnapshot } from "../immutableJson.js";
 
-import { localPathStringSchema } from "../localPath.js";
-import { CANONICAL_BASE64_PATTERN } from "../stringPatterns.js";
+import { pwntoolsTimeoutField } from "./nativeDeadlines.js";
+import { absoluteLocalPathStringSchema } from "../localPath.js";
+import { canonicalBase64Schema } from "../stringPatterns.js";
 
 const unsignedHex = z.string().regex(/^0x(?:0|[1-9a-f][0-9a-f]{0,15})$/);
-const index = z.number().int().nonnegative();
-const scalar = z.union([z.string(), z.number().int()]);
+const index = z.int().nonnegative();
+const scalar = z.union([z.string(), z.int()]);
 const range = z.strictObject({ offset: unsignedHex, bytes: unsignedHex });
-const canonicalBase64 = z.string().regex(CANONICAL_BASE64_PATTERN);
+const canonicalBase64 = canonicalBase64Schema;
 const name = z.strictObject({
   display: z.string(),
   bytes_base64: canonicalBase64.nullable(),
@@ -17,9 +19,10 @@ const name = z.strictObject({
 
 /** Explicit local object selection, independent of an active disassembler target. */
 export const inspectBinaryLayoutInputSchema = z.strictObject({
-  path: localPathStringSchema.describe(
+  path: absoluteLocalPathStringSchema.describe(
     "Absolute filesystem path to the selected binary",
   ),
+  pwntools_timeout_ms: pwntoolsTimeoutField,
 });
 
 /** File and linked-image evidence; numeric ELF values never pass through unsafe JSON numbers. */
@@ -316,6 +319,28 @@ export type InspectBinaryLayoutInput = z.infer<
 >;
 export type BinaryLayout = z.infer<typeof binaryLayoutSchema>;
 
+const validatedImmutableLayouts = new WeakSet<object>();
+
+/** Validate once per exact immutable source; mutable inputs always revalidate. */
+export const safeParseOwnedBinaryLayout = (
+  input: unknown,
+): z.ZodSafeParseResult<BinaryLayout> => {
+  if (
+    typeof input === "object" &&
+    input !== null &&
+    validatedImmutableLayouts.has(input)
+  )
+    return { success: true, data: input as BinaryLayout };
+  const parsed = binaryLayoutSchema.safeParse(input);
+  if (parsed.success && canBorrowParsedJsonSnapshot(input, parsed.data)) {
+    // Preserve normalization if the schema changes: only unchanged, completely
+    // validated data can be borrowed without retaining a duplicate layout.
+    validatedImmutableLayouts.add(input);
+    return { success: true, data: input };
+  }
+  return parsed;
+};
+
 const validateRelocationReferences = (
   value: z.output<typeof binaryLayoutObjectSchema>,
   context: z.RefinementCtx,
@@ -401,17 +426,11 @@ const validatePackedRelativeTables = (
       tableIndex,
       "location",
     ]);
-    const encodedBytes =
-      (table.encoded_bytes_base64.length * 3) / 4 -
-      (table.encoded_bytes_base64.endsWith("==")
-        ? 2
-        : table.encoded_bytes_base64.endsWith("=")
-          ? 1
-          : 0);
-    if (
-      !Number.isInteger(encodedBytes) ||
-      BigInt(encodedBytes) !== BigInt(table.location.bytes)
-    )
+    const encodedBytes = Buffer.byteLength(
+      table.encoded_bytes_base64,
+      "base64",
+    );
+    if (BigInt(encodedBytes) !== BigInt(table.location.bytes))
       context.addIssue({
         code: "custom",
         path: ["packed_relative_relocations", tableIndex],

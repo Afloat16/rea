@@ -12,6 +12,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { Ajv2020 } from "ajv/dist/2020.js";
 import { PrivateRuntimeRoot } from "../dist/process/PrivateRuntimeRoot.js";
 import { parseEvidence } from "../dist/domain/evidence.js";
+import { closeVerifierResources } from "./lib/verifier-cleanup.mjs";
 import { createVerifierRun, completeVerifierRun } from "./lib/verifier-run.mjs";
 
 if (process.platform !== "linux")
@@ -106,6 +107,7 @@ const expectedAddressSpace = Math.min(
     .map((value) => (value === "unlimited" ? Infinity : Number(value))),
 );
 
+let primaryError;
 try {
   await writeFile(path, source);
   await writeFile(bluetooth, bluetoothSource);
@@ -263,6 +265,36 @@ try {
   assert.ok(pcapAjv.validateSchema(pcapTool.inputSchema));
   assert.ok(pcapAjv.validateSchema(pcapTool.outputSchema));
   for (const capturePath of [path, bluetooth]) {
+    const capinfosOutput = (
+      await execute(
+        process.env.REA_CAPINFOS_COMMAND ?? "capinfos",
+        ["-M", "-S", "--", capturePath],
+        {
+          env: { ...environment, LC_ALL: "C", LANG: "C" },
+          timeout: 60000,
+          maxBuffer: 64 * 1024,
+        },
+      )
+    ).stdout;
+    // Expected instants come from the independently authored PCAP records above,
+    // rather than a second implementation of the product's epoch decoder.
+    const captureStartText = /^(?:Earliest|First) packet time:[ \t]*(.+)$/mu
+      .exec(capinfosOutput)?.[1]
+      ?.trim();
+    const captureEndText = /^(?:Latest|Last) packet time:[ \t]*(.+)$/mu
+      .exec(capinfosOutput)?.[1]
+      ?.trim();
+    const expectedCaptureStart = "2023-11-14T22:13:20.000000Z";
+    const expectedCaptureEnd =
+      capturePath === path
+        ? "2023-11-14T22:13:22.000000Z"
+        : expectedCaptureStart;
+    assert.equal(captureStartText, "1700000000.000000", capinfosOutput);
+    assert.equal(
+      captureEndText,
+      capturePath === path ? "1700000002.000000" : "1700000000.000000",
+      capinfosOutput,
+    );
     const response = await client.callTool({
       name: pcapTool.name,
       arguments: { path: capturePath, detail: "summary" },
@@ -273,12 +305,27 @@ try {
       pcapAjv.errorsText(),
     );
     const summary = parseEvidence(response.structuredContent).normalized_result;
+    assert.equal(summary.summary.capture_start, expectedCaptureStart);
+    assert.equal(summary.summary.capture_end, expectedCaptureEnd);
     assert.equal(
       summary.summary.target.sha256,
       createHash("sha256")
         .update(await readFile(capturePath))
         .digest("hex"),
     );
+    const cli = parseEvidence(
+      JSON.parse(
+        (
+          await execute(
+            process.execPath,
+            [entrypoint, "inspect-pcap-capture", capturePath, "--json"],
+            { env: environment, timeout: 60000, maxBuffer: 16 * 1024 * 1024 },
+          )
+        ).stdout,
+      ),
+    );
+    assert.equal(cli.normalized_result.capture_start, expectedCaptureStart);
+    assert.equal(cli.normalized_result.capture_end, expectedCaptureEnd);
     const source = {
       kind: "retained-evidence",
       evidence_id: summary.parent_evidence_id,
@@ -463,10 +510,14 @@ try {
     "network with spaces.pcap",
     "paged.pcap",
   ]);
+} catch (cause) {
+  primaryError = cause;
+  throw cause;
 } finally {
-  await client.close();
-  await transport.close();
-  await root.close();
+  await closeVerifierResources(
+    [() => client.close(), () => transport.close(), () => root.close()],
+    primaryError,
+  );
 }
 console.log(
   JSON.stringify(

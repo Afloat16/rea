@@ -1,9 +1,18 @@
+import type {
+  AdbWindowFocusContext,
+  AdbWindowFocusObservation,
+} from "../domain/adb/adbDeviceAnalysis.js";
+import {
+  collectUnparsedLines,
+  type AdbUnparsedLines,
+} from "./AdbUnparsedLines.js";
+
 /**
  * Parsers for fixed observation commands REA runs through `adb shell`.
  *
  * Formats follow toybox output on Android 8+ (verified against an Android 14
- * emulator). Unparseable lines are retained rather than dropped so callers
- * can see the format drift instead of silently losing rows.
+ * emulator). Unparseable lines are sampled and counted rather than dropped so
+ * callers can see the format drift instead of silently losing rows.
  */
 
 export interface AdbProcessEntry {
@@ -24,10 +33,10 @@ export const parseProcessListOutput = (
 ): {
   columns: string | null;
   processes: readonly AdbProcessEntry[];
-  unparsedLines: readonly string[];
+  unparsedLines: AdbUnparsedLines;
 } => {
   const processes: AdbProcessEntry[] = [];
-  const unparsedLines: string[] = [];
+  const unparsed = collectUnparsedLines();
   let columns: string | null = null;
   for (const rawLine of stdout.split(/\r?\n/u)) {
     const line = rawLine.trimEnd();
@@ -38,7 +47,7 @@ export const parseProcessListOutput = (
     }
     const match = PROCESS_LINE.exec(line);
     if (match === null) {
-      unparsedLines.push(line);
+      unparsed.add(line);
       continue;
     }
     processes.push({
@@ -50,7 +59,7 @@ export const parseProcessListOutput = (
       name: match[9]!.trim(),
     });
   }
-  return { columns, processes, unparsedLines };
+  return { columns, processes, unparsedLines: unparsed.facts() };
 };
 
 export interface AdbFeatureEntry {
@@ -68,16 +77,16 @@ export const parseFeatureListOutput = (
   stdout: string,
 ): {
   features: readonly AdbFeatureEntry[];
-  unparsedLines: readonly string[];
+  unparsedLines: AdbUnparsedLines;
 } => {
   const features: AdbFeatureEntry[] = [];
-  const unparsedLines: string[] = [];
+  const unparsed = collectUnparsedLines();
   for (const rawLine of stdout.split(/\r?\n/u)) {
     const line = rawLine.trim();
     if (line === "") continue;
     const match = FEATURE_LINE.exec(line);
     if (match === null) {
-      unparsedLines.push(line);
+      unparsed.add(line);
       continue;
     }
     features.push({
@@ -85,7 +94,7 @@ export const parseFeatureListOutput = (
       version: match[2] === undefined ? null : parseFeatureVersion(match[2]!),
     });
   }
-  return { features, unparsedLines };
+  return { features, unparsedLines: unparsed.facts() };
 };
 
 export interface AdbServiceEntry {
@@ -100,17 +109,17 @@ export const parseServiceListOutput = (
   stdout: string,
 ): {
   services: readonly AdbServiceEntry[];
-  unparsedLines: readonly string[];
+  unparsedLines: AdbUnparsedLines;
 } => {
   const services: AdbServiceEntry[] = [];
-  const unparsedLines: string[] = [];
+  const unparsed = collectUnparsedLines();
   for (const rawLine of stdout.split(/\r?\n/u)) {
     const line = rawLine.trimEnd();
     if (line.trim() === "" || /^Found \d+ services:/u.test(line.trim()))
       continue;
     const match = SERVICE_LINE.exec(line);
     if (match === null) {
-      if (line.trim() !== "") unparsedLines.push(line.trim());
+      if (line.trim() !== "") unparsed.add(line.trim());
       continue;
     }
     services.push({
@@ -118,13 +127,14 @@ export const parseServiceListOutput = (
       interface: match[2] === "" ? null : match[2]!,
     });
   }
-  return { services, unparsedLines };
+  return { services, unparsedLines: unparsed.facts() };
 };
 
 const SIZE_PAIR = /^Physical size:\s+(\d+)x(\d+)$/u;
 const SIZE_OVERRIDE = /^Override size:\s+(\d+)x(\d+)$/u;
 const DENSITY_PHYSICAL = /^Physical density:\s+(\d+)$/u;
 const DENSITY_OVERRIDE = /^Override density:\s+(\d+)$/u;
+const DENSITY_BARE = /^(\d+)$/u;
 
 /** Parse `wm size` output into physical and optional override sizes. */
 export const parseWmSizeOutput = (
@@ -153,7 +163,12 @@ export const parseWmSizeOutput = (
   return { physical, override };
 };
 
-/** Parse `wm density` output. Older builds print a bare number. */
+/**
+ * Parse `wm density` output. Current builds print labeled physical and
+ * optional override lines; older builds print the physical density as a
+ * bare number on its own line (morluto/rea#3942). A labeled declaration
+ * wins over a bare one so a mixed dump cannot downgrade the physical value.
+ */
 export const parseWmDensityOutput = (
   stdout: string,
 ): {
@@ -162,33 +177,88 @@ export const parseWmDensityOutput = (
 } => {
   let physical = null;
   let override = null;
+  let bare = null;
   for (const line of stdout.split(/\r?\n/u)) {
     const trimmed = line.trim();
     const physicalMatch = DENSITY_PHYSICAL.exec(trimmed);
     if (physicalMatch !== null) physical = Number(physicalMatch[1]!);
     const overrideMatch = DENSITY_OVERRIDE.exec(trimmed);
     if (overrideMatch !== null) override = Number(overrideMatch[1]!);
+    const bareMatch = DENSITY_BARE.exec(trimmed);
+    if (bareMatch !== null && bare === null) bare = Number(bareMatch[1]!);
   }
-  return { physical, override };
+  return { physical: physical ?? bare, override };
 };
 
-/** Parse focus declarations from `dumpsys window windows` or `displays`. */
+/** Own declaration identity and omission before deriving a singular summary. */
 export const parseWindowFocusOutput = (
   stdout: string,
-): {
-  focusedWindow: string | null;
-  focusedApp: string | null;
-} => {
-  let focusedWindow = null;
-  let focusedApp = null;
+): AdbWindowFocusObservation => {
+  const contexts: AdbWindowFocusContext[] = [];
+  const observedLines: string[] = [];
+  let current: AdbWindowFocusContext | undefined;
   for (const line of stdout.split(/\r?\n/u)) {
     const trimmed = line.trim();
-    if (focusedWindow === null && trimmed.startsWith("mCurrentFocus="))
-      focusedWindow = trimmed.slice("mCurrentFocus=".length).trim();
-    if (focusedApp === null && trimmed.startsWith("mFocusedApp="))
-      focusedApp = trimmed.slice("mFocusedApp=".length).trim();
+    if (trimmed.startsWith("Display:")) {
+      current = {
+        scope: "display",
+        display_id:
+          /^Display:\s+mDisplayId=(-?[0-9]+)(?:\s|$)/u.exec(trimmed)?.[1] ??
+          null,
+        header_line: line,
+        declarations: [],
+      };
+      contexts.push(current);
+      observedLines.push(line);
+      continue;
+    }
+    const field = trimmed.startsWith("mCurrentFocus=")
+      ? "mCurrentFocus"
+      : trimmed.startsWith("mFocusedApp=")
+        ? "mFocusedApp"
+        : undefined;
+    if (field === undefined) continue;
+    if (current === undefined) {
+      current = {
+        scope: "unscoped",
+        display_id: null,
+        header_line: null,
+        declarations: [],
+      };
+      contexts.push(current);
+    }
+    const value = trimmed.slice(field.length + 1).trim();
+    current.declarations.push({
+      field,
+      value: value === "null" ? null : value,
+      raw_line: line,
+    });
+    observedLines.push(line);
   }
-  return { focusedWindow, focusedApp };
+  const windows =
+    contexts.length === 1
+      ? contexts[0]!.declarations.filter(
+          ({ field }) => field === "mCurrentFocus",
+        )
+      : [];
+  const apps =
+    contexts.length === 1
+      ? contexts[0]!.declarations.filter(({ field }) => field === "mFocusedApp")
+      : [];
+  const declared = contexts.some(({ declarations }) => declarations.length > 0);
+  const summary = !declared
+    ? "unavailable"
+    : contexts.length === 1 && windows.length <= 1 && apps.length <= 1
+      ? "single_context"
+      : "ambiguous";
+  return {
+    focused_window:
+      summary === "single_context" ? (windows[0]?.value ?? null) : null,
+    focused_app: summary === "single_context" ? (apps[0]?.value ?? null) : null,
+    focus_summary: summary,
+    focus_contexts: contexts,
+    observed_lines: observedLines,
+  };
 };
 
 export interface AdbPackageDetails {
@@ -204,6 +274,17 @@ export interface AdbPackageDetails {
 }
 
 const DETAIL_LINE = /^\s+([A-Za-z][A-Za-z0-9_]*)=(.*)$/u;
+
+/**
+ * Package Manager prints its `String` fields by concatenation, so an absent
+ * `installerPackageName` appears as the literal text `null`
+ * (morluto/rea#3943). No installer can be named "null", so an empty value or
+ * that sentinel is the absence of the fact and becomes the nullable result's
+ * null. `versionName` keeps the printed text: a manifest may declare the
+ * string "null" on purpose, and the parser cannot tell the two apart.
+ */
+const absentInstallerOrName = (value: string): string | null =>
+  value === "" || value === "null" ? null : value;
 
 /**
  * Project `dumpsys package PACKAGE` output. Only the listed fields are
@@ -231,9 +312,12 @@ export const parseDumpsysPackageOutput = (
     pkgFlags: null,
   };
   let inPermissions = false;
+  let hasPermissionsSection = false;
   let permissions = 0;
+  let parsedPackageAvailable: boolean | null = null;
   for (const line of stdout.split(/\r?\n/u)) {
     if (line.trim().startsWith("requested permissions:")) {
+      hasPermissionsSection = true;
       inPermissions = true;
       continue;
     }
@@ -250,7 +334,11 @@ export const parseDumpsysPackageOutput = (
     if (match === null) continue;
     const key = match[1]!;
     const value = match[2]!.trim();
-    if (key === "versionName" && details.versionName === null)
+    if (key === "pkg" && parsedPackageAvailable === null) {
+      if (value === "null") parsedPackageAvailable = false;
+      else if (value.startsWith("Package{") && value.endsWith("}"))
+        parsedPackageAvailable = true;
+    } else if (key === "versionName" && details.versionName === null)
       details.versionName = value === "" ? null : value;
     else if (key === "versionCode" && details.versionCode === null) {
       const parsed = /^(-?\d+)/u.exec(value);
@@ -263,14 +351,24 @@ export const parseDumpsysPackageOutput = (
       key === "installerPackageName" &&
       details.installerPackageName === null
     )
-      details.installerPackageName = value === "" ? null : value;
+      details.installerPackageName = absentInstallerOrName(value);
     else if (key === "userId" && details.userId === null) {
       const parsed = /^(\d+)/u.exec(value);
       if (parsed !== null) details.userId = Number(parsed[1]!);
     } else if (key === "pkgFlags" && details.pkgFlags === null)
       details.pkgFlags = value === "" ? null : value;
   }
-  return { ...details, requestedPermissions: permissions };
+  // `dumpsys` omits this section both for known-empty inventories and when
+  // Package Manager has no parsed package; only the former is a known zero.
+  const requestedPermissions =
+    parsedPackageAvailable === false
+      ? null
+      : hasPermissionsSection
+        ? permissions
+        : parsedPackageAvailable === true
+          ? 0
+          : null;
+  return { ...details, requestedPermissions };
 };
 
 /**
@@ -293,6 +391,14 @@ export const parseBugreportCopiedPath = (stdout: string): string | null => {
   const match = /^Bug report copied to (.+)\r?$/mu.exec(stdout.trim());
   return match === null ? null : match[1]!;
 };
+
+/**
+ * Read the digest from one `sha256sum FILE` line, or null when the output
+ * names none. GNU sha256sum starts the line with a backslash when it escaped
+ * the echoed name; the digest itself is never escaped.
+ */
+export const parseSha256sumOutput = (stdout: string): string | null =>
+  /^\\?([a-f0-9]{64}) [ *]/u.exec(stdout)?.[1] ?? null;
 
 /** Read the device's `Failure [REASON]` verdict from package-change output. */
 export const packageChangeFailureReason = (output: string): string | null =>

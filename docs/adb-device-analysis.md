@@ -98,15 +98,36 @@ existing analysis families directly, for example
 | `collect_adb_bugreport` | read               | Device-generated bugreport zip, digested                                                                                                                                                                                              |
 | `push_adb_file`         | **mutates device** | One local file to a device path (e.g. pushing tools into `/data/local/tmp`); checks for existing targets and refuses them without explicit overwrite (the check is not atomic); compares digests when device `sha256sum` is available |
 | `install_adb_package`   | **mutates device** | Local APK via `adb install [-r]`; preserves its Success/Failure verdict, records `replace_requested`, and leaves actual replacement `null` because prior package state is not observed                                                |
-| `uninstall_adb_package` | **mutates device** | Removes a package and its data for user 0                                                                                                                                                                                             |
+| `uninstall_adb_package` | **mutates device** | Requests package removal for user 0 via `adb shell pm uninstall --user 0`, without data retention                                                                                                                                     |
 | `start_adb_app`         | **mutates device** | Resolves the package's launcher activity (`cmd package resolve-activity --brief`) and starts it (`am start -n`)                                                                                                                       |
 | `start_adb_activity`    | **mutates device** | Starts an intent (`am start -a` with optional URI, component, and up to 16 typed extras); preserves the activity manager's verdict                                                                                                    |
 | `stop_adb_app`          | **mutates device** | Force-stops every process of a package, ending a dynamic-analysis run                                                                                                                                                                 |
+
+For `inspect_adb_window`, `focus_contexts` retains each display header, its exact
+display ID when recognized, and every focus declaration with its original line.
+Declarations without a display header are explicitly `unscoped`. A missing
+declaration differs from a declaration whose `value` is JSON `null`.
+`source_section` identifies the selected dumpsys section; `observed_lines`
+preserves its focus declarations and display headers in source order.
+
+`focus_summary` is `single_context` only for one context with no repeated focus
+field. The singular `focused_window` and `focused_app` summarize that context;
+they do not establish device-wide focus. Multiple contexts or repeated fields
+produce `ambiguous` with null singular fields and all declarations retained.
+When no focus field was declared, the status is `unavailable`. REA reads the
+displays section only when the windows section declares neither focus field.
 
 For `install_adb_package`, `replace_requested` records whether `-r` was sent.
 The `replaced` result is `null`: the successful install response does not say
 whether the package was installed fresh or replaced, and REA does not query the
 device first. The install verdict and host APK digest remain available.
+
+Push and install consume a private snapshot of the selected local input. The
+reported size and SHA-256 identify those consumed bytes; `local_path` and
+`apk_path` retain the original input path, whose contents may change later.
+Snapshot creation needs temporary disk space proportional to the input size.
+Failed snapshot cleanup remains owned and is retried before later operations
+and during shutdown.
 
 ## Interpret the result
 
@@ -141,14 +162,19 @@ device first. The install verdict and host APK digest remain available.
   APKs keep other names report the `unknown` role rather than guessing.
 - **Partial results keep facts.** Failed individual pulls return successful
   artifacts with `coverage: "partial"` and per-file `failures`. Listings
-  that contain unrecognized lines report them as `unparsed_lines` and mark
-  partial coverage instead of dropping rows.
+  and package searches that contain unrecognized lines report the first ten
+  as `unparsed_lines`, state the exact total in a limitation when more were
+  seen, and mark partial coverage instead of dropping rows.
 - **Mutations are explicit.** `push_adb_file`, `install_adb_package`, and
   `uninstall_adb_package` declare `mutatesTarget` and never run implicitly:
   pushes check for existing device files before transfer and refuse them
-  unless `overwrite` is set. The check is not atomic, so a different process
-  can create the path before `adb push` writes it. When available, the device's
-  `sha256sum` verifies the transfer; installs preserve the
+  unless `overwrite` is set. A failed or unexpected existence probe stops
+  transfer even with `overwrite`; only a clean `test -e` exit of 1 with no
+  output is interpreted as absence. The check is not atomic, so a different
+  process can create the path before `adb push` writes it. When available, the device's
+  `sha256sum` verifies the transfer. A missing command or output without a
+  recognizable digest reports `device_digest_source: "unavailable"` with an
+  unverified-transfer limitation; installs preserve the
   device's `Failure [...]` reason verbatim.
 - **Producer identity stays attached.** Every result embeds the producing
   adb client (`binary_path`, `path_source`, `version`, `installed_path`).
@@ -160,14 +186,21 @@ device first. The install verdict and host APK digest remain available.
   The app/activity lifecycle tools use `am start -W` and `am force-stop`.
 - Per-invocation budgets: client/devices 10-20 s, shell reads 20-60 s with
   64 KiB-8 MiB capture caps (logcat 4 MiB, screen 32 MiB), transfers and
-  bugreports 600 s. Exceeded budgets report `resource_constraint`; stopped
-  commands report `provider_timeout`.
+  bugreports 600 s. Output capture overflow reports `resource_constraint`
+  and names the byte allowance. Deadline expiration, including the
+  client-version probe, reports `provider_timeout` and names the effective
+  milliseconds. This release has no runtime override for those deadlines or
+  capture caps. Command cancellation preserves the caller's exact reason;
+  a later abort does not replace an already completed command failure.
 - Pull and capture outputs are additive: the destination must not already
   exist. Re-running a completed pull refuses the existing directory instead
   of overwriting evidence.
 - Cancellation during a package pull preserves caller-selected output. The
   error includes partial observations identifying completed artifacts and the
   interrupted local path; remaining APKs were not attempted.
+- Screen capture checks cancellation before publishing its exclusive output.
+  If cancellation arrives after publication, the error retains the committed
+  file's path, digest and dimensions; the file remains available as evidence.
 - Bugreports collect into isolated staging and publish with exclusive creation;
   filename collisions select the next numeric suffix. If publication fails, the
   completed archive remains in staging. The error's partial observation gives

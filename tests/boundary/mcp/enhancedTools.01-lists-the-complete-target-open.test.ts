@@ -66,6 +66,16 @@ const fixturePort = (): AnalysisOperationPort => ({
   // oxlint-disable-next-line complexity -- this fixture exhaustively serves the registered MCP surface.
   execute: (name, arguments_) => {
     switch (name) {
+      case "read_binary_inventory_summary":
+        return Promise.resolve(
+          err(
+            new AnalysisCapabilityUnavailableError(
+              "fixture",
+              name,
+              "This fixture exercises composed overview",
+            ),
+          ),
+        );
       case "inspect_native_dispatch_metadata":
         return Promise.resolve(
           err(
@@ -268,8 +278,12 @@ describe("enhanced MCP tools", () => {
       ),
     );
     expect(results[0]).toMatchObject({
-      count: 1,
-      classes: [{ address: "0x10", name: "_OBJC_CLASS_$_Fixture" }],
+      count: 2,
+      classes: [
+        { address: "0x10", name: "_OBJC_CLASS_$_Fixture" },
+        { address: "0x11", name: "_OBJC_CLASS_$_Fixture" },
+      ],
+      identity_coverage: { status: "unknown" },
     });
     expect(results[1]).toMatchObject({
       count: 1,
@@ -423,5 +437,47 @@ describe("enhanced MCP tools", () => {
         }),
       ],
     });
+  });
+});
+
+it("retains unlocated provider symbols through the advertised native dispatch MCP contract", async () => {
+  const ordinary = fixturePort();
+  const client = await connect({
+    execute: (operation, parameters, options) =>
+      operation === "list_names"
+        ? Promise.resolve(
+            targetObservation([
+              { address: "", value: "$s4Test7MyClassC" },
+              { address: "", value: "-[Fixture buildTapped:]" },
+            ]),
+          )
+        : ordinary.execute(operation, parameters, options),
+  });
+  const response = await client.callTool({
+    name: "inspect_native_dispatch_metadata",
+    arguments: { max_records: 100 },
+  });
+  expect(response.isError).not.toBe(true);
+  expect(jsonResult(response)).toMatchObject({
+    provider: { id: "fixture" },
+    target_sha256: "a".repeat(64),
+    result: {
+      swift_symbols: [
+        {
+          mangled_name: "$s4Test7MyClassC",
+          address: null,
+          evidence: [{ reported_address: "", location: { address: null } }],
+        },
+      ],
+      objc_dispatch_implementations: [
+        { implementation_address: null, evidence: [{ reported_address: "" }] },
+      ],
+      objc_classes: [
+        {
+          name: "Fixture",
+          methods: [{ selector: "buildTapped:", address: null }],
+        },
+      ],
+    },
   });
 });

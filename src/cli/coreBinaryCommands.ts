@@ -1,6 +1,5 @@
 import { z } from "incur";
 import { stat } from "node:fs/promises";
-import { resolve } from "node:path";
 
 import { resolveCliAnalysisSelector } from "./analysisSelector.js";
 import type { DirectAnalysis } from "../composition/directAnalysis.js";
@@ -10,20 +9,23 @@ import type { Logger } from "pino";
 import {
   directAnalysisOptionsFromCli,
   nativeOpenOptionFields,
+  snapshotSelectionOption,
 } from "./options.js";
 import type { CliInstance } from "./types.js";
 import { runCliJavaScriptApplicationAnalysis } from "./javascriptApplicationAnalysis.js";
 import { withCommandCancellation } from "./commandCancellation.js";
 import { javascriptApplicationOptions } from "../cliObservationOptions.js";
 import { AnalysisInputError } from "../domain/analysisErrorCore.js";
+import { absoluteCallerPath } from "../filesystem/callerPath.js";
 
 /** Register provider-neutral binary overview and procedure CLI commands. */
 export const registerCoreBinaryCommands = (
   cli: CliInstance,
   logger: Logger,
   runDirectAnalysis: DirectAnalysis["runDirectAnalysis"],
+  environment: Readonly<Record<string, string | undefined>>,
 ): void => {
-  registerOverviewCommands(cli, logger, runDirectAnalysis);
+  registerOverviewCommands(cli, logger, runDirectAnalysis, environment);
   registerDecompileCommand(cli, logger, runDirectAnalysis);
   registerFunctionCommand(cli, logger, runDirectAnalysis);
   registerInstructionsCommand(cli, logger, runDirectAnalysis);
@@ -36,13 +38,10 @@ const registerOverviewCommands = (
   cli: CliInstance,
   logger: Logger,
   runDirectAnalysis: DirectAnalysis["runDirectAnalysis"],
+  environment: Readonly<Record<string, string | undefined>>,
 ): void => {
   const overviewOptions = z.object({
-    snapshot: z
-      .string()
-      .min(1)
-      .optional()
-      .describe("Load and update a local analysis snapshot"),
+    snapshot: snapshotSelectionOption,
     ...nativeOpenOptionFields,
   });
   // `analyze` declares the JavaScript integrity policy for its JavaScript
@@ -84,13 +83,14 @@ const registerOverviewCommands = (
           logCliCommand(logger, "analyze", () =>
             runCliJavaScriptApplicationAnalysis(
               {
-                input_path: resolve(args.path),
+                input_path: absoluteCallerPath(args.path),
                 integrity_policy:
                   options.integrityPolicy ?? defaultIntegrityPolicy,
                 ...(options.sourcePath === undefined
                   ? {}
                   : { source_paths: options.sourcePath }),
               },
+              environment,
               signal,
             ),
           ),
@@ -179,11 +179,7 @@ const registerDecompileCommand = (
         .describe(
           "Ghidra source-file byte offset; mapped internally to an analysis address",
         ),
-      snapshot: z
-        .string()
-        .min(1)
-        .optional()
-        .describe("Load and update a local analysis snapshot"),
+      snapshot: snapshotSelectionOption,
       ...nativeOpenOptionFields,
     }),
     run: ({ args, options }) =>
@@ -235,7 +231,8 @@ const routesToJavaScriptAnalysis = async (
 const isJavaScriptApplicationPath = async (path: string): Promise<boolean> => {
   const lower = path.toLowerCase();
   if (lower.endsWith(".asar")) return true;
-  if (lower.endsWith(".app")) return false;
+  // `A.app/` and `A.app/.` name the same bundle as `A.app`.
+  if (lower.replace(/(?:\/\.?)+$/u, "").endsWith(".app")) return false;
   try {
     return (await stat(path)).isDirectory();
   } catch (cause: unknown) {
@@ -265,11 +262,7 @@ const registerXrefsCommand = (
         .describe(
           "Address or symbol name; use --address=<value> for leading dashes",
         ),
-      snapshot: z
-        .string()
-        .min(1)
-        .optional()
-        .describe("Load and update a local analysis snapshot"),
+      snapshot: snapshotSelectionOption,
       ...nativeOpenOptionFields,
     }),
     run: ({ args, options }) =>
@@ -314,11 +307,7 @@ const registerTraceCommand = (
         .boolean()
         .default(false)
         .describe("Match the query with exact letter case"),
-      snapshot: z
-        .string()
-        .min(1)
-        .optional()
-        .describe("Load and update a local analysis snapshot"),
+      snapshot: snapshotSelectionOption,
       ...nativeOpenOptionFields,
     }),
     run: ({ args, options }) =>
@@ -364,11 +353,7 @@ const registerFunctionCommand = (
         .describe(
           "Procedure name or address; use --procedure=<value> for leading dashes",
         ),
-      snapshot: z
-        .string()
-        .min(1)
-        .optional()
-        .describe("Load and update a local analysis snapshot"),
+      snapshot: snapshotSelectionOption,
       ...nativeOpenOptionFields,
     }),
     run: ({ args, options }) =>
@@ -413,11 +398,7 @@ const registerInstructionsCommand = (
         .describe(
           "Procedure name or address; use --procedure=<value> for leading dashes",
         ),
-      snapshot: z
-        .string()
-        .min(1)
-        .optional()
-        .describe("Load and update a local analysis snapshot"),
+      snapshot: snapshotSelectionOption,
       ...nativeOpenOptionFields,
     }),
     run: ({ args, options }) =>
@@ -474,11 +455,7 @@ const registerSearchCommand = (
         .boolean()
         .default(false)
         .describe("Match the pattern with exact letter case"),
-      snapshot: z
-        .string()
-        .min(1)
-        .optional()
-        .describe("Load and update a local analysis snapshot"),
+      snapshot: snapshotSelectionOption,
       ...nativeOpenOptionFields,
     }),
     run: ({ args, options }) =>

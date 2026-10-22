@@ -478,6 +478,45 @@ describe("target-free MCP workflow", () => {
       ).isError,
     ).not.toBe(true);
     await mcp.callTool({ name: "close_binary", arguments: {} });
+  });
+});
+
+describe("MCP snapshot open ordering", () => {
+  it("keeps a snapshot open ahead of later reads and closes on the same connection", async () => {
+    directory = await createTestTempDirectory("rea-mcp-snapshot-open-order-");
+    const { mcp, first, second } = await createSessionMcpHarness(
+      directory,
+      provider,
+      resources,
+    );
+    const snapshotPath = join(directory, "analysis.json");
+    await mcp.callTool({ name: "open_binary", arguments: { path: second } });
+    expect(
+      (
+        await mcp.callTool({
+          name: "close_binary",
+          arguments: { snapshot_path: snapshotPath },
+        })
+      ).isError,
+    ).not.toBe(true);
+    await mcp.callTool({ name: "open_binary", arguments: { path: first } });
+
+    // Dispatched without awaiting, like a client issuing one turn's calls.
+    const opening = mcp.callTool({
+      name: "open_binary",
+      arguments: { path: second, snapshot_path: snapshotPath },
+    });
+    const reading = mcp.callTool({ name: "current_document", arguments: {} });
+    const closing = mcp.callTool({ name: "close_binary", arguments: {} });
+
+    expect((await opening).isError, JSON.stringify(await opening)).not.toBe(
+      true,
+    );
+    expect(text(await reading)).toContain("second.hop");
+    expect((await closing).isError).not.toBe(true);
+    expect(
+      text(await mcp.callTool({ name: "binary_session", arguments: {} })),
+    ).toContain('"open":false');
   }, 10_000);
 });
 
@@ -539,10 +578,26 @@ describe("json depth bounds over MCP", () => {
         right: input.right,
       },
     });
-    const text = JSON.stringify(result.content);
-    expect(result.isError, text).toBe(true);
-    expect(text).toContain("Input validation");
-    expect(text).toContain("maximum nesting depth");
+    expect(result.isError, JSON.stringify(result.content)).toBe(true);
+    expect(parseMcpToolError(result)).toMatchObject({
+      error: {
+        code: "invalid_request",
+        recovery: {
+          kind: "inspect_input_contract",
+          operation: "compare_process_captures",
+        },
+        details: {
+          operation: "compare_process_captures",
+          issues: [
+            {
+              path: [],
+              reason: "invalid_value",
+              message: `left.parameters: JSON value exceeds maximum nesting depth of ${MAX_JSON_DEPTH}. This release has no runtime override.`,
+            },
+          ],
+        },
+      },
+    });
   }, 10_000);
 });
 

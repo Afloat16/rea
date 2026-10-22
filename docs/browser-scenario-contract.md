@@ -23,9 +23,21 @@ that rejection does not roll back browser effects. REA removes its owned
 future-document scripts, restores live frame methods, then disconnects.
 Add secret declarations, storage seeds, and additional artifact or event
 capture only when needed. Action, secret, and storage counts are not capped.
-Duration, action, and navigation timeouts remain fixed provider-owned liveness
-limits. `capture.limits` controls retained event and network-content budgets;
-it does not change those liveness deadlines.
+Duration, action, and navigation timeouts remain separate from CDP command
+deadlines. `command_timeout_ms` (default 20000; omit it to keep that default
+and leave it out of Evidence) bounds launch startup, the connect-over-CDP
+handshake, target lookup, environment commands, and storage CDP commands,
+including replies from attached child targets. Set it in the scenario JSON.
+`capture-browser-scenario` has no `--command-timeout-ms` option.
+It does not change action `timeout_ms`, `wait_for_timeout.duration_ms`, or
+navigation. Service-worker restoration keeps a fixed 5000 ms grace and does
+not inherit a raised `command_timeout_ms`. CDP discovery stays on its own
+fixed deadline. When service workers are blocked, the registration check
+before discovery has its own fixed 10000 ms deadline; `command_timeout_ms`
+does not apply because discovery has not started. The discovery deadline
+covers endpoint discovery only. The following WebSocket handshake and
+`Target.attachToTarget` each use `command_timeout_ms`. `capture.limits` controls retained event and network-content
+budgets; it does not change those liveness deadlines.
 
 ## Minimal launch example
 
@@ -107,6 +119,11 @@ Through MCP, pass the same object as the `capture_browser_scenario` arguments.
 The final step's DOM and accessibility artifacts retain the page state at that
 capture time inline. REA still launches and cleans up the browser profile.
 
+Action `timeout_ms` and `wait_for_timeout.duration_ms` accept integers from 1
+through 2,147,483,647 milliseconds, matching the underlying timer representation.
+Larger values receive an input error before browser launch. Omit `timeout_ms`
+to keep an action pending until completion or request cancellation.
+
 The click's `timeout_ms` covers the click action. A non-navigating `fetch` or
 delayed render can finish later, so use `wait_for` to observe a page-specific
 ready condition before final capture. A page that updates synchronously can
@@ -144,6 +161,36 @@ distinction: it closes and deletes provider-owned profiles, but only disconnects
 from an external CDP browser. Real-browser verification checks both outcomes and
 confirms that an attached external browser remains alive.
 
+That cleanup requires REA to remain running. Abrupt termination, including
+Windows process-tree termination or POSIX `SIGKILL`, can leave the launch
+profile and Playwright artifacts behind. A profile can retain cookies, history,
+cache and origin storage. Later REA runs currently do not reclaim these paths.
+Playwright 1.58.2 can also leave an artifacts directory when launch preparation
+fails before a browser process exists, such as for a missing executable.
+POSIX wrappers can request awaited cancellation with `SIGINT` or `SIGTERM`;
+Windows process termination is not an equivalent graceful-cancellation channel.
+Do not identify owned artifacts by directory prefix or creation time alone.
+See [#4659](https://github.com/morluto/rea/issues/4659) for the remaining recovery
+and wrapper-cancellation work.
+
+Keeping that browser alive does not guarantee its emulation state survives.
+Chromium can clear caller-owned `navigator.platform` emulation when a page CDP
+session disconnects, including sessions that sent no emulation commands. REA
+cannot snapshot the other client's complete user-agent/client-hint settings and
+does not replay a partial reconstruction. Use launch mode to keep this effect
+inside a provider-owned browser, or have the external owning client reapply its
+complete configuration after capture. Connected captures report this limitation;
+see [issue #4089](https://github.com/morluto/rea/issues/4089).
+
+`environment.locale` sets Intl formatting in both modes. Launch also sets
+`navigator.language`, `navigator.languages`, and the request `Accept-Language`.
+Connect preserves the caller's page and request languages; every attached
+capture identifies this locale limitation, including retained partial
+observations. Use launch mode when the application must select the requested
+language through navigator values or request headers. Artifact completeness
+covers the selected observations, not equivalence of launch and connect
+language environments.
+
 HTTP(S) URLs may include ordinary query values and fragments directly. Use
 ordered structured query entries when a value needs to reference a declared
 environment-backed secret. Form, storage, and cookie values are either literal
@@ -177,7 +224,9 @@ statements remain under the attached debugger client's control.
 The result is Evidence with an initial state followed by one record per
 declared action. Each step reports action status, elapsed time, sanitized URLs,
 event bounds, and independently typed capture states for screenshot, DOM,
-accessibility, URL, history, and storage. Console, page-error, network,
+accessibility, URL, history, and storage. Actions after a failed or cancelled
+action are not run and are recorded as `cancelled` with a not-executed error.
+Console, page-error, network,
 WebSocket, frame, worker, popup, and cancelled-download events are attributed to
 steps. Retained events and requested artifacts are returned inline; omitted
 events are counted by kind and identify affected network transactions.

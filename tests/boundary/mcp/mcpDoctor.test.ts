@@ -1,7 +1,9 @@
 import { Client } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
+import { execFile } from "node:child_process";
 import { readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import { promisify } from "node:util";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -13,7 +15,7 @@ import {
   runProductionMcpDoctorCli,
 } from "../../../src/mcpDoctor.js";
 import {
-  CATALOG_IDENTITY,
+  FULL_CATALOG_IDENTITY,
   createCatalogIdentity,
 } from "../../../src/catalogIdentity.js";
 import { compactPresentationForMcpInputSchemaProfile } from "../../../src/config/mcpInputSchemaProfile.js";
@@ -21,7 +23,60 @@ import { MCP_STARTUP_POLICY } from "../../../src/mcpStartupPolicy.js";
 
 afterEach(() => vi.useRealTimers());
 
+const assertCliCatalogIdentity = async (
+  environment: NodeJS.ProcessEnv,
+  identity: ReturnType<typeof createCatalogIdentity>,
+) => {
+  for (const command of ["capabilities", "providers"]) {
+    const { stdout } = await promisify(execFile)(
+      process.execPath,
+      [resolve("scripts/rea.mjs"), command, "--json"],
+      { env: environment, timeout: 15_000, maxBuffer: 1024 * 1024 },
+    );
+    const cliStatus: unknown = JSON.parse(stdout);
+    expect(cliStatus, command).toMatchObject({
+      server_identity: {
+        catalog: { counts: identity.counts, digests: identity.digests },
+      },
+    });
+  }
+};
+
 describe("production MCP doctor", () => {
+  it("reuses immutable compiled profile digests and preserves custom-budget identity", async () => {
+    // Exercise the generated module with Node, outside Vitest's source loader.
+    await promisify(execFile)(
+      process.execPath,
+      [
+        "--input-type=module",
+        "--eval",
+        `
+        import assert from "node:assert/strict";
+        import { createCatalogIdentity, createCatalogDigests } from "./dist/catalogIdentity.js";
+        import { RECORDED_CATALOG_DIGEST_PROFILES as profiles } from "./dist/recordedCatalogDigests.js";
+        import { COMPACT_INPUT_SCHEMA_BUDGET_BYTES as budgetBytes } from "./dist/config/mcpInputSchemaProfile.js";
+        assert.ok(Object.isFrozen(profiles));
+        for (const input of ["full", "compact"]) {
+          assert.ok(Object.isFrozen(profiles[input]));
+          for (const output of ["full", "off"]) {
+            const identity = createCatalogIdentity(input === "compact" ? { budgetBytes } : undefined, output);
+            assert.equal(identity.digests, profiles[input][output]);
+            assert.ok(Object.isFrozen(identity.digests));
+          }
+        }
+        const selection = { budgetBytes: 1 };
+        const custom = createCatalogIdentity(selection, "off");
+        selection.budgetBytes = budgetBytes;
+        const expected = createCatalogDigests(undefined, undefined, { budgetBytes: 1 }, "off");
+        assert.deepEqual(custom.digests, expected);
+        assert.notEqual(custom.digests.tools_sha256, profiles.compact.off.tools_sha256);
+        assert.equal(custom.digests, custom.digests);
+      `,
+      ],
+      { timeout: 30_000 },
+    );
+  }, 35_000);
+
   it("preserves the full-output envelope for startup failures", async () => {
     const result = await runProductionMcpDoctorCli(
       ["--json", "--full-output"],
@@ -46,12 +101,22 @@ describe("production MCP doctor", () => {
 
   it.each([
     {
+      name: "default compact input",
+      environment: {
+        REA_MCP_INPUT_SCHEMA_PROFILE: undefined,
+        REA_MCP_OUTPUT_SCHEMA_PROFILE: "full",
+      },
+      identity: createCatalogIdentity(
+        compactPresentationForMcpInputSchemaProfile(undefined),
+      ),
+    },
+    {
       name: "full",
       environment: {
         REA_MCP_INPUT_SCHEMA_PROFILE: "full",
         REA_MCP_OUTPUT_SCHEMA_PROFILE: "full",
       },
-      identity: CATALOG_IDENTITY,
+      identity: FULL_CATALOG_IDENTITY,
     },
     {
       name: "compact",
@@ -83,7 +148,7 @@ describe("production MCP doctor", () => {
       ),
     },
   ])(
-    "connects to the production stdio child and verifies the $name catalog",
+    "verifies the $name catalog through production stdio and both CLI inventories",
     async ({ environment, identity }) => {
       const result = await runProductionMcpDoctor({
         command: process.execPath,
@@ -109,13 +174,17 @@ describe("production MCP doctor", () => {
         result.inventory?.tools.observed,
       );
       expect(result.inventory?.tools.expected).toBe(
-        CATALOG_IDENTITY.counts.mcp_tools,
+        FULL_CATALOG_IDENTITY.counts.mcp_tools,
       );
       expect(result.identity?.expected_catalog_digest).toBe(
         identity.digests.combined_sha256,
       );
       expect(result.identity?.observed_catalog_digest).toBe(
         identity.digests.combined_sha256,
+      );
+      await assertCliCatalogIdentity(
+        { ...process.env, ...environment },
+        identity,
       );
     },
     30_000,
@@ -177,10 +246,10 @@ describe("production MCP doctor probe validation", () => {
       });
       expect(result.healthy).toBe(mode === "valid");
       expect(result.inventory?.tools.observed).toBe(
-        CATALOG_IDENTITY.counts.mcp_tools,
+        FULL_CATALOG_IDENTITY.counts.mcp_tools,
       );
       expect(result.inventory?.prompts.observed).toBe(
-        CATALOG_IDENTITY.counts.mcp_prompts,
+        FULL_CATALOG_IDENTITY.counts.mcp_prompts,
       );
       expect(result.checks).toContainEqual({
         name: "initialize",
@@ -308,8 +377,74 @@ describe("production MCP doctor child lifecycle", () => {
     const result = await vi.waitFor(() => pending, { timeout: 10_000 });
     vi.useRealTimers();
     expect(result.healthy).toBe(false);
-    expect(result.checks[0]?.detail).toMatch(/deadline|abort|timed/iu);
+    expect(result.checks[0]?.detail).toContain("60000 ms");
+    expect(result.checks[0]?.detail).toContain("no runtime override");
+    expect(result.checks[0]?.detail).toContain(
+      "Codex startup_timeout_sec of 30 seconds is client guidance",
+    );
+    expect(result.checks[0]?.detail).not.toContain("REA_MCP_STARTUP");
     await expect(waitForExit(pid)).resolves.toBeUndefined();
+  }, 10_000);
+});
+
+describe("production MCP doctor request-flow deadline", () => {
+  it("names the applied deadline when binary_session exceeds it after the catalog", async () => {
+    const root = await createTestTempDirectory("rea-mcp-doctor-session-");
+    const readyPath = join(root, "ready");
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const pending = runProductionMcpDoctor({
+      command: process.execPath,
+      args: [resolve("tests/fixtures/mcpStartupProbeChild.mjs")],
+      cwd: process.cwd(),
+      environment: {
+        ...process.env,
+        REA_MCP_PROBE_MODE: "hang-on-call",
+        REA_MCP_PROBE_READY_PATH: readyPath,
+      },
+      deadlineMs: 60_000,
+    });
+    await vi.waitFor(
+      async () => {
+        await readFile(readyPath, "utf8");
+      },
+      { timeout: 10_000 },
+    );
+    await vi.advanceTimersByTimeAsync(60_000);
+    const result = await vi.waitFor(() => pending, { timeout: 10_000 });
+    vi.useRealTimers();
+    expect(result.server).not.toBeNull();
+    const requestFlow = result.checks.find(
+      (check) => check.name === "request-flow",
+    );
+    expect(requestFlow?.ok).toBe(false);
+    expect(requestFlow?.detail).toContain("60000 ms");
+    expect(requestFlow?.detail).toContain("no runtime override");
+    expect(requestFlow?.detail).toContain(
+      "Codex startup_timeout_sec of 30 seconds is client guidance",
+    );
+    expect(requestFlow?.detail).not.toContain("30000 ms");
+    expect(requestFlow?.detail).not.toContain("REA_MCP_STARTUP");
+  }, 15_000);
+
+  it("does not add deadline guidance to an unrelated binary_session failure", async () => {
+    const result = await runProductionMcpDoctor({
+      command: process.execPath,
+      args: [resolve("tests/fixtures/mcpStartupProbeChild.mjs")],
+      cwd: process.cwd(),
+      environment: {
+        ...process.env,
+        REA_MCP_PROBE_MODE: "refuse-call",
+      },
+      deadlineMs: 5_000,
+    });
+    expect(result.server).not.toBeNull();
+    const requestFlow = result.checks.find(
+      (check) => check.name === "request-flow",
+    );
+    expect(requestFlow?.ok).toBe(false);
+    expect(requestFlow?.detail).toContain("unrelated fixture method refusal");
+    expect(requestFlow?.detail).not.toContain("no runtime override");
+    expect(requestFlow?.detail).not.toContain("MCP doctor startup deadline");
   }, 10_000);
 });
 

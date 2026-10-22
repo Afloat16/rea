@@ -32,7 +32,7 @@ it("runs static .app decoding without registering native analysis engines", asyn
   const staticSession = await createArtifactBinarySession({
     REA_ANALYSIS_PROVIDER: "auto",
   });
-  expect(staticSession.status()).toMatchObject({
+  expect(await staticSession.status()).toMatchObject({
     analysis_provider_candidates: [],
   });
   await staticSession.close();
@@ -48,7 +48,9 @@ it("runs static .app decoding without registering native analysis engines", asyn
     evidence.normalized_result,
   );
   expect(result.documents).toEqual([]);
-  expect(result.graph.target_sha256).toBe(evidence.subject?.digest.sha256);
+  expect(result.graph.target_sha256).toBe(
+    evidence.subject?.digest.sha256 ?? null,
+  );
 });
 
 it("inspects an artifact through the direct CLI workflow without an REA grant", async () => {

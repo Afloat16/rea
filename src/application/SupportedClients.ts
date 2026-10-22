@@ -8,7 +8,10 @@ import {
 } from "./HermesClientHome.js";
 import { compareUnicodeCodePoints } from "../domain/unicodeCodePointOrder.js";
 import { resolveWindowsClaudeDesktopLocation } from "./ClaudeDesktopConfigLocation.js";
-import type { MsixPackageView } from "./MsixPackageStorage.js";
+import {
+  type MsixPackageView,
+  windowsAppDataRoots,
+} from "./MsixPackageStorage.js";
 
 /** One supported client configuration location. */
 export interface SetupClient {
@@ -37,6 +40,7 @@ export interface SetupClient {
   readonly quitBeforeSetup?: boolean;
   readonly format?:
     | "json"
+    | "claude_code"
     | "toml"
     | "vscode"
     | "copilot_cli"
@@ -116,11 +120,7 @@ const vscodeUserDirectory = ({
   env,
 }: ClientPathContext): string => {
   if (platform === "win32")
-    return join(
-      env.APPDATA ?? join(home, "AppData", "Roaming"),
-      "Code",
-      "User",
-    );
+    return join(windowsAppDataRoots(home, env).roaming, "Code", "User");
   if (platform === "darwin")
     return join(home, "Library", "Application Support", "Code", "User");
   return join(xdgConfigHome({ home, platform, env }), "Code", "User");
@@ -132,11 +132,7 @@ const traeUserDirectory = ({
   env,
 }: ClientPathContext): string => {
   if (platform === "win32")
-    return join(
-      env.APPDATA ?? join(home, "AppData", "Roaming"),
-      "Trae",
-      "User",
-    );
+    return join(windowsAppDataRoots(home, env).roaming, "Trae", "User");
   if (platform === "darwin")
     return join(home, "Library", "Application Support", "Trae", "User");
   return join(xdgConfigHome({ home, platform, env }), "Trae", "User");
@@ -159,10 +155,10 @@ const claudeDesktopLocation = (
 };
 
 const claudeCodeConfigDirectory = ({ home, env }: ClientPathContext): string =>
-  env.CLAUDE_CONFIG_DIR ?? home;
+  env.CLAUDE_CONFIG_DIR || home;
 
 const claudeCodeMarkerDirectory = ({ home, env }: ClientPathContext): string =>
-  env.CLAUDE_CONFIG_DIR ?? join(home, ".claude");
+  env.CLAUDE_CONFIG_DIR || join(home, ".claude");
 
 const codexDirectory = ({ home, env }: ClientPathContext): string =>
   env.CODEX_HOME || join(home, ".codex");
@@ -364,7 +360,7 @@ const piAgentDirectory = ({
 };
 
 const copilotDirectory = ({ home, env }: ClientPathContext): string =>
-  env.COPILOT_HOME ?? join(home, ".copilot");
+  env.COPILOT_HOME || join(home, ".copilot");
 
 const commandCodeDirectory = ({ home }: ClientPathContext): string =>
   join(home, ".commandcode");
@@ -478,7 +474,7 @@ const geminiSettings = ({
 
 const devinDirectory = ({ home, platform, env }: ClientPathContext): string =>
   platform === "win32"
-    ? join(env.APPDATA ?? join(home, "AppData", "Roaming"), "devin")
+    ? join(windowsAppDataRoots(home, env).roaming, "devin")
     : join(env.XDG_CONFIG_HOME || join(home, ".config"), "devin");
 
 /** Stable product metadata used to derive setup discovery and documentation. */
@@ -486,12 +482,12 @@ export const SUPPORTED_CLIENT_DEFINITIONS = [
   {
     name: "claude_code",
     displayName: "Claude Code",
-    skillPath: ({ home, env }: ClientPathContext) =>
-      join(env.CLAUDE_CONFIG_DIR ?? join(home, ".claude"), "skills"),
+    skillPath: (context: ClientPathContext) =>
+      join(claudeCodeMarkerDirectory(context), "skills"),
     configPath: (context: ClientPathContext) =>
       join(claudeCodeConfigDirectory(context), ".claude.json"),
     markerPath: claudeCodeMarkerDirectory,
-    format: "json",
+    format: "claude_code",
   },
   {
     name: "claude_desktop",

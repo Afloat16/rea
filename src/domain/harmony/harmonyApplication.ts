@@ -1,3 +1,7 @@
+import {
+  bridgeCandidateCoverageSchema,
+  projectCartesianCandidates,
+} from "../bridgeCandidateProjection.js";
 import { z } from "zod";
 
 import {
@@ -6,19 +10,18 @@ import {
 } from "../artifactInventoryEvidence.js";
 import { digestSchema } from "../digests.js";
 import { prefixedDigestSchema } from "../digests.js";
+import { digestCanonicalValue } from "../canonicalDigest.js";
 import { nativeRuntimeConvention } from "../nativeConvention.js";
 import {
   applicationInventoryProjectionInputSchema,
-  bridgeCandidateCoverageSchema,
-  projectCartesianCandidates,
+  type MobileApplicationProjectionWithSources,
   projectedBridgeCandidateSchema,
   projectedComponentSchema,
-  projectedComponents,
+  projectedInventoryEntries,
+  projectedFileComponents,
   projectionCoverage,
-  projectionDigest,
   projectionEvidenceIdSchema,
   unavailableComponentSchema,
-  unavailableComponents,
 } from "../mobileApplicationGraphProjection.js";
 import { compareUnicodeCodePoints } from "../unicodeCodePointOrder.js";
 
@@ -78,14 +81,17 @@ type Component = z.infer<typeof componentSchema>;
 /** Project exact HarmonyOS package paths and hashes without decoding or executing target code. */
 export const projectHarmonyApplication = (
   input: HarmonyApplicationProjectionInput,
-): HarmonyApplicationProjectionResult => {
+): MobileApplicationProjectionWithSources<HarmonyApplicationProjectionResult> => {
   const parsed = harmonyApplicationProjectionInputSchema.parse(input);
   const { evidence, inventory } = parseArtifactInventoryEvidence(
     parsed.inventory_evidence,
   );
   const rootFormat = harmonyRootFormat(inventory.manifest.root_format);
-  const all = projectedComponents(inventory);
-  const unavailable = unavailableComponents(inventory);
+  const entries = projectedInventoryEntries(inventory);
+  const all = projectedFileComponents(entries);
+  const unavailable = entries.flatMap(({ unavailable }) =>
+    unavailable === undefined ? [] : [unavailable],
+  );
   const classified = classify(all);
   const bridgeProjection = bridgeCandidates(
     classified.bytecode,
@@ -132,7 +138,7 @@ export const projectHarmonyApplication = (
       rootFormat === "app-pack"
         ? all.filter(({ path }) => /\.(?:hap|hsp)$/iu.test(path))
         : [],
-    runtime_families: runtimeFamilies(all),
+    runtime_families: runtimeFamilies(all, classified),
     bridge_candidates: bridgeProjection.candidates,
     bridge_candidate_coverage: bridgeProjection.coverage,
     coverage: projectionCoverage(
@@ -142,10 +148,13 @@ export const projectHarmonyApplication = (
     ),
     limitations,
   };
-  return harmonyApplicationProjectionResultSchema.parse({
-    ...withoutId,
-    projection_id: `hmp_${projectionDigest(withoutId, "HarmonyOS application projection")}`,
-  });
+  return {
+    projection: harmonyApplicationProjectionResultSchema.parse({
+      ...withoutId,
+      projection_id: `hmp_${digestCanonicalValue(withoutId, "HarmonyOS application projection")}`,
+    }),
+    sources: evidence,
+  };
 };
 
 const harmonyRootFormat = (format: string): RootFormat => {
@@ -192,16 +201,16 @@ const classify = (all: readonly Component[]) => ({
   ),
 });
 
-const runtimeFamilies = (all: readonly Component[]) => {
-  const paths = all.map(({ path }) => path.toLowerCase());
+const runtimeFamilies = (
+  all: readonly Component[],
+  components: HarmonyApplicationProjectionResult["components"],
+) => {
   const families = new Set<
     HarmonyApplicationProjectionResult["runtime_families"][number]
   >();
-  if (paths.some((path) => path.endsWith(".abc") || path.endsWith(".pa")))
-    families.add("ark");
+  if (components.bytecode.length > 0) families.add("ark");
   if (all.some(({ format }) => format === "elf")) families.add("native");
-  if (paths.some((path) => /\.(?:m?js|cjs)$/.test(path)))
-    families.add("javascript");
+  if (components.javascript.length > 0) families.add("javascript");
   for (const { path } of all) {
     const convention = nativeRuntimeConvention(path);
     if (convention !== null) families.add(convention);

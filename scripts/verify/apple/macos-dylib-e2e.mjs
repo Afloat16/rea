@@ -7,6 +7,7 @@ import { promisify } from "node:util";
 import {
   artifactCliEvidence,
   artifactMcpResult,
+  artifactMcpCall,
   withArtifactMcp,
 } from "../../lib/artifact-e2e.mjs";
 
@@ -140,8 +141,12 @@ const verifyParserConformance = async (app, trace) => {
         join(app, image.path),
         slice.architecture,
       );
+      // otool -l prints LC_LAZY_LOAD_DYLIB_INFO without its linkedit install
+      // name, so this comparison cannot expect that edge. The structural
+      // reader tests own the payload.
       const edges = trace.edges.filter(
-        ({ loader, architecture, root }) =>
+        ({ loader, architecture, root, command }) =>
+          command !== "LC_LAZY_LOAD_DYLIB_INFO" &&
           loader === image.path &&
           architecture === slice.architecture &&
           root ===
@@ -176,7 +181,7 @@ export async function verifyDylibResolution(app) {
       await artifactMcpResult(client, "trace_dylib_resolution"),
       trace,
     );
-    const invalid = await client.callTool({
+    const invalid = await artifactMcpCall(client, {
       name: "trace_dylib_resolution",
       arguments: { roots: ["../outside"] },
     });

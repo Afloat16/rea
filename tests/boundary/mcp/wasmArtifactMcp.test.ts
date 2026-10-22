@@ -164,10 +164,14 @@ it.each(["bin", "hop"])(
 
 it("advertises exact valid schemas and records inline WASM interface evidence without a binary target", async () => {
   const value = wasmArtifactFixture();
+  value.tool_profile.timeout_ms = 42_000;
   const close = vi.fn(() => Promise.resolve());
   const service = new WasmArtifactService({
     close,
-    inspect: () => Promise.resolve(ok(wasmArtifactExecution(value))),
+    inspect: (input) => {
+      expect(input.command_timeout_ms).toBe(42_000);
+      return Promise.resolve(ok(wasmArtifactExecution(value)));
+    },
   });
   const session = createTestBinarySession(() => {
     throw new Error("deep provider must not start");
@@ -184,6 +188,20 @@ it("advertises exact valid schemas and records inline WASM interface evidence wi
   );
   const { ajv, inputSchema } = schemas;
   expect(ajv.validate(inputSchema, { path: value.artifact.path })).toBe(true);
+  for (const command_timeout_ms of [1, 42_000, 2_147_483_647])
+    expect(
+      ajv.validate(inputSchema, {
+        path: value.artifact.path,
+        command_timeout_ms,
+      }),
+    ).toBe(true);
+  for (const command_timeout_ms of [0, -1, 1.5, 2_147_483_648, "1000", null])
+    expect(
+      ajv.validate(inputSchema, {
+        path: value.artifact.path,
+        command_timeout_ms,
+      }),
+    ).toBe(false);
   expect(
     ajv.validate(inputSchema, {
       path: value.artifact.path,
@@ -193,7 +211,7 @@ it("advertises exact valid schemas and records inline WASM interface evidence wi
   ).toBe(false);
   const response = await client.callTool({
     name: "inspect_wasm_artifact",
-    arguments: { path: value.artifact.path },
+    arguments: { path: value.artifact.path, command_timeout_ms: 42_000 },
   });
   assertRecordedMcpEvidence(
     response,
@@ -213,6 +231,73 @@ it("advertises exact valid schemas and records inline WASM interface evidence wi
   ).toBe(true);
   await harness.close();
   expect(close).toHaveBeenCalled();
+});
+
+it("records complete WASM Evidence when an MCP request is cancelled during provider work", async () => {
+  const value = wasmArtifactFixture();
+  let releaseProvider: (() => void) | undefined;
+  let providerStarted: (() => void) | undefined;
+  const started = new Promise<void>((resolve) => {
+    providerStarted = resolve;
+  });
+  const providerGate = new Promise<void>((resolve) => {
+    releaseProvider = resolve;
+  });
+  const service = new WasmArtifactService({
+    close: () => Promise.resolve(),
+    inspect: async (_input, options) => {
+      providerStarted?.();
+      await providerGate;
+      expect(options?.signal?.aborted).toBe(true);
+      return ok(wasmArtifactExecution(value));
+    },
+  });
+  const inspect = vi.spyOn(service, "inspect");
+  const session = createTestBinarySession(() => {
+    throw new Error("deep provider must not start");
+  });
+  const harness = await createApplicationMcpHarness({
+    session,
+    serverOptions: { wasmArtifact: service },
+  });
+  onTestFinished(harness.close);
+  const controller = new AbortController();
+  const cancellation = harness.client.callTool(
+    {
+      name: "inspect_wasm_artifact",
+      arguments: { path: value.artifact.path },
+    },
+    { signal: controller.signal },
+  );
+  await started;
+  controller.abort(new Error("cancel after provider work starts"));
+  releaseProvider?.();
+  await expect(cancellation).rejects.toThrow();
+  expect(inspect).toHaveBeenCalledOnce();
+  const result = await inspect.mock.results[0]?.value;
+  expect(result).toMatchObject({
+    ok: false,
+    error: {
+      _tag: "AnalysisCancelledError",
+      partialObservation: {
+        operation: "inspect_wasm_artifact",
+        normalized_result: value,
+        confidence: "observed",
+      },
+    },
+  });
+  await harness.client.ping();
+  await vi.waitFor(() => {
+    expect(session.exportEvidenceBundle().records).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          operation: "inspect_wasm_artifact",
+          normalized_result: value,
+          confidence: "observed",
+        }),
+      ]),
+    );
+  });
 });
 
 it("attributes rejected WASM paths to their selected fields before provider work", async () => {
@@ -289,7 +374,8 @@ it("attributes rejected WASM paths to their selected fields before provider work
       paths.map((path) => ({
         path,
         reason: "invalid_format",
-        message: "Expected an absolute filesystem path on this host.",
+        expected: "regex",
+        message: "must be an absolute local filesystem path",
       })),
     );
   }

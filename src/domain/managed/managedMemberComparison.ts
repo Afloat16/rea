@@ -1,9 +1,11 @@
 import { z } from "zod";
 
+import { digestCanonicalValue } from "../canonicalDigest.js";
 import { emptyArraySchema } from "../emptyArraySchema.js";
 import { evidenceSchema } from "../evidence.js";
 import {
   cliMetadataGuidSchema,
+  managedMetadataTokenSchema,
   type ManagedMemberInspection,
 } from "./managedArtifact.js";
 import {
@@ -17,13 +19,12 @@ import {
   buildFieldItems,
   buildMethodItems,
 } from "./managedMemberComparisonItems.js";
-import { keyMembers, sha256 } from "./managedMemberComparisonMatch.js";
+import { keyMembers } from "./managedMemberComparisonMatch.js";
 import { hasSignatureResolution } from "./managedMemberSignatureIdentity.js";
 import { digestSchema } from "../digests.js";
 import { prefixedDigestSchema } from "../digests.js";
 
 const evidenceIdSchema = prefixedDigestSchema("ev");
-const tokenSchema = z.string().regex(/^0x[0-9a-f]{8}$/u);
 const boundedTextSchema = z.string().min(1);
 
 /** Two authenticated managed member observations. */
@@ -47,7 +48,7 @@ const concreteMatchBasisSchema = z.enum([
   "structural-method-shape",
   "field-signature",
 ]);
-const candidateTokensSchema = z.array(tokenSchema).min(1);
+const candidateTokensSchema = z.array(managedMetadataTokenSchema).min(1);
 const matchedComparisonSchema = z.strictObject({
   status: z.literal("matched"),
   basis: concreteMatchBasisSchema,
@@ -70,7 +71,7 @@ const ambiguousComparisonSchema = z.strictObject({
   candidate_right_tokens: candidateTokensSchema,
 });
 const memberIdentitySchema = z.strictObject({
-  token: tokenSchema,
+  token: managedMetadataTokenSchema,
   declaring_type: z.string().nullable(),
   name: z.string(),
   signature_sha256: digestSchema,
@@ -163,8 +164,8 @@ export const managedMemberComparisonResultSchema = z.strictObject({
     mvid: cliMetadataGuidSchema.nullable(),
     module_name: z.string().nullable(),
     metadata_status: z.enum(["absent", "complete", "partial", "malformed"]),
-    methods_total: z.number().int().min(0),
-    fields_total: z.number().int().min(0),
+    methods_total: z.int().min(0),
+    fields_total: z.int().min(0),
   }),
   right: z.strictObject({
     evidence_id: evidenceIdSchema,
@@ -172,23 +173,23 @@ export const managedMemberComparisonResultSchema = z.strictObject({
     mvid: cliMetadataGuidSchema.nullable(),
     module_name: z.string().nullable(),
     metadata_status: z.enum(["absent", "complete", "partial", "malformed"]),
-    methods_total: z.number().int().min(0),
-    fields_total: z.number().int().min(0),
+    methods_total: z.int().min(0),
+    fields_total: z.int().min(0),
   }),
   summary: z.strictObject({
-    unchanged: z.number().int().min(0),
-    changed: z.number().int().min(0),
-    added: z.number().int().min(0),
-    removed: z.number().int().min(0),
-    unknown: z.number().int().min(0),
+    unchanged: z.int().min(0),
+    changed: z.int().min(0),
+    added: z.int().min(0),
+    removed: z.int().min(0),
+    unknown: z.int().min(0),
   }),
   matching: z.strictObject({
-    exact_il_signature: z.number().int().min(0),
-    exact_signature: z.number().int().min(0),
-    structural_method_shape: z.number().int().min(0),
-    field_signature: z.number().int().min(0),
-    ambiguous: z.number().int().min(0),
-    unmatched: z.number().int().min(0),
+    exact_il_signature: z.int().min(0),
+    exact_signature: z.int().min(0),
+    structural_method_shape: z.int().min(0),
+    field_signature: z.int().min(0),
+    ambiguous: z.int().min(0),
+    unmatched: z.int().min(0),
   }),
   methods: z.array(methodComparisonItemSchema),
   fields: z.array(fieldComparisonItemSchema),
@@ -247,12 +248,15 @@ export const compareManagedMembers = (
   });
   const limitations = comparisonLimitations(left.result, right.result);
   const result = {
-    comparison_id: `mmc_${sha256({
-      left: left.evidenceId,
-      right: right.evidenceId,
-      methods: [...methodItems],
-      fields: [...fieldItems],
-    })}`,
+    comparison_id: `mmc_${digestCanonicalValue(
+      {
+        left: left.evidenceId,
+        right: right.evidenceId,
+        methods: [...methodItems],
+        fields: [...fieldItems],
+      },
+      "Managed comparison",
+    )}`,
     algorithm: {
       name: "rea-managed-member-comparison" as const,
       token_identity: "build-local" as const,

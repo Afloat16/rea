@@ -30,6 +30,13 @@ jq -c '{source: {kind: "inline", evidence: .}, view: {kind: "summary"}}' app-evi
 rea inspect-analysis-view app-view.json
 ```
 
+The request can also name the saved file instead of embedding it:
+`{"source": {"kind": "evidence-file", "path": "app-evidence.json"}, "view": {"kind": "summary"}}`.
+The CLI resolves a relative path against the working directory; MCP clients
+pass an absolute path. REA reads and authenticates the file, then projects it
+like retained Evidence, so a large file is bounded by the file reader rather
+than charged as inline input.
+
 For example, a 334 MB Obsidian application Evidence file yields a summary view
 of about 10 KB. Replace the view with
 `{"kind": "page", "collection": "modules", "offset": 0, "limit": 32}` for a
@@ -56,10 +63,22 @@ or repeat it to select several types.
 Selection limits decoding to the selected types; member references remain an
 assembly-wide inventory, so the output can still be large.
 
+Select `--detail summary --evidence-bundle /absolute/path/members.json` to
+receive identity, selection, coverage, limitations and collection counts while
+saving the complete original Evidence in a new bundle. Summary requires that
+explicit destination; existing files are preserved. Later
+`inspect-analysis-view` calls can page the exact parent from the saved bundle
+without reopening the assembly. See
+[CLI summary and saved member rows](managed-code-analysis.md#cli-summary-and-saved-member-rows)
+for the complete command sequence. Omitted or `--detail complete` retains the
+full inline response.
+
 Choose the workflow from the artifact's contents rather than its `.exe` or
 `.dll` extension. The managed parser requires PE/CLI metadata; it does not
-unpack .NET single-file hosts or decode IL2CPP metadata. NativeAOT method bodies
-require native analysis. See the [managed-code guide](managed-code-analysis.md)
+unpack .NET single-file hosts or decode IL2CPP. For the image, type and method
+names in a Unity `global-metadata.dat`, use
+[IL2CPP metadata](il2cpp-metadata.md). NativeAOT method bodies require native
+analysis. See the [managed-code guide](managed-code-analysis.md)
 for supported deployment forms, selection semantics, and coverage limits.
 
 ## SQLite snapshots
@@ -83,6 +102,47 @@ The shared CLI/MCP workflow reports compiler version, modules, replacements,
 build settings, original bytes and SHA-256. See [Go binaries](go-binaries.md)
 for supported containers and absent or malformed metadata.
 
+Inspect a Godot PCK without running the game:
+
+```sh
+rea inspect-artifact game.pck --detail summary --evidence_output evidence.json --json
+rea extract-artifact game.pck --json
+```
+
+Formats 2, 3 and 4 retain header, directory and integrity facts. Compact delivery
+keeps complete Evidence in the requested bundle. See [Godot PCK](godot-pck.md)
+for embedded packs, batch queries and unknown encrypted coverage.
+
+Inspect local model declarations without loading weights:
+
+```bash
+rea inspect-model-artifact /absolute/path/model.gguf --json
+rea inspect-model-artifact /absolute/path/model.safetensors --hash full --json
+```
+
+Default hashing reads only headers and leaves full-file identity unknown.
+`--hash full` streams the complete file for SHA-256. Both return typed metadata,
+original tensor declarations and derived totals. MCP summaries retain complete
+Evidence for filtered metadata, tensor and type-total pages; CLI compact delivery
+uses `--detail summary --evidence_output FILE`. See [model files](model-artifacts.md).
+
+Inspect Unity IL2CPP metadata names without Unity or a disassembler:
+
+```bash
+rea inspect-il2cpp-metadata /absolute/path/global-metadata.dat --json
+```
+
+The command decodes a version 24, 27, 29, 31 or 39 `global-metadata.dat` and reports assembly
+images, type, method and member names, string literals, index ranges, header
+sections and SHA-256. With `--binary PATH` it also reads the matching
+`GameAssembly.dylib`, `GameAssembly.dll` or `libil2cpp.so` (never runs it) and
+links each method to its code address; `--ghidra-seeds PATH` then writes Ghidra
+function seeds. It does not decrypt metadata. MCP defaults to compact counts
+with retained Evidence; query indexed rows with filters, batch indices and
+selected fields. The CLI defaults to complete Evidence;
+`--detail summary --evidence_output FILE` exports the full result to a new file
+and returns a compact overview. See [IL2CPP metadata](il2cpp-metadata.md).
+
 Inspect an embedded cargo-auditable Rust dependency list without installing
 Rust or configuring a disassembler:
 
@@ -95,8 +155,41 @@ dependency edges, and the section's file range. A missing `.dep-v0` section is
 null metadata, not proof that the binary has no dependencies. See
 [Rust binaries](rust-binaries.md).
 
-Configure [Hopper or Ghidra](installation.md#hopper), or the
-[IDA adapter](ida-provider.md), before analyzing a native target. Substitute
+Inspect a PE Authenticode certificate table without executing the image or
+verifying signatures:
+
+```bash
+rea inspect-pe-certificates /absolute/path/to/application.exe --json
+```
+
+The workflow reports `WIN_CERTIFICATE` entries and, for PKCS#7 signedData,
+embedded X.509 serial, issuer, subject, and validity fields. A missing security
+directory is observed absence of that table. See
+[PE Authenticode certificate tables](pe-certificates.md).
+
+Inspect ELF PT_NOTE and SHT_NOTE tables without executing the image:
+
+```bash
+rea inspect-elf-notes /absolute/path/to/program --json
+```
+
+The workflow reports note owners, types, descriptor hashes, and GNU build-id
+or ABI-tag fields when those descriptors match. A missing note table is
+observed absence of those declarations. See [ELF note tables](elf-notes.md).
+
+Inspect an Erlang BEAM file without executing bytecode:
+
+```bash
+rea inspect-erlang-beam /absolute/path/to/app.beam --json
+```
+
+The workflow reports IFF chunk names, atom tables, exports, imports, lambdas,
+and the Code chunk header. Missing optional tables stay null. See
+[Erlang BEAM files](erlang-beam.md).
+
+Configure [Hopper or Ghidra](installation.md#hopper), the
+[IDA adapter](ida-provider.md), or [Kuna](kuna-provider.md) before analyzing a
+native target. Substitute
 your target, search text and function name or address in these examples:
 
 ```bash
@@ -153,7 +246,7 @@ The selected provider remains bound to the session until an explicit switch
 or close. Provider failures are returned with their original reason. For an
 `ambiguous` selection error, choose from `details.candidate_ids`; for
 `provider_unavailable`, follow `message`, `remediation.action`, and the original
-reasons in `details.rejections`. For Hopper, Ghidra, IDA, and JADX, run
+reasons in `details.rejections`. For Hopper, Ghidra, IDA, JADX, and Kuna, run
 `rea doctor --provider ID --json` to diagnose the selected engine. Other adapters,
 such as `pwntools-elf`, report their configuration requirements directly and are
 not accepted by `doctor --provider`. See
@@ -166,6 +259,12 @@ A client timeout can end its wait while the provider continues analyzing.
 be verified. See [MCP contracts](mcp-contracts.md) for session lifecycle and
 [Ghidra first-query deadlines](mcp-contracts.md#ghidra-first-query-deadlines-and-recovery)
 for import, client timeouts and recovery.
+
+If one-shot analysis fails and closing its session also fails, the original
+error details remain inline and `details.cleanup_error` describes the later
+close failure. Each diagnostic retains its own reported resources; the later
+failure does not establish whether an earlier resource was released. Captured
+output and partial observations remain in the original details.
 
 ## Save and reuse analysis snapshots
 
@@ -227,7 +326,12 @@ Exports preserve an existing destination unless `--overwrite` is explicit.
 For application traces and version comparisons, see
 [JavaScript application workflows](javascript-application-workflows.md).
 MCP [retained Evidence references](mcp-contracts.md#retained-application-evidence-inputs)
-belong to one connection. Separate CLI calls consume full saved records.
+belong to one connection. Separate CLI calls can consume full saved records.
+`inspect-analysis-view REQUEST.json --evidence-bundle BUNDLE.json` resolves
+the request's `retained-evidence` source ID from that authenticated bundle,
+including bundles exported from an MCP session. The same view JSON works for
+every supported parent kind; no target is reopened and no record is selected
+by file order. Omit `--evidence-bundle` when the request supplies inline Evidence.
 
 ## Import historical source
 
@@ -284,6 +388,12 @@ reported separately as configured-secret exclusions.
 Re-import saved graphs whose pattern-based exclusions lack `pattern` before
 using them in source-to-bundle comparisons.
 
+Entries that change during an import retain an unavailable-entry diagnostic
+alongside readable siblings. If enumeration of an already admitted root fails,
+the graph keeps its observed children and records the root failure as a
+top-level limitation. That partial inventory does not establish absence among
+unexamined children.
+
 JavaScript and TypeScript import parsing requires valid UTF-8. Malformed source
 bytes retain their original hashes and sizes with a decoding diagnostic; REA
 does not infer module targets from replacement characters.
@@ -308,6 +418,96 @@ Choose the guide for the target and intended interaction:
 Runtime requests name the target and actions. Launched targets run with your
 user permissions; consult the chosen guide for host requirements and effects.
 
+## Serve MCP over streamable HTTP
+
+`rea mcp` speaks stdio to the client that launched it. To serve the same MCP
+catalog over streamable HTTP for one local client, such as an agent environment
+runtime, start the dispatcher entry with `--http`:
+
+```sh
+rea mcp --http --port 8765
+```
+
+`--host` and `--port` default to `MCP_HOST` and `MCP_PORT` from the environment,
+then to `127.0.0.1` and an ephemeral port. The bound URL is written to stderr as
+one JSON log line (`"msg":"MCP transport listening"`) whatever `REA_LOG_LEVEL`
+is set to; nothing is written to stdout. `rea mcp --http --help` lists the accepted options. The listener serves
+one client at a time: a session ends with the client's `DELETE`, and a client
+that connects while another session is open takes it over, so a client that
+exited without ending its session needs no restart. The listener runs until
+SIGINT or SIGTERM and does not stop when stdin closes. See
+[transports](mcp-contracts.md#transports) for the session, `Host` header and
+shutdown contract. Client registrations written by setup and the MCP registry
+entry keep stdio.
+
+## Serve an environment manifest
+
+`rea environment-serve <manifest.json> --evidence <capture.json>
+[--replay-only] [--host H] [--port N]` serves an environment manifest
+projected by `inspect-analysis-view` as an agent environment: an MCP server at
+`/mcp`, the environment card at `/.well-known/agent-env.json`, and a
+`/agentenv` data plane. The manifest's `parent_evidence_id` must equal the
+evidence file's `evidence_id`; otherwise the command refuses with
+`invalid_request` before binding. Before binding it derives the
+`environment-state` view of the capture with the manifest's `template_rules`,
+as `inspect-analysis-view` would, and serves from it: read tools whose views
+are state-backed answer from a live state, write tools are served only where
+the capture's later reads confirmed their effect, and
+`/agentenv` serves `data/reset`, `data/add` and `data/get`. When the state
+cannot be derived, or its catalog exceeds the discovery reservation, it logs a
+warning with the error code and message and serves replay; `--replay-only` serves replay without deriving. In replay every
+manifest tool replays the retained capture records it cites and `/agentenv`
+answers every method with JSON-RPC `-32601`. The stopped document's `state`
+member is `{"served": true, "evidence_id": …}`,
+`{"served": false, "reason": "replay-only"}` or
+`{"served": false, "reason": "unavailable", "code": …, "message": …}`; see
+[serve from the state](agent-environments.md#serve-from-the-state).
+
+```sh
+rea environment-serve manifest.json --evidence capture.json --port 8765
+```
+
+`--host` and `--port` resolve like `rea mcp --http`: flags, then `MCP_HOST` and
+`MCP_PORT`, then `127.0.0.1` and an ephemeral port. `ENVIRONMENT_NAME` renames
+the served environment; set but blank, it is refused as `configuration_invalid`
+like a blank `MCP_HOST`. The bound URL is written to stderr as one JSON log line
+(`"msg":"MCP transport listening"`). See
+[agent environments](agent-environments.md) for what the state and replay
+return and do not establish.
+
+## Export an environment bundle
+
+`rea environment-export <manifest.json> --evidence <capture.json> <dir>
+[--package-tarball <path>] [--name <override>]` writes the same manifest and
+capture pair as a bundle folder the agentenv framework runs with
+`agent-env run <dir>`. It reads each file once, authenticates and cross-checks
+the pair with the same checks as `environment-serve`, checks the bundle name,
+then prepares the state under that name as the bundle's server will at startup
+to predict what the bundle serves (replay when the state is unavailable),
+copies the bytes it authenticated, refuses to write into a directory that
+exists and is not empty, and never overwrites a file.
+
+```sh
+rea environment-export manifest.json --evidence capture.json ./grafana-example --json
+```
+
+The folder holds a `README.md` with the bundle's provenance, an env folder
+`envs/<name>/` with a `Dockerfile` that installs this exact `rea-agents`
+version and serves the copied `manifest.json` and `evidence.json` (written
+with mode `0600` on POSIX; Windows retains inherited ACLs) with
+`environment-serve` (from the state by default), a Python verifier under
+`artifacts/check_<name>/` that checks the served tool count and one served
+answer, and the smoke task `tasks/smoke.json`. `--package-tarball` copies a packed `rea-agents`
+tarball into the env folder and installs it instead of the registry package,
+which is how the hosted lane proves a checkout rather than a release. `--name`
+replaces the manifest's kebab-case name as the env folder and env id; a device
+name Windows reserves (`con`, `nul`, `com1` and the like) is refused. The
+command prints one JSON document listing the written files with their sizes,
+the pinned package source, the served `tool_count`, and `state` in the shape
+of the serve command's stopped document. See
+[agent environments](agent-environments.md#export-a-bundle) for the folder
+layout and what the smoke task checks.
+
 ## Output and exit status
 
 `rea mcp doctor --json` checks production MCP startup and reports child logs in
@@ -326,6 +526,11 @@ redirected, which keeps large results smaller for agents and scripts; pipe
 through `jq .` for indented files. Output selection and formatting do not change
 operation status.
 
+`--filter-output` selects fields from successful command data. Classified failures
+retain their complete typed diagnostic projection even when the selector matches
+a field such as `code` or `message`, or names a missing field. `--full-output`
+controls whether the outer `{ok, error, meta}` envelope is included.
+
 For `cutter-command`, `--json-output` requests command-specific JSON from
 Cutter when available. This is separate from `--format json`, which selects the
 CLI result representation; the global `--json` flag selects that same CLI
@@ -342,6 +547,30 @@ output formatting.
 | `1`       | The operation could not complete. Structured output identifies invalid input, permissions, cancellation, timeouts or another failure when available.                                                                                                                                                                                                                                   |
 | `128 + N` | Signal-derived status. An unhandled signal may have ended the process, with the shell or runtime preserving the conventional status; a command may instead have handled the signal, waited for its operation and cleanup to settle, and assigned the same status (`130` for SIGINT, `143` for SIGTERM). In the handled case, it may also have printed a structured `cancelled` result. |
 
+`rea mcp --http` is long-running and prints no structured result. It exits
+`130` on SIGINT or `143` on SIGTERM after closing the listener, the session and
+its providers, and `1` when that cleanup fails.
+
+`rea environment-serve` is also long-running: it serves until SIGINT or
+SIGTERM, closes the listener, then prints one structured
+`{"status":"stopped", …}` document naming the URL, environment and tool count
+and exits `130` or `143` through the shared cancellation handler below.
+Refusals before binding (unreadable files, non-Evidence JSON, capture Evidence
+in a format other than HAR, a manifest or state whose parent is not the
+supplied evidence, an unbindable port) print a structured
+error and exit `1`, as does a listener that fails after binding.
+`rea environment-export` is one-shot: it prints the written files and exits
+`0`, or prints a structured `invalid_request` error and exits `1` for the same
+pair refusals, a non-empty or file-occupied directory, a missing package
+tarball or a name that is not a kebab-case label or is a Windows device name,
+writing nothing in each case.
+A write that fails after the first file (a permission, disk-space or
+pathname-length failure on a later path) propagates as the host's failure,
+naming its cause and, when it failed on one bundle file or the package
+tarball, that file. A failure while syncing the finished folder names only its
+cause. Either way the partial folder stays in place for inspection; remove it
+before retrying, since the next attempt refuses the non-empty directory.
+
 A `cancelled` result does not by itself determine the exit status; it depends on
 the command's signal handling. Commands routed through the shared
 `withCommandCancellation` handler in the CLI set status `130` for SIGINT or
@@ -354,10 +583,19 @@ browser, web and Electron commands (including `analyze-web-bundle`,
 `capture-electron-scenario`), and the platform and provider command families
 for Android/ADB, Apktool/JEB/Flutter, firmware, PCAP and signal analysis,
 WASM/EVM, Go/Rust and binary diagnostics, Frida instrumentation, the Cutter
-command, objdump, Rizin and GDB. In these paths, a returned structured
+command, objdump, Rizin and GDB, and the agent environment server
+(`environment-serve`). In these paths, a returned structured
 `cancelled` result can be printed before the wrapper assigns the
 signal-derived status. This describes the current source routing; it is not a
 claim that every command or provider runtime has been independently exercised.
+
+Commands with `--evidence_output` select their delivered view, then publish the
+complete Evidence bundle atomically. Cancellation before publication leaves no
+new file. A publication that has committed can win a later cancellation; the
+`cancelled` result then keeps the written path and byte count under
+`details.diagnostics.evidence_bundle`. If staging cleanup stays incomplete
+after commit, the `cleanup_incomplete` error reports the same file as
+`details.published_path` and `details.bytes`.
 
 When the reader of piped output closes early, as `rea ... | head` does, the
 CLI stops writing, prints no error and exits `141` (`128 + 13`, the status of a

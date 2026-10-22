@@ -1,12 +1,36 @@
+import {
+  projectAnalysisView,
+  analysisViewRequestSchema,
+} from "./analysisView/analysisView.js";
 import { describe, expect, it } from "vitest";
+import { createWebPageInspection } from "../../tests/support/browser/webPageInspection.js";
 
-import { webPageInspectionSchema } from "./browserObservationSchemas.js";
 import { analyzeJavaScriptStaticSource } from "./javascript/javascriptStaticAnalysis.js";
-import { analyzeCapturedWebBundle } from "./webBundleAnalyzer.js";
+import {
+  analyzeCapturedWebBundle,
+  analyzeCapturedWebScript,
+} from "./webBundleAnalyzer.js";
+import { buildCapturedWebBundleAnalysis } from "./webBundleAnalyzerResult.js";
 import { webBundleAnalysisSchema } from "./webBundleAnalysis.js";
+import { isIncludedScript } from "./webBundleAnalyzerState.js";
+import { webBundleScriptAnalysisSchema } from "./webBundleScriptAnalysis.js";
 import { createWebTextArtifact } from "./webContentArtifact.js";
 
 const origin = "https://app.example.test";
+
+it("retains standalone GraphQL Source operations in captured scripts", () => {
+  const result = analyzeCapturedWebBundle(
+    inspection(`
+    const source = {
+      body: "query GetUser { user { id } }",
+      locationOffset: { line: 1, column: 1 },
+    };
+  `),
+  );
+  expect(result.observations.endpoints).toEqual([
+    expect.objectContaining({ value: "GetUser", mechanism: "graphql:query" }),
+  ]);
+});
 
 it.each([
   {
@@ -47,6 +71,320 @@ it.each([
     expect(result.observations.endpoints.map(({ value }) => value)).toEqual(
       endpoints,
     );
+  },
+);
+
+it.each([
+  [
+    "const records = new Map(); const alias = records; alias.get('/accounts');",
+    false,
+  ],
+  ["new Map().delete('/accounts');", false],
+  [
+    "const records = new Map(); records.get('/accounts'); records.delete('/accounts');",
+    false,
+  ],
+  [
+    "const records = new Map(); records.get = fetch; records.get('/accounts');",
+    true,
+  ],
+  [
+    "Object.getPrototypeOf = () => Map.prototype; Object.getPrototypeOf({}).get = fetch; new Map().get('/accounts');",
+    true,
+  ],
+  ["client.get('/accounts');", true],
+  ["eval('Map.prototype.get = fetch'); new Map().get('/accounts');", true],
+] as const)(
+  "shares Map receiver certainty with application analysis: %s",
+  (source, candidate) => {
+    const input = source + " fetch('/network');";
+    const result = analyzeCapturedWebBundle(inspection(input));
+    expect(result.observations.endpoints.map(({ value }) => value)).toEqual([
+      "/network",
+    ]);
+    expect(
+      result.inferences
+        .filter(({ kind }) => kind === "endpoint_candidate")
+        .map(({ value }) => value),
+    ).toEqual(candidate ? ["/accounts"] : []);
+    const staticResult = analyzeJavaScriptStaticSource(input);
+    expect(
+      staticResult.endpoints
+        .map(({ value, interpretation }) => [value, interpretation ?? null])
+        .sort(),
+    ).toEqual(
+      candidate
+        ? [
+            ["/accounts", "candidate"],
+            ["/network", null],
+          ]
+        : [["/network", null]],
+    );
+  },
+);
+
+it("discloses widened returned-reference effects only for the affected script", () => {
+  const captured = inspection(`
+    function expose() { return Map.prototype; }
+    let cursor = { target: expose };
+    function walk(flag) {
+      while (flag) cursor = cursor.next;
+      patch(cursor.target());
+    }
+    new Map().get('/candidate');
+    fetch('/preserved');
+  `);
+  const independent = inspection(
+    "new Map().get('/intrinsic'); fetch('/independent');",
+  ).scripts.items[0];
+  if (independent === undefined) throw new Error("Missing independent script");
+  captured.scripts.items.push({ ...independent, script_key: "independent" });
+  captured.scripts.total += 1;
+  const result = analyzeCapturedWebBundle(captured);
+  expect(result.completeness).toMatchObject({
+    status: "partial",
+    parsed_scripts: 2,
+    parse_failures: 0,
+  });
+  expect(result.unknowns).toContainEqual({
+    dimension: "javascript_ast",
+    reason: expect.stringContaining("returned-reference projections"),
+    affected_script_keys: [captured.scripts.items[0]?.script_key],
+  });
+  expect(result.observations.endpoints.map(({ value }) => value)).toEqual([
+    "/preserved",
+    "/independent",
+  ]);
+  expect(
+    result.inferences
+      .filter(({ kind }) => kind === "endpoint_candidate")
+      .map(({ value }) => value),
+  ).toEqual(["/candidate"]);
+});
+
+it.each([
+  {
+    label: "inline declaration and schema spreads",
+    source: `document.modelContext.registerTool({
+      ...{
+        name: "spread-tool",
+        description: "Copied from a literal",
+        inputSchema: {
+          ...{
+            type: "object",
+            properties: { query: { type: "string" } }
+          }
+        }
+      }
+    });`,
+    name: "spread-tool",
+    description: "Copied from a literal",
+    properties: ["query"],
+    coverage: "complete",
+  },
+  {
+    label: "unrelated trailing literal spread",
+    source: `document.modelContext.registerTool({
+      name: "direct-tool",
+      description: "Explicit metadata",
+      inputSchema: { properties: { query: { type: "string" } } },
+      ...{ timeout: 5 }
+    });`,
+    name: "direct-tool",
+    description: "Explicit metadata",
+    properties: ["query"],
+    coverage: "complete",
+  },
+  {
+    label: "null spread after explicit metadata",
+    source: `document.modelContext.registerTool({
+      name: "null-safe-tool",
+      description: "Null spread is inert",
+      inputSchema: { properties: { query: { type: "string" } } },
+      ...null
+    });`,
+    name: "null-safe-tool",
+    description: "Null spread is inert",
+    properties: ["query"],
+    coverage: "complete",
+  },
+  {
+    label: "snake-case schema property from a spread",
+    source: `document.modelContext.registerTool({
+      ...{
+        name: "snake-tool",
+        description: "Snake-case schema",
+        input_schema: { properties: { item_id: { type: "string" } } }
+      }
+    });`,
+    name: "snake-tool",
+    description: "Snake-case schema",
+    properties: ["item_id"],
+    coverage: "complete",
+  },
+])(
+  "preserves WebMCP facts through $label",
+  ({ source, name, description, properties, coverage }) => {
+    const result = analyzeCapturedWebBundle(inspection(source));
+
+    expect(result.observations.webmcp_declarations).toEqual([
+      expect.objectContaining({
+        name,
+        description,
+        schema_property_names: properties,
+        schema_property_names_coverage: coverage,
+        trust: "page-declared-untrusted",
+      }),
+    ]);
+    expect(result.completeness.status).toBe("complete");
+  },
+);
+
+it.each([
+  {
+    label: "unknown spread after explicit facts",
+    source: `document.modelContext.registerTool({
+      name: "possibly-overridden",
+      description: "Possibly overridden",
+      inputSchema: { properties: { query: { type: "string" } } },
+      ...dynamicOptions
+    });`,
+    name: null,
+    description: null,
+    properties: [],
+    coverage: "unknown",
+  },
+  {
+    label: "explicit facts after an unknown spread",
+    source: `document.modelContext.registerTool({
+      ...dynamicOptions,
+      name: "known-after-spread",
+      description: "Explicitly restored",
+      inputSchema: { properties: { query: { type: "string" } } }
+    });`,
+    name: "known-after-spread",
+    description: "Explicitly restored",
+    properties: ["query"],
+    coverage: "complete",
+  },
+])(
+  "preserves rightmost uncertainty for $label",
+  ({ source, name, description, properties, coverage }) => {
+    const result = analyzeCapturedWebBundle(inspection(source));
+
+    expect(result.observations.webmcp_declarations).toEqual([
+      expect.objectContaining({
+        name,
+        description,
+        schema_property_names: properties,
+        schema_property_names_coverage: coverage,
+        trust: "page-declared-untrusted",
+      }),
+    ]);
+    expect(result.completeness.status).toBe("complete");
+  },
+);
+
+it.each([
+  {
+    label: "an unknown camel-case schema override",
+    source: `document.modelContext.registerTool({
+      ...dynamicOptions,
+      inputSchema: { properties: { camel: {} } },
+      ...anotherDynamicOptions,
+      input_schema: { properties: { snake: {} } },
+      name: "tool",
+      description: "Explicit metadata"
+    });`,
+    name: "tool",
+    properties: [],
+    coverage: "unknown",
+  },
+  {
+    label: "an explicit null camel-case schema",
+    source: `document.modelContext.registerTool({
+      name: "null-alias",
+      description: "Fallback applies",
+      inputSchema: null,
+      input_schema: { properties: { snake: {} } }
+    });`,
+    name: "null-alias",
+    properties: ["snake"],
+    coverage: "complete",
+  },
+  {
+    label: "literal property spreads",
+    source: `document.modelContext.registerTool({
+      name: "spread-properties",
+      inputSchema: { properties: { ...{ query: {} }, direct: {} } }
+    });`,
+    name: "spread-properties",
+    properties: ["direct", "query"],
+    coverage: "complete",
+  },
+  {
+    label: "prototype setters are not schema properties",
+    source: `document.modelContext.registerTool({
+      name: "prototype-properties",
+      inputSchema: { properties: { __proto__: { hidden: {} }, direct: {}, ["__proto__"]: {} } }
+    });`,
+    name: "prototype-properties",
+    properties: ["__proto__", "direct"],
+    coverage: "complete",
+  },
+  {
+    label: "own schema properties before a prototype setter",
+    source: `document.modelContext.registerTool({
+      name: "own-before-prototype",
+      inputSchema: { properties: { known: {} }, __proto__: { properties: { inherited: {} } } }
+    });`,
+    name: "own-before-prototype",
+    properties: ["known"],
+    coverage: "complete",
+  },
+  {
+    label: "own schema properties after a prototype setter",
+    source: `document.modelContext.registerTool({
+      name: "own-after-prototype",
+      inputSchema: { __proto__: { properties: { inherited: {} } }, properties: { known: {} } }
+    });`,
+    name: "own-after-prototype",
+    properties: ["known"],
+    coverage: "complete",
+  },
+  {
+    label: "an unresolved property spread",
+    source: `document.modelContext.registerTool({
+      name: "unknown-properties",
+      inputSchema: { properties: { ...dynamicProperties, direct: {} } }
+    });`,
+    name: "unknown-properties",
+    properties: ["direct"],
+    coverage: "partial",
+  },
+  {
+    label: "an unresolved computed property key",
+    source: `document.modelContext.registerTool({
+      name: "computed-properties",
+      inputSchema: { properties: { [propertyName]: {}, direct: {} } }
+    });`,
+    name: "computed-properties",
+    properties: ["direct"],
+    coverage: "partial",
+  },
+])(
+  "preserves WebMCP schema ownership for $label",
+  ({ source, name, properties, coverage }) => {
+    const result = analyzeCapturedWebBundle(inspection(source));
+
+    expect(result.observations.webmcp_declarations).toEqual([
+      expect.objectContaining({
+        name,
+        schema_property_names: properties,
+        schema_property_names_coverage: coverage,
+        trust: "page-declared-untrusted",
+      }),
+    ]);
   },
 );
 
@@ -98,6 +436,7 @@ describe("web bundle analyzer", () => {
         name: "lookup-user",
         trust: "page-declared-untrusted",
         schema_property_names: ["userId", "verbose"],
+        schema_property_names_coverage: "complete",
       }),
     ]);
     expect(result.inferences).toEqual(
@@ -158,6 +497,7 @@ describe("web bundle analyzer", () => {
       name,
       description,
       schema_property_names: [propertyName],
+      schema_property_names_coverage: "complete",
       trust: "page-declared-untrusted",
     });
   });
@@ -371,20 +711,20 @@ describe("web bundle API classification parity", () => {
     );
     expect(
       result.observations.endpoints.map(({ value }) => value).sort(),
-    ).toEqual([
-      "../search",
-      "/search",
-      "/users",
-      "/v1/headers",
-      "https://api.example.test/headers",
-      "https://api.example.test/users",
-    ]);
+    ).toEqual(["/search", "/v1/headers"]);
     expect(
       result.inferences
         .filter(({ kind }) => kind === "endpoint_candidate")
         .map(({ value }) => value)
         .sort(),
-    ).toEqual(["cache-key", "users"]);
+    ).toEqual([
+      "../search",
+      "/users",
+      "cache-key",
+      "https://api.example.test/headers",
+      "https://api.example.test/users",
+      "users",
+    ]);
   });
 
   it("keeps undici header-store reads out of endpoint observations", () => {
@@ -396,15 +736,12 @@ describe("web bundle API classification parity", () => {
         api.get("/api/users");
       `),
     );
-    expect(result.observations.endpoints.map(({ value }) => value)).toEqual([
-      "/header-list",
-      "/api/users",
-    ]);
+    expect(result.observations.endpoints).toEqual([]);
     expect(
       result.inferences
         .filter(({ kind }) => kind === "endpoint_candidate")
         .map(({ value }) => value),
-    ).toEqual([]);
+    ).toEqual(["/header-list", "/api/users"]);
   });
 });
 
@@ -481,13 +818,17 @@ describe("web bundle explicit request reference forms", () => {
       fs.open(path, "r");
     `;
     const expected = [
-      ...references,
       "?view=1",
       "#view=1",
       "#literal=1",
       "https:api.example.test/xhr",
     ].sort();
-    const expectedCandidates = [...ambiguous, "POST", "X"].sort();
+    const expectedCandidates = [
+      ...references,
+      ...ambiguous,
+      "POST",
+      "X",
+    ].sort();
     const web = analyzeCapturedWebBundle(inspection(source));
     expect(web.observations.endpoints.map(({ value }) => value).sort()).toEqual(
       expected,
@@ -531,11 +872,12 @@ describe("web bundle endpoint candidate classification", () => {
     const result = analyzeCapturedWebBundle(inspection(source));
     expect(
       result.observations.endpoints.map(({ value }) => value).sort(),
-    ).toEqual(["/api/users", "login", "ping"]);
+    ).toEqual(["login", "ping"]);
     const candidates = result.inferences.filter(
       ({ kind }) => kind === "endpoint_candidate",
     );
     expect(candidates.map(({ value }) => value).sort()).toEqual([
+      "/api/users",
       "ADDRESS_ADDED",
       "POST",
       "X",
@@ -670,15 +1012,13 @@ describe("web bundle configuration and navigation parity", () => {
       "users",
     ];
     const web = analyzeCapturedWebBundle(inspection(source));
-    expect(web.observations.endpoints.map(({ value }) => value)).toEqual([
-      "/v1/settings",
-    ]);
+    expect(web.observations.endpoints).toEqual([]);
     expect(
       web.inferences
         .filter(({ kind }) => kind === "endpoint_candidate")
         .map(({ value }) => value)
         .sort(),
-    ).toEqual(expected.slice(1));
+    ).toEqual(expected);
     expect(
       analyzeJavaScriptStaticSource(source)
         .endpoints.map(({ value }) => value)
@@ -721,8 +1061,8 @@ describe("web bundle configuration and navigation parity", () => {
       };
     };
     const proven = {
-      endpoints: ["/v1/state"],
-      candidates: ["token", "users"],
+      endpoints: [],
+      candidates: ["/v1/state", "token", "users"],
     };
     expect(analyze(`const vscode = require("vscode");${reads}`)).toEqual({
       web: proven,
@@ -733,8 +1073,9 @@ describe("web bundle configuration and navigation parity", () => {
       application: proven,
     });
     const unproven = {
-      endpoints: ["/v1/state"],
+      endpoints: [],
       candidates: [
+        "/v1/state",
         "closedRepositories",
         "lastVersion",
         "onboarded",
@@ -809,112 +1150,373 @@ describe("deep captured web bundle syntax", () => {
 });
 
 const inspection = (source: string) =>
-  webPageInspectionSchema.parse({
-    browser: {
-      product: "Fake Chrome",
-      protocol_version: "1.3",
-      revision: "1",
-      user_agent: "fake",
-      js_version: "1",
-    },
-    target: {
-      target_id: "page-1",
-      type: "page",
-      title: "App",
-      url: `${origin}/app`,
+  createWebPageInspection([
+    {
+      source,
+      scriptKey: `scr_${"1".repeat(64)}`,
+      url: `${origin}/assets/app.js`,
       origin,
-      attached: false,
+      cdpHash: "hash",
     },
-    capture_window: {
-      started_at: "2026-07-14T00:00:00.000Z",
-      ended_at: "2026-07-14T00:00:01.000Z",
-      observation_ms: 1_000,
-    },
-    completeness: {
-      status: "attach_limited",
-      conditions: ["attach_limited"],
-      policy_filtered_sections: [],
-      attach_limited_sections: ["network_requests"],
-      truncated_sections: [],
-      unavailable_sections: [],
-      excluded: [],
-      dropped_events: {
-        scripts: 0,
-        network_requests: 0,
-        console_events: 0,
-        websocket_connections: 0,
-        websocket_frames: 0,
-        webmcp_tools: 0,
-        timeline_events: 0,
-        total: 0,
+  ]);
+
+describe("per-script web bundle analysis", () => {
+  it("keeps parser failures as analyzed outcomes with their own coverage", () => {
+    const captured = inspection("function broken( {");
+    const script = captured.scripts.items.find(isIncludedScript);
+    if (script === undefined)
+      throw new Error("Missing included script fixture");
+
+    expect(analyzeCapturedWebScript(script)).toMatchObject({
+      status: "analyzed",
+      script_key: script.script_key,
+      parse_status: "failed",
+      visited_ast_nodes: 0,
+      observations: {
+        edges: [],
+        routes: [],
+        endpoints: [],
+        webmcp_declarations: [],
       },
-    },
-    frames: [],
-    dom: { total_nodes: 0, nodes: [] },
-    accessibility: {
-      total_nodes: 0,
-      text_capture: {
-        status: "not_approved",
-        retained_bytes: 0,
-        excluded_fields: 0,
+    });
+  });
+
+  it("merges out-of-order worker outcomes in capture order and preserves exact unavailable keys", () => {
+    const firstCapture = inspection("import './first.js'; fetch('/first');");
+    const secondCapture = inspection("import './second.js'; fetch('/second');");
+    const first = firstCapture.scripts.items.find(isIncludedScript);
+    const second = secondCapture.scripts.items.find(isIncludedScript);
+    if (first === undefined || second === undefined)
+      throw new Error("Missing included script fixtures");
+    const captured = firstCapture;
+    captured.scripts.items.push({ ...second, script_key: "second-script" });
+    captured.scripts.total += 1;
+
+    const result = buildCapturedWebBundleAnalysis(
+      captured,
+      {
+        status: "not_requested",
+        requested: 0,
+        processed: 0,
+        items: [],
       },
-      nodes: [],
-    },
-    scripts: {
-      total: 1,
-      items: [
+      [
         {
-          script_key: `scr_${"1".repeat(64)}`,
-          url: `${origin}/assets/app.js`,
-          origin,
-          cdp_hash: "hash",
-          length: Buffer.byteLength(source),
-          is_module: true,
-          language: "JavaScript",
-          source_map_url: null,
-          resource_reconciliation: {
-            status: "unmatched",
-            reason: "no_exact_sanitized_url",
-          },
-          source: {
-            included: true,
-            artifact: createWebTextArtifact(source, "text/javascript"),
-          },
+          status: "unavailable",
+          script_key: "second-script",
+          reason: "deadline",
+          detail: "Worker deadline expired.",
+        },
+        analyzeCapturedWebScript(first),
+      ],
+    );
+
+    expect(
+      result.observations.chunks.edges.map(({ specifier }) => specifier),
+    ).toEqual(["./first.js"]);
+    expect(result.observations.endpoints.map(({ value }) => value)).toEqual([
+      "/first",
+    ]);
+    expect(result.unknowns).toContainEqual({
+      dimension: "javascript_analysis",
+      reason: expect.stringContaining("deadline"),
+      affected_script_keys: ["second-script"],
+    });
+    expect(result.completeness).toMatchObject({
+      status: "partial",
+      parsed_scripts: 1,
+      parse_failures: 0,
+    });
+  });
+
+  it("does not count explicitly unstarted scripts as submitted and reports source budget omissions", () => {
+    const captured = inspection("fetch('/started');");
+    const script = captured.scripts.items.find(isIncludedScript);
+    if (script === undefined)
+      throw new Error("Missing included script fixture");
+    const later = { ...script, script_key: "not-started-script" };
+    captured.scripts.items.push(later);
+    captured.scripts.total += 1;
+    captured.completeness.excluded.push({
+      section: "script_sources",
+      reason: "resource_budget_exhausted",
+      count: 2,
+    });
+
+    const result = buildCapturedWebBundleAnalysis(
+      captured,
+      {
+        status: "not_requested",
+        requested: 0,
+        processed: 0,
+        items: [],
+      },
+      [
+        analyzeCapturedWebScript(script),
+        {
+          status: "unavailable",
+          script_key: "not-started-script",
+          reason: "not_started",
         },
       ],
-    },
-    resources: [],
-    network: {
-      requests: [],
-      websocket_connections: [],
-      coverage_started_at: "2026-07-14T00:00:00.000Z",
-      prior_activity_available: false,
-    },
-    console: {
-      events: [],
-      coverage_started_at: "2026-07-14T00:00:00.000Z",
-      prior_activity_available: false,
-    },
-    workers: [],
-    metadata: {
-      responses: [],
-      dom_urls: [],
-      agent_hints: [],
-      excluded_dom_urls: 0,
-      headers_allowlisted: true,
-    },
-    storage: {
-      origin,
-      usage_bytes: null,
-      quota_bytes: null,
-      local_storage_keys: [],
-      session_storage_keys: [],
-      indexed_db_names: [],
-      cache_names: [],
-      values_redacted: true,
-    },
-    limitations: [],
+    );
+
+    expect(result.capture.scripts_analyzed).toBe(1);
+    expect(result.completeness.status).toBe("partial");
+    expect(result.unknowns).toContainEqual({
+      dimension: "script_source",
+      reason: expect.stringContaining("omitted 2 script source artifacts"),
+      affected_script_keys: [],
+    });
+    expect(result.unknowns).toContainEqual({
+      dimension: "javascript_analysis",
+      reason: expect.stringContaining("not_started"),
+      affected_script_keys: ["not-started-script"],
+    });
   });
+});
+
+describe("unavailable web bundle analysis outcomes", () => {
+  it("preserves distinct unavailable reasons and details with their exact script keys", () => {
+    const captured = inspection("fetch('/started');");
+    const first = captured.scripts.items.find(isIncludedScript);
+    if (first === undefined) throw new Error("Missing included script fixture");
+    const keys = ["deadline-second", "deadline-different", "resource-failure"];
+    for (const script_key of keys)
+      captured.scripts.items.push({ ...first, script_key });
+    captured.scripts.total += keys.length;
+
+    const result = buildCapturedWebBundleAnalysis(
+      captured,
+      {
+        status: "not_requested",
+        requested: 0,
+        processed: 0,
+        items: [],
+      },
+      [
+        {
+          status: "unavailable",
+          script_key: first.script_key,
+          reason: "not_started",
+          detail: "Total analysis deadline expired after 50 ms.",
+        },
+        {
+          status: "unavailable",
+          script_key: "deadline-second",
+          reason: "not_started",
+          detail: "Total analysis deadline expired after 50 ms.",
+        },
+        {
+          status: "unavailable",
+          script_key: "deadline-different",
+          reason: "deadline",
+          detail: "Per-script deadline expired after 10 ms.",
+        },
+        {
+          status: "unavailable",
+          script_key: "resource-failure",
+          reason: "resource_constraint",
+          detail: "Worker result exceeded its byte budget.",
+        },
+      ],
+    );
+
+    expect(
+      result.unknowns.filter(
+        ({ dimension }) => dimension === "javascript_analysis",
+      ),
+    ).toEqual([
+      {
+        dimension: "javascript_analysis",
+        reason:
+          'Analysis was unavailable for captured scripts (not_started); findings from those scripts are unknown. Worker detail: "Total analysis deadline expired after 50 ms."',
+        affected_script_keys: [first.script_key, "deadline-second"],
+      },
+      {
+        dimension: "javascript_analysis",
+        reason:
+          'Analysis was unavailable for captured scripts (deadline); findings from those scripts are unknown. Worker detail: "Per-script deadline expired after 10 ms."',
+        affected_script_keys: ["deadline-different"],
+      },
+      {
+        dimension: "javascript_analysis",
+        reason:
+          'Analysis was unavailable for captured scripts (resource_constraint); findings from those scripts are unknown. Worker detail: "Worker result exceeded its byte budget."',
+        affected_script_keys: ["resource-failure"],
+      },
+    ]);
+  });
+});
+
+it("requires every result reference to belong to its script key", () => {
+  const captured = inspection(
+    "import './module.js'; const routes = [{ path: '/known' }]; fetch('/api'); form.get('candidate'); document.modelContext.registerTool({ name: 'lookup' });",
+  );
+  const script = captured.scripts.items.find(isIncludedScript);
+  if (script === undefined) throw new Error("Missing included script fixture");
+  const outcome = analyzeCapturedWebScript(script);
+  if (outcome.status !== "analyzed")
+    throw new Error("Expected a completed script analysis fixture");
+  const result = outcome;
+  expect(webBundleScriptAnalysisSchema.parse(result)).toEqual(result);
+  expect(result.observations.edges.length).toBeGreaterThan(0);
+  expect(result.observations.routes.length).toBeGreaterThan(0);
+  expect(result.observations.endpoints.length).toBeGreaterThan(0);
+  expect(result.observations.webmcp_declarations.length).toBeGreaterThan(0);
+  expect(result.inferences.length).toBeGreaterThan(0);
+
+  const wrongEdgeSource = {
+    ...result,
+    observations: {
+      ...result.observations,
+      edges: result.observations.edges.map((edge, index) =>
+        index === 0 ? { ...edge, from_script_key: "another-script" } : edge,
+      ),
+    },
+  };
+  const wrongEdgeLocation = {
+    ...result,
+    observations: {
+      ...result.observations,
+      edges: result.observations.edges.map((edge, index) =>
+        index === 0
+          ? {
+              ...edge,
+              location: { ...edge.location, script_key: "another-script" },
+            }
+          : edge,
+      ),
+    },
+  };
+  const wrongFindingLocation = {
+    ...result,
+    observations: {
+      ...result.observations,
+      endpoints: result.observations.endpoints.map((finding, index) =>
+        index === 0
+          ? {
+              ...finding,
+              location: {
+                ...finding.location,
+                script_key: "another-script",
+              },
+            }
+          : finding,
+      ),
+    },
+  };
+  const wrongRouteLocation = {
+    ...result,
+    observations: {
+      ...result.observations,
+      routes: result.observations.routes.map((finding, index) =>
+        index === 0
+          ? {
+              ...finding,
+              location: {
+                ...finding.location,
+                script_key: "another-script",
+              },
+            }
+          : finding,
+      ),
+    },
+  };
+  const wrongWebMcpLocation = {
+    ...result,
+    observations: {
+      ...result.observations,
+      webmcp_declarations: result.observations.webmcp_declarations.map(
+        (declaration, index) =>
+          index === 0
+            ? {
+                ...declaration,
+                location: {
+                  ...declaration.location,
+                  script_key: "another-script",
+                },
+              }
+            : declaration,
+      ),
+    },
+  };
+  const wrongInferenceBasis = {
+    ...result,
+    inferences: result.inferences.map((inference, inferenceIndex) =>
+      inferenceIndex === 0
+        ? {
+            ...inference,
+            basis: inference.basis.map((basis, basisIndex) =>
+              basisIndex === 0
+                ? { ...basis, script_key: "another-script" }
+                : basis,
+            ),
+          }
+        : inference,
+    ),
+  };
+
+  expect(webBundleScriptAnalysisSchema.safeParse(wrongEdgeSource).success).toBe(
+    false,
+  );
+  expect(
+    webBundleScriptAnalysisSchema.safeParse(wrongEdgeLocation).success,
+  ).toBe(false);
+  expect(
+    webBundleScriptAnalysisSchema.safeParse(wrongFindingLocation).success,
+  ).toBe(false);
+  expect(
+    webBundleScriptAnalysisSchema.safeParse(wrongRouteLocation).success,
+  ).toBe(false);
+  expect(
+    webBundleScriptAnalysisSchema.safeParse(wrongWebMcpLocation).success,
+  ).toBe(false);
+  expect(
+    webBundleScriptAnalysisSchema.safeParse(wrongInferenceBasis).success,
+  ).toBe(false);
+});
+
+it("rejects a failed parse that claims visited nodes or derived facts", () => {
+  const malformed =
+    inspection("function broken( {").scripts.items.find(isIncludedScript);
+  const valid =
+    inspection("fetch('/api');").scripts.items.find(isIncludedScript);
+  if (malformed === undefined || valid === undefined)
+    throw new Error("Missing parse result fixtures");
+  const failedOutcome = analyzeCapturedWebScript(malformed);
+  const parsedOutcome = analyzeCapturedWebScript(valid);
+  if (
+    failedOutcome.status !== "analyzed" ||
+    parsedOutcome.status !== "analyzed"
+  )
+    throw new Error("Expected completed script analysis fixtures");
+  const failed = failedOutcome;
+  const parsed = parsedOutcome;
+
+  expect(webBundleScriptAnalysisSchema.parse(failed)).toEqual(failed);
+  expect(
+    webBundleScriptAnalysisSchema.safeParse({
+      ...failed,
+      visited_ast_nodes: 1,
+    }).success,
+  ).toBe(false);
+  expect(
+    webBundleScriptAnalysisSchema.safeParse({
+      ...failed,
+      widened_return_references: true,
+    }).success,
+  ).toBe(false);
+  expect(
+    webBundleScriptAnalysisSchema.safeParse({
+      ...failed,
+      observations: {
+        ...failed.observations,
+        endpoints: parsed.observations.endpoints,
+      },
+    }).success,
+  ).toBe(false);
+});
 
 it("recognizes expression-free template literals as route properties", () => {
   const result = analyzeCapturedWebBundle(
@@ -1014,11 +1616,132 @@ describe("web metadata key semantics", () => {
       expect.objectContaining({
         name: "new",
         schema_property_names: ["literal"],
+        schema_property_names_coverage: "partial",
       }),
-      expect.objectContaining({ name: null }),
-      expect.objectContaining({ name: "restored" }),
-      expect.objectContaining({ name: "valid" }),
+      expect.objectContaining({
+        name: null,
+        schema_property_names_coverage: "unknown",
+      }),
+      expect.objectContaining({
+        name: null,
+        schema_property_names_coverage: "not_present",
+      }),
+      expect.objectContaining({
+        name: "restored",
+        schema_property_names_coverage: "unknown",
+      }),
+      expect.objectContaining({
+        name: "valid",
+        schema_property_names_coverage: "not_present",
+      }),
     ]);
+  });
+
+  it("projects only exact input schema property names", () => {
+    const result = analyzeCapturedWebBundle(
+      inspection(`
+      document.modelContext.registerTool({
+        name: "literal",
+        inputSchema: {
+          type: "object",
+          properties: { type: {}, properties: {}, "": {}, [dynamicKey]: {}, ...dynamicProperties }
+        }
+      });
+      document.modelContext.registerTool({ name: "missing properties", inputSchema: { type: "object" } });
+      document.modelContext.registerTool({ name: "dynamic properties", inputSchema: { properties: dynamicProperties } });
+      document.modelContext.registerTool({ name: "null properties", inputSchema: { properties: null } });
+      document.modelContext.registerTool({ name: "missing schema" });
+      document.modelContext.registerTool({ name: "dynamic schema", inputSchema: schema });
+      document.modelContext.registerTool({ name: "null schema", inputSchema: null });
+      document.modelContext.registerTool({ name: "spread schema", inputSchema: { ...schema } });
+      document.modelContext.registerTool({
+        name: "computed literal keys",
+        ["inputSchema"]: { ["properties"]: { [""]: {}, ["literal"]: {}, [dynamicKey]: {} } }
+      });
+    `),
+    );
+
+    expect(
+      result.observations.webmcp_declarations.map(
+        ({ name, schema_property_names, schema_property_names_coverage }) => ({
+          name,
+          schema_property_names,
+          schema_property_names_coverage,
+        }),
+      ),
+    ).toEqual([
+      {
+        name: "literal",
+        schema_property_names: ["", "properties", "type"],
+        schema_property_names_coverage: "partial",
+      },
+      {
+        name: "missing properties",
+        schema_property_names: [],
+        schema_property_names_coverage: "not_present",
+      },
+      {
+        name: "dynamic properties",
+        schema_property_names: [],
+        schema_property_names_coverage: "unknown",
+      },
+      {
+        name: "null properties",
+        schema_property_names: [],
+        schema_property_names_coverage: "unknown",
+      },
+      {
+        name: "missing schema",
+        schema_property_names: [],
+        schema_property_names_coverage: "not_present",
+      },
+      {
+        name: "dynamic schema",
+        schema_property_names: [],
+        schema_property_names_coverage: "unknown",
+      },
+      {
+        name: "null schema",
+        schema_property_names: [],
+        schema_property_names_coverage: "not_present",
+      },
+      {
+        name: "spread schema",
+        schema_property_names: [],
+        schema_property_names_coverage: "unknown",
+      },
+      {
+        name: "computed literal keys",
+        schema_property_names: ["", "literal"],
+        schema_property_names_coverage: "partial",
+      },
+    ]);
+  });
+
+  it("keeps missing coverage absent when parsing historical observations", () => {
+    const analyzed = analyzeCapturedWebBundle(
+      inspection(
+        `document.modelContext.registerTool({ name: "legacy", inputSchema: { properties: {} } });`,
+      ),
+    );
+    const declaration = analyzed.observations.webmcp_declarations[0];
+    expect(declaration).toBeDefined();
+    if (declaration === undefined) throw new Error("Expected declaration");
+    const { schema_property_names_coverage: _coverage, ...legacyDeclaration } =
+      declaration;
+    const parsed = webBundleAnalysisSchema.parse({
+      ...analyzed,
+      observations: {
+        ...analyzed.observations,
+        webmcp_declarations: [legacyDeclaration],
+      },
+    });
+    expect(
+      Object.hasOwn(
+        parsed.observations.webmcp_declarations[0] ?? {},
+        "schema_property_names_coverage",
+      ),
+    ).toBe(false);
   });
 });
 
@@ -1106,6 +1829,27 @@ it("retains direct and literal computed call names", () => {
   ]);
 });
 
+it("requires WebMCP receiver and method names to occupy exact member segments", () => {
+  const result = analyzeCapturedWebBundle(
+    inspection(`
+      navigator.modelContext.registerTool({ name: "navigator" });
+      local.modelContext.registerTool({ name: "exact nested" });
+      const appmodelContext = { registerTool() {} };
+      appmodelContext.registerTool({ name: "receiver suffix" });
+      const app = { analyticsmodelContext: { registerTool() {} } };
+      app.analyticsmodelContext.registerTool({ name: "nested suffix" });
+      window["modelContext.registerTool"]({ name: "dotted property" });
+      window["modelContext"].registerTool({ name: "computed receiver" });
+    `),
+  );
+
+  expect(result.observations.webmcp_declarations).toEqual([
+    expect.objectContaining({ name: "navigator" }),
+    expect.objectContaining({ name: "exact nested" }),
+    expect.objectContaining({ name: "computed receiver" }),
+  ]);
+});
+
 it("recognizes tRPC procedures and named GraphQL operations in captured scripts", () => {
   const result = analyzeCapturedWebBundle(
     inspection(`
@@ -1166,6 +1910,8 @@ it("retains distinct WebMCP descriptions and names while deduplicating equivalen
       document.modelContext.registerTool({ name: "lookup", description: "second", inputSchema: { properties: { alpha: {} } } });
       document.modelContext.registerTool({ name: "equivalent", inputSchema: { properties: { alpha: {}, beta: {} } } });
       document.modelContext.registerTool({ name: "equivalent", inputSchema: { properties: { beta: {}, alpha: {}, alpha: {} } } });
+      document.modelContext.registerTool({ name: "empty-status", inputSchema: { properties: {} } });
+      document.modelContext.registerTool({ name: "empty-status", inputSchema: { properties: dynamicProperties } });
       document.modelContext.registerTool({ description: "unnamed" });
       document.modelContext.registerTool({ name: "", description: "unnamed" });
     `),
@@ -1173,10 +1919,16 @@ it("retains distinct WebMCP descriptions and names while deduplicating equivalen
 
   expect(
     result.observations.webmcp_declarations.map(
-      ({ name, description, schema_property_names }) => ({
+      ({
         name,
         description,
         schema_property_names,
+        schema_property_names_coverage,
+      }) => ({
+        name,
+        description,
+        schema_property_names,
+        schema_property_names_coverage,
       }),
     ),
   ).toEqual([
@@ -1184,19 +1936,44 @@ it("retains distinct WebMCP descriptions and names while deduplicating equivalen
       name: "lookup",
       description: "first",
       schema_property_names: ["alpha"],
+      schema_property_names_coverage: "complete",
     },
     {
       name: "lookup",
       description: "second",
       schema_property_names: ["alpha"],
+      schema_property_names_coverage: "complete",
     },
     {
       name: "equivalent",
       description: null,
       schema_property_names: ["alpha", "beta"],
+      schema_property_names_coverage: "complete",
     },
-    { name: null, description: "unnamed", schema_property_names: [] },
-    { name: "", description: "unnamed", schema_property_names: [] },
+    {
+      name: "empty-status",
+      description: null,
+      schema_property_names: [],
+      schema_property_names_coverage: "complete",
+    },
+    {
+      name: "empty-status",
+      description: null,
+      schema_property_names: [],
+      schema_property_names_coverage: "unknown",
+    },
+    {
+      name: null,
+      description: "unnamed",
+      schema_property_names: [],
+      schema_property_names_coverage: "not_present",
+    },
+    {
+      name: "",
+      description: "unnamed",
+      schema_property_names: [],
+      schema_property_names_coverage: "not_present",
+    },
   ]);
   expect(result.observations.webmcp_declarations[2]?.location).toEqual({
     script_key: `scr_${"1".repeat(64)}`,
@@ -1208,4 +1985,54 @@ it("retains distinct WebMCP descriptions and names while deduplicating equivalen
       ({ trust }) => trust === "page-declared-untrusted",
     ),
   ).toBe(true);
+});
+
+it("keeps known capture omissions in compact route summaries and queryable gap facts", () => {
+  const captured = inspection("createBrowserRouter([{path:'/reports'}]);");
+  captured.completeness.excluded.push(
+    { section: "scripts", reason: "resource_budget_exhausted", count: 3 },
+    {
+      section: "script_sources",
+      reason: "resource_budget_exhausted",
+      count: null,
+    },
+  );
+  const report = analyzeCapturedWebBundle(captured),
+    parent = {
+      evidenceId: `ev_${"a".repeat(64)}`,
+      operation: "analyze_web_bundle",
+      normalizedResult: report,
+      limitations: report.limitations,
+      subject: null,
+    };
+  const summary = projectAnalysisView(
+    parent,
+    analysisViewRequestSchema.parse({
+      kind: "javascript-routes",
+      collection: "summary",
+    }),
+  );
+  if (!summary.ok) throw summary.error;
+  if (summary.value.kind !== "javascript-routes") throw new Error("Wrong view");
+  expect(summary.value.source_coverage.candidate_enumeration).toBe("partial");
+  expect(summary.value.summary!.reported_capture_omissions).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ unit: "script-records", count: 3 }),
+      expect.objectContaining({ unit: "script-sources", count: null }),
+    ]),
+  );
+  const gaps = projectAnalysisView(
+    parent,
+    analysisViewRequestSchema.parse({
+      kind: "javascript-routes",
+      collection: "unknowns",
+      where: { kinds: ["capture-omission"] },
+      fields: ["capture_omission", "reason"],
+    }),
+  );
+  if (!gaps.ok) throw gaps.error;
+  if (gaps.value.kind !== "javascript-routes") throw new Error("Wrong view");
+  expect(gaps.value.items).toHaveLength(2);
+  for (const row of gaps.value.items)
+    expect(row).toMatchObject({ source_id: null, provenance: null });
 });

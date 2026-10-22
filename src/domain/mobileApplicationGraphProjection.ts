@@ -1,19 +1,12 @@
-import { createHash } from "node:crypto";
-
-import canonicalize from "canonicalize";
 import { z } from "zod";
 
 import {
   hasCompleteInventoryCoverage,
   type ParsedInventorySet,
 } from "./artifactInventoryEvidence.js";
-import { evidenceSchema } from "./evidence.js";
+import { evidenceSchema, type Evidence } from "./evidence.js";
 import { digestSchema } from "./digests.js";
 import { prefixedDigestSchema } from "./digests.js";
-import {
-  bridgeCandidateCoverageSchema,
-  projectCartesianCandidates,
-} from "./bridgeCandidateProjection.js";
 
 /** Evidence-scoped identifier schemas shared by application graph projections. */
 export const projectionEvidenceIdSchema = prefixedDigestSchema("ev");
@@ -44,6 +37,12 @@ export const unavailableComponentSchema = z.strictObject({
 
 export type ProjectedComponent = z.infer<typeof projectedComponentSchema>;
 
+/** A projection and the authenticated source Evidence used to derive it. */
+export interface MobileApplicationProjectionWithSources<Projection> {
+  readonly projection: Projection;
+  readonly sources: readonly Evidence[];
+}
+
 /** Path-pair hypotheses connecting managed content to a native library. */
 export const projectedBridgeCandidateSchema = <
   Basis extends readonly [string, ...string[]],
@@ -73,56 +72,69 @@ export const projectionCoverage = (
   inventory_complete: inventory.complete,
 });
 
-/** Flatten every inventoried occurrence into authenticated path components. */
-export const projectedComponents = (
+/** One occurrence, preserving entry kind and either authenticated or unavailable content. */
+export type ProjectedInventoryEntry = {
+  readonly path: string;
+  readonly kind: ParsedInventorySet["inventory"]["occurrences"][number]["entry_kind"];
+} & (
+  | { readonly component: ProjectedComponent; readonly unavailable: undefined }
+  | {
+      readonly component: undefined;
+      readonly unavailable: z.infer<typeof unavailableComponentSchema>;
+    }
+);
+
+/** Interpret identity once, before application-specific attribution and classification. */
+export const projectedInventoryEntries = (
   inventory: ParsedInventorySet["inventory"],
-): ProjectedComponent[] => {
+): ProjectedInventoryEntry[] => {
   const nodes = new Map(
     inventory.nodes.map((node) => [node.artifact_id, node]),
   );
   return inventory.occurrences
-    .filter(
-      (occurrence) =>
-        occurrence.artifact_id !== null && occurrence.logical_path !== ".",
-    )
-    .map((occurrence) => {
-      const node = nodes.get(occurrence.artifact_id ?? "");
+    .filter(({ logical_path }) => logical_path !== ".")
+    .map((occurrence): ProjectedInventoryEntry => {
+      const path = occurrence.logical_path;
+      const kind = occurrence.entry_kind;
+      if (occurrence.artifact_id === null)
+        return {
+          path,
+          kind,
+          component: undefined,
+          unavailable: {
+            path,
+            artifact_id: null,
+            sha256: null,
+            format: occurrence.artifact_format,
+            encrypted: occurrence.encrypted,
+            limitations: occurrence.limitations,
+          },
+        };
+      const node = nodes.get(occurrence.artifact_id);
       if (node === undefined)
         throw new TypeError(
           "Application projection occurrence has no artifact node",
         );
       return {
-        path: occurrence.logical_path,
-        artifact_id: node.artifact_id,
-        sha256: node.sha256,
-        format: occurrence.artifact_format,
-      } satisfies ProjectedComponent;
+        path,
+        kind,
+        component: {
+          path,
+          artifact_id: node.artifact_id,
+          sha256: node.sha256,
+          format: occurrence.artifact_format,
+        },
+        unavailable: undefined,
+      };
     });
 };
 
-export const unavailableComponents = (
-  inventory: ParsedInventorySet["inventory"],
-) =>
-  inventory.occurrences
-    .filter(
-      (occurrence) =>
-        occurrence.logical_path !== "." && occurrence.artifact_id === null,
-    )
-    .map((occurrence) => ({
-      path: occurrence.logical_path,
-      artifact_id: null,
-      sha256: null,
-      format: occurrence.artifact_format,
-      encrypted: occurrence.encrypted,
-      limitations: occurrence.limitations,
-    }));
-
-export { bridgeCandidateCoverageSchema, projectCartesianCandidates };
-
-/** Digest a canonical JSON projection payload for its stable identifier. */
-export const projectionDigest = (value: unknown, label: string): string => {
-  const encoded = canonicalize(value);
-  if (encoded === undefined)
-    throw new TypeError(`${label} is not canonical JSON`);
-  return createHash("sha256").update(encoded).digest("hex");
-};
+/** Directory trees and links retain inventory identity but are not file components. */
+export const projectedFileComponents = (
+  entries: readonly ProjectedInventoryEntry[],
+): ProjectedComponent[] =>
+  entries.flatMap(({ kind, component }) =>
+    (kind === "file" || kind === "slice") && component !== undefined
+      ? [component]
+      : [],
+  );

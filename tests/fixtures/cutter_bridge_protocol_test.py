@@ -14,6 +14,7 @@ import types
 import unittest
 import uuid
 from pathlib import Path
+from unittest.mock import patch
 
 
 def _install_host_stubs():
@@ -22,7 +23,8 @@ def _install_host_stubs():
     sys.modules["cutter"] = cutter
     qtcore = types.ModuleType("PySide6.QtCore")
     qtcore.QObject = type("QObject", (), {})
-    qtcore.Signal = lambda *_args: object()
+    qtcore.Signal = lambda *_args: types.SimpleNamespace(connect=lambda _handler: None)
+    qtcore.QCoreApplication = types.SimpleNamespace(applicationVersion=lambda: "Cutter test host")
     pyside = types.ModuleType("PySide6")
     pyside.QtCore = qtcore
     sys.modules["PySide6"] = pyside
@@ -219,6 +221,149 @@ def run_serve_mode():
     finally:
         server.stop()
         server.join(timeout=3)
+
+
+class ResponseEncodingTest(unittest.TestCase):
+    def setUp(self):
+        self.server = bridge._BridgeServer.__new__(bridge._BridgeServer)
+        self.server.token = "test-token"
+        self.server.session_id = str(uuid.uuid4())
+
+    def assert_authenticated_response(self, frame):
+        expected = hmac.new(
+            self.server.token.encode(),
+            f"rea-cutter-response-v2:{self.server.session_id}:{'a' * 64}:{'b' * 64}:{frame['response']}".encode(),
+            hashlib.sha256,
+        ).hexdigest()
+        self.assertTrue(hmac.compare_digest(frame["proof"], expected))
+        return json.loads(frame["response"])
+
+    def test_large_mixed_unicode_output_fits_the_authenticated_frame(self):
+        for suffix in ("a", "é", "雪", "😀"):
+            with self.subTest(suffix=suffix):
+                output = "a" * (5 * 1024 * 1024 - 1) + suffix
+                value = {"ok": True, "output": output, "execution_state": "complete"}
+                encoded = self.server._encode_authenticated_response(value, "a" * 64, "b" * 64)
+                self.assertIsNotNone(encoded)
+                self.assertLessEqual(len(encoded), bridge.MAX_FRAME_BYTES)
+                frame = json.loads(encoded)
+                self.assertEqual(self.assert_authenticated_response(frame), value)
+        self.assertIsNone(self.server._encode_authenticated_response({
+            "ok": True, "output": "😀" * (5 * 1024 * 1024),
+            "execution_state": "complete",
+        }, "a" * 64, "b" * 64))
+
+    def test_unencodable_output_preserves_authenticated_completion(self):
+        for index, surrogate in ((0, "\ud800"), (5 * 1024 * 1024 - 1, "\udfff")):
+            with self.subTest(index=index):
+                output = "a" * index + surrogate + "a" * (5 * 1024 * 1024 - index - 1)
+                value = {"ok": True, "output": output, "execution_state": "complete"}
+                sender, receiver = socket.socketpair()
+                with sender, receiver:
+                    receiver.settimeout(2)
+                    self.server._send_authenticated(sender, value, "a" * 64, "b" * 64)
+                    response = self.assert_authenticated_response(_frame(receiver))
+                self.assertTrue(response["ok"])
+                self.assertEqual(response["execution_state"], "complete")
+                self.assertIsNone(response["output"])
+                self.assertTrue(response["output_truncated"])
+
+
+class DocumentIdentityTest(unittest.TestCase):
+    def test_document_config_drives_generation_and_command_admission(self):
+        first = "/tmp/Cutter 雪 #1?.elf"
+        second = "/tmp/another document.elf"
+        configuration = {"file.path": first}
+        core = types.SimpleNamespace(
+            getConfig=configuration.__getitem__,
+        )
+        commands = []
+        with patch.object(bridge.cutter, "core", lambda: core, create=True), patch.object(
+            bridge.cutter, "cmd", lambda command: commands.append(command) or "observed", create=True
+        ):
+            dispatcher = bridge._RequestDispatcher()
+            self.assertEqual(dispatcher.current_file, first)
+            self.assertEqual(dispatcher.generation, 0)
+
+            def handle(**values):
+                request = {**values, "_event": threading.Event(), "_cancelled": threading.Event()}
+                reply = {}
+                dispatcher._handle(request, reply)
+                self.assertTrue(request["_event"].is_set())
+                return reply
+
+            same = handle(kind="status")
+            self.assertEqual(same["current_file"], first)
+            self.assertEqual(same["document_generation"], 0)
+            configuration["file.path"] = second
+            changed = handle(kind="status")
+            self.assertEqual(changed["current_file"], second)
+            self.assertEqual(changed["document_generation"], 1)
+            stale = handle(kind="command", request_id=str(uuid.uuid4()), expected_generation=0, command="iI")
+            self.assertEqual(stale["error"], "active-document-generation-changed")
+            self.assertEqual(stale["execution_state"], "not_started")
+            self.assertEqual(commands, [])
+            current = handle(kind="command", request_id=str(uuid.uuid4()), expected_generation=1, command="iI")
+            self.assertEqual(current["output"], "observed")
+            self.assertEqual(current["document_generation"], 1)
+            self.assertEqual(commands, ["iI"])
+
+    def test_absent_or_unreadable_document_config_remains_unknown(self):
+        class UnreadableCore:
+            def getConfig(self, _key):
+                raise RuntimeError("document config unavailable")
+
+        for core in [
+            types.SimpleNamespace(getConfig=lambda _key: ""),
+            types.SimpleNamespace(getConfig=lambda _key: None),
+            types.SimpleNamespace(getConfig=lambda _key: object()),
+            types.SimpleNamespace(),
+            UnreadableCore(),
+        ]:
+            with self.subTest(core=type(core).__name__), patch.object(
+                bridge.cutter, "core", lambda: core, create=True
+            ):
+                self.assertIsNone(bridge._RequestDispatcher._read_current_file())
+
+
+class HostVersionTest(unittest.TestCase):
+    def test_host_version_reaches_status_and_command_without_backend_attribution(self):
+        backend_reads = []
+        core = types.SimpleNamespace(
+            getConfig=lambda _key: None,
+            getVersionInformation=lambda: backend_reads.append(True) or "Rizin 0.9.1",
+        )
+        application = sys.modules["PySide6.QtCore"].QCoreApplication
+        with patch.object(bridge.cutter, "core", lambda: core, create=True), patch.object(
+            application, "applicationVersion", return_value="2.5.0-HEAD-fixture"
+        ), patch.object(bridge.cutter, "cmd", lambda _command: "observed", create=True):
+            dispatcher = bridge._RequestDispatcher()
+            self.assertEqual(dispatcher.cutter_version, "2.5.0-HEAD-fixture")
+            for values in [
+                {"kind": "status"},
+                {"kind": "command", "request_id": str(uuid.uuid4()), "expected_generation": 0, "command": "iI"},
+            ]:
+                request = {**values, "_event": threading.Event(), "_cancelled": threading.Event()}
+                reply = {}
+                dispatcher._handle(request, reply)
+                self.assertTrue(request["_event"].is_set())
+                self.assertEqual(reply["cutter_version"], "2.5.0-HEAD-fixture")
+            self.assertEqual(backend_reads, [])
+
+    def test_unavailable_host_version_stays_unknown_without_backend_fallback(self):
+        core = types.SimpleNamespace(
+            getConfig=lambda _key: None,
+            getVersionInformation=lambda: "Rizin 0.9.1",
+        )
+        application = sys.modules["PySide6.QtCore"].QCoreApplication
+        with patch.object(bridge.cutter, "core", lambda: core, create=True):
+            for value in ["", None, object()]:
+                with self.subTest(value=type(value).__name__), patch.object(
+                    application, "applicationVersion", return_value=value
+                ):
+                    self.assertIsNone(bridge._RequestDispatcher().cutter_version)
+            with patch.object(application, "applicationVersion", side_effect=RuntimeError("host unavailable")):
+                self.assertIsNone(bridge._RequestDispatcher().cutter_version)
 
 
 class ProtocolProducerTest(unittest.TestCase):

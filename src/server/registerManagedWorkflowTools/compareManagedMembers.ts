@@ -1,3 +1,4 @@
+import { workflowUnknownInput } from "../../application/investigation/WorkflowUnknown.js";
 import type { EvidenceMcpServer } from "../EvidenceMcpServer.js";
 import { runAdmittedToolOperation } from "../admittedToolOperation.js";
 import { recordSessionEvidenceSources } from "../sessionEvidence.js";
@@ -39,12 +40,8 @@ export const registerCompareManagedMembers = (
               rightResolved,
               compareContract,
             );
-          const [left] = leftResolved.value;
-          const [right] = rightResolved.value;
-          if (left === undefined || right === undefined)
-            throw new TypeError(
-              "Managed comparison Evidence resolution failed",
-            );
+          const left = leftResolved.value;
+          const right = rightResolved.value;
           const parsed = { left, right };
           const result = await logToolExecution(
             options.logger,
@@ -64,14 +61,12 @@ export const registerCompareManagedMembers = (
             result.value.normalized_result,
           );
           const unknown = comparison.summary.unknown > 0;
-          const output = unknown
-            ? options.recordEvidenceWithUnknown?.(result.value, {
+          const unknownInput = unknown
+            ? workflowUnknownInput(result.value.evidence_id, {
                 question:
                   "Which managed members remain unmatched or ambiguous across these versions?",
                 severity: "medium",
                 domain: "managed-member-comparison",
-                supporting_evidence_ids: [result.value.evidence_id],
-                contradicting_evidence_ids: [],
                 required_authority: "shipped-artifact",
                 required_confidence: "observed",
                 required_environment: null,
@@ -84,7 +79,16 @@ export const registerCompareManagedMembers = (
                 ],
                 relationships: [],
               })
-            : options.recordEvidence?.(result.value);
+            : undefined;
+          const output =
+            unknownInput === undefined
+              ? options.recordEvidence?.(result.value)
+              : unknownInput.ok
+                ? options.recordEvidenceWithUnknown?.(
+                    result.value,
+                    unknownInput.value,
+                  )
+                : unknownInput;
           return server.delivery.toEvidenceToolResult(
             result.value,
             compareContract,

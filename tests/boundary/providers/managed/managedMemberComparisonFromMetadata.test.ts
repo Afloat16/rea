@@ -13,6 +13,94 @@ import {
   managedPeFixtureTarget,
 } from "../../../../src/dotnet/ManagedPe.fixture.js";
 
+describe("managed operand-free instruction structural matching", () => {
+  it("preserves operand-free opcode order when remapping renamed methods", () => {
+    const observe = (
+      methodName: string,
+      fieldToken: number,
+      swapImplicitConstants: boolean,
+      path: string,
+    ) => {
+      const il = Buffer.from([
+        0x7b,
+        0,
+        0,
+        0,
+        0, // ldfld token
+        0x26, // pop
+        swapImplicitConstants ? 0x18 : 0x17, // ldc.i4.1 or ldc.i4.2
+        0x26, // pop
+        swapImplicitConstants ? 0x17 : 0x18, // the other implicit constant
+        0x26, // pop
+        0x2a, // ret
+      ]);
+      il.writeUInt32LE(fieldToken, 1);
+      return inspect(
+        buildManagedPeFixture({
+          methodName,
+          ilBody: Buffer.concat([Buffer.from([(il.length << 2) | 2]), il]),
+        }),
+        path,
+      );
+    };
+    const left = observe(
+      "OldMethod",
+      0x04000001,
+      false,
+      "/tmp/implicit-order-left.dll",
+    );
+    const sameOrder = observe(
+      "NewMethod",
+      0x04000002,
+      false,
+      "/tmp/implicit-order-same.dll",
+    );
+    const swapped = observe(
+      "NewMethod",
+      0x04000002,
+      true,
+      "/tmp/implicit-order-swapped.dll",
+    );
+
+    expect(left.result.methods[0]?.body.opcode_counts).toEqual(
+      swapped.result.methods[0]?.body.opcode_counts,
+    );
+    expect(left.result.methods[0]?.body.il_sha256).not.toBe(
+      sameOrder.result.methods[0]?.body.il_sha256,
+    );
+    expect(left.result.methods[0]?.body.il_sha256).not.toBe(
+      swapped.result.methods[0]?.body.il_sha256,
+    );
+    const sameOrderComparison = compareManagedMembers(left, sameOrder);
+    expect(sameOrderComparison.methods).toContainEqual(
+      expect.objectContaining({
+        status: "changed",
+        match: expect.objectContaining({
+          status: "matched",
+          basis: "structural-method-shape",
+        }),
+      }),
+    );
+
+    const swappedComparison = compareManagedMembers(left, swapped);
+    expect(swappedComparison.methods.map(({ status }) => status)).toEqual([
+      "removed",
+      "added",
+    ]);
+    expect(
+      swappedComparison.methods.some(
+        ({ match }) => match.basis === "structural-method-shape",
+      ),
+    ).toBe(false);
+    expect(
+      left.result.methods[0]?.body.anchors.map(({ opcode }) => opcode),
+    ).toEqual(["ldfld", "pop", "ldc.i4.1", "pop", "ldc.i4.2", "pop", "ret"]);
+    expect(
+      swapped.result.methods[0]?.body.anchors.map(({ opcode }) => opcode),
+    ).toEqual(["ldfld", "pop", "ldc.i4.2", "pop", "ldc.i4.1", "pop", "ret"]);
+  });
+});
+
 describe("managed member structural matching", () => {
   it("keeps unequal constants from becoming a structural remap", () => {
     const observe = (
@@ -83,6 +171,47 @@ describe("managed member structural matching", () => {
 });
 
 describe("managed member comparison", () => {
+  it.each([
+    { label: "initialization flag", flags: 0x3013, maxStack: 8 },
+    { label: "maximum stack", flags: 0x3003, maxStack: 16 },
+  ])("retains a changed $label with identical CIL", ({ flags, maxStack }) => {
+    const observe = (headerFlags: number, stack: number, path: string) => {
+      const body = Buffer.alloc(13);
+      body.writeUInt16LE(headerFlags, 0);
+      body.writeUInt16LE(stack, 2);
+      body.writeUInt32LE(1, 4);
+      body[12] = 0x2a; // ret
+      return inspect(buildManagedPeFixture({ ilBody: body }), path);
+    };
+    const left = observe(0x3003, 8, "/tmp/header-left.dll");
+    const right = observe(flags, maxStack, "/tmp/header-right.dll");
+    expect(left.result.methods[0]?.body).toMatchObject({
+      status: "present",
+      init_locals: false,
+      max_stack: 8,
+    });
+    expect(right.result.methods[0]?.body).toMatchObject({
+      status: "present",
+      init_locals: (flags & 0x10) !== 0,
+      max_stack: maxStack,
+      il_sha256: left.result.methods[0]?.body.il_sha256,
+      normalized_il_sha256: left.result.methods[0]?.body.normalized_il_sha256,
+    });
+    const comparison = managedMemberComparisonResultSchema.parse(
+      compareManagedMembers(left, right),
+    );
+    expect(comparison.methods[0]).toMatchObject({
+      status: "changed",
+      match: { basis: "exact-il-signature", confidence: "exact" },
+      dimensions: ["metadata"],
+    });
+    expect(comparison.summary).toMatchObject({ changed: 1, unchanged: 1 });
+    expect(compareManagedMembers(left, left).methods[0]).toMatchObject({
+      status: "unchanged",
+      dimensions: [],
+    });
+  });
+
   it("remaps renamed methods by exact CIL/signature without using names", () => {
     const leftBytes = buildManagedPeFixture();
     const rightBytes = buildManagedPeFixture({
@@ -287,6 +416,13 @@ describe("managed member comparison floating-point constants", () => {
           status: "present",
           anchors: [
             { il_offset: 0, opcode, operand_kind: "constant", operand },
+            // ldc.r4 spans 5 bytes and ldc.r8 spans 9 before the ret.
+            {
+              il_offset: opcode === "ldc.r4" ? 5 : 9,
+              opcode: "ret",
+              operand_kind: "none",
+              operand: null,
+            },
           ],
         });
       }

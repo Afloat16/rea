@@ -1,4 +1,13 @@
 import { z } from "zod";
+import {
+  bundleResourceRootSchema,
+  bundleResourceBoundResultSchema,
+  type BundleResourceRoot,
+} from "./bundleResourceRoot.js";
+import {
+  createPlistNumberProjection,
+  type PlistNumberLiterals,
+} from "./plistNumbers.js";
 
 import {
   firstString,
@@ -17,24 +26,28 @@ export const interfaceBuilderDocumentSchema = z.strictObject({
   relative_path: z.string().min(1),
   archive_sha256: z.string().regex(/^[a-f0-9]{64}$/u),
   document_kind: z.enum(["nib", "storyboard_scene"]),
-  object_count: z.number().int().nonnegative(),
-  connection_count: z.number().int().nonnegative(),
+  object_count: z.int().nonnegative(),
+  connection_count: z.int().nonnegative(),
   hierarchy_complete: z.boolean(),
 });
 
 /** Normalized read-only Interface Builder graph with archive provenance. */
-export const interfaceBuilderAnalysisSchema = z.strictObject({
-  target_sha256: z.string().regex(/^[a-f0-9]{64}$/u),
-  documents: z.array(interfaceBuilderDocumentSchema).max(64),
-  graph: nativeInvestigationGraphSchema,
-  limitations: z.array(z.string()),
-});
+export const interfaceBuilderAnalysisSchema = bundleResourceBoundResultSchema(
+  z.string().regex(/^[a-f0-9]{64}$/u),
+  {
+    documents: z.array(interfaceBuilderDocumentSchema).max(64),
+    graph: nativeInvestigationGraphSchema,
+    limitations: z.array(z.string()),
+  },
+);
 
 export interface InterfaceBuilderDocumentInput {
   readonly relativePath: string;
   readonly archiveSha256: string;
   readonly documentKind: "nib" | "storyboard_scene";
   readonly raw: unknown;
+  /** Original plist number types, observed before lossy JavaScript decoding. */
+  readonly numberLiterals?: PlistNumberLiterals;
   /** Serialized hierarchy links omitted before normalized graph projection. */
   readonly omittedSerializedHierarchyReferences?: number;
 }
@@ -44,7 +57,8 @@ type InvestigationEdge = z.infer<typeof nativeInvestigationEdgeSchema>;
 
 /** Build the graph returned by the static Interface Builder archive decoder. */
 export const buildInterfaceBuilderAnalysis = (input: {
-  readonly targetSha256: string;
+  readonly targetSha256: string | null;
+  readonly resourceRoot?: BundleResourceRoot;
   readonly toolVersion: string;
   readonly documents: readonly InterfaceBuilderDocumentInput[];
   readonly limits: z.output<typeof interfaceBuilderLimitsSchema>;
@@ -59,6 +73,7 @@ export const buildInterfaceBuilderAnalysis = (input: {
     omitted: number;
   }>;
   const summaries: Array<z.infer<typeof interfaceBuilderDocumentSchema>> = [];
+  const numberLimitations: string[] = [];
   let truncated = false;
   let omittedObjects = 0;
   let omittedConnections = 0;
@@ -66,6 +81,10 @@ export const buildInterfaceBuilderAnalysis = (input: {
   let omittedHierarchyReferences = 0;
   for (const document of input.documents.slice(0, input.limits.max_documents)) {
     const parsed = parseInterfaceBuilderRecords(document.raw);
+    const numbers =
+      document.numberLiterals === undefined
+        ? undefined
+        : createPlistNumberProjection(document.numberLiterals);
     const prefix = `ib:${JSON.stringify(document.relativePath)}:`;
     const graphId = (kind: string, parts: readonly unknown[] = []): string =>
       `${prefix}${kind}:${JSON.stringify(parts)}`;
@@ -89,7 +108,22 @@ export const buildInterfaceBuilderAnalysis = (input: {
         omittedGraphNodes += 1;
         return false;
       }
-      nodes.set(node.id, node);
+      // Resolve graph structure first; exact integer representation affects only
+      // serialized attributes, never object identity or UID-derived links.
+      nodes.set(
+        node.id,
+        numbers === undefined
+          ? node
+          : {
+              ...node,
+              attributes: Object.fromEntries(
+                Object.entries(node.attributes).map(([key, value]) => [
+                  key,
+                  numbers.project(value),
+                ]),
+              ),
+            },
+      );
       return true;
     };
     const rootNode = {
@@ -211,6 +245,7 @@ export const buildInterfaceBuilderAnalysis = (input: {
       );
     };
     let hierarchyCount = 0;
+    let documentOmittedHierarchyNodes = 0;
     const visitHierarchy = (
       initial: unknown,
       initialParentId: string,
@@ -218,11 +253,6 @@ export const buildInterfaceBuilderAnalysis = (input: {
       const pending: { readonly value: unknown; readonly parentId: string }[] =
         [{ value: initial, parentId: initialParentId }];
       while (pending.length > 0) {
-        if (hierarchyCount >= input.limits.max_objects) {
-          truncated = true;
-          hierarchyTruncated = true;
-          return;
-        }
         const entry = pending.pop();
         if (entry === undefined) break;
         const { value, parentId } = entry;
@@ -242,7 +272,13 @@ export const buildInterfaceBuilderAnalysis = (input: {
           typeof item.archiveUID === "number" ? String(item.archiveUID) : null,
         );
         let nextParent = parentId;
-        if (objectId !== null) {
+        if (objectId !== null && hierarchyCount >= input.limits.max_objects) {
+          // The walk continues over the decoded records so the omission is
+          // counted rather than reported as an unknown remainder.
+          truncated = true;
+          hierarchyTruncated = true;
+          documentOmittedHierarchyNodes += 1;
+        } else if (objectId !== null) {
           const known = objectIds.has(objectId);
           const childId = known
             ? objectNodeId(objectId)
@@ -425,6 +461,9 @@ export const buildInterfaceBuilderAnalysis = (input: {
     // no connection record, so its coverage is partial with its own reason
     // rather than absent or truncated.
     const connectionsUnresolved = parsed.unresolvedConnections > 0;
+    const unsupportedConnections = parsed.connections.some(
+      ({ kind }) => kind === "other",
+    );
     omittedObjects +=
       parsed.omittedObjects +
       Math.max(0, parsed.objects.length - documentObjectCount);
@@ -441,6 +480,11 @@ export const buildInterfaceBuilderAnalysis = (input: {
           : hierarchyTruncated
             ? "partial"
             : "complete";
+    numberLimitations.push(
+      ...(numbers?.limitations() ?? []).map(
+        (note) => `${document.relativePath}: ${note}`,
+      ),
+    );
     summaries.push({
       relative_path: document.relativePath,
       archive_sha256: document.archiveSha256,
@@ -467,7 +511,8 @@ export const buildInterfaceBuilderAnalysis = (input: {
         status:
           connectionsTruncated ||
           documentOmittedConnections > 0 ||
-          connectionsUnresolved
+          connectionsUnresolved ||
+          unsupportedConnections
             ? "partial"
             : "complete",
         reason:
@@ -475,7 +520,9 @@ export const buildInterfaceBuilderAnalysis = (input: {
             ? "connection_limit_reached"
             : connectionsUnresolved
               ? "connection_unresolved"
-              : null,
+              : unsupportedConnections
+                ? "unsupported_connection_type"
+                : null,
         examined: Math.min(
           parsed.connections.length,
           input.limits.max_connections,
@@ -504,6 +551,7 @@ export const buildInterfaceBuilderAnalysis = (input: {
                   : null,
         examined: hierarchyCount,
         omitted:
+          documentOmittedHierarchyNodes +
           documentOmittedHierarchyEdges +
           parserOmittedHierarchyReferences +
           omittedSerializedHierarchyReferences,
@@ -541,6 +589,9 @@ export const buildInterfaceBuilderAnalysis = (input: {
     });
   return interfaceBuilderAnalysisSchema.parse({
     target_sha256: input.targetSha256,
+    ...(input.resourceRoot === undefined
+      ? {}
+      : { resource_root: input.resourceRoot }),
     documents: summaries,
     graph: {
       target_sha256: input.targetSha256,
@@ -559,6 +610,7 @@ export const buildInterfaceBuilderAnalysis = (input: {
         omittedHierarchyReferences > 0,
     },
     limitations: [
+      ...numberLimitations,
       "The graph reflects recognized Interface Builder archive fields and connections; omitted private or unrecognized archive fields remain unknown.",
       "A target-action selector is an Interface Builder observation and does not prove that the binary contains a matching implementation.",
       "Decoded constraints, runtime visibility, dynamic UI creation, and pixel geometry are not inferred from these archives.",
@@ -568,9 +620,9 @@ export const buildInterfaceBuilderAnalysis = (input: {
 
 /** Hard limits shared by Interface Builder archive aggregation and tracing. */
 export const interfaceBuilderLimitsSchema = z.strictObject({
-  max_documents: z.number().int().min(1).max(64).default(64),
-  max_objects: z.number().int().min(1).max(20_000).default(20_000),
-  max_connections: z.number().int().min(1).max(40_000).default(40_000),
+  max_documents: z.int().min(1).max(64).default(64),
+  max_objects: z.int().min(1).max(20_000).default(20_000),
+  max_connections: z.int().min(1).max(40_000).default(40_000),
   trace: nativeInvestigationTraceLimitsSchema.default({
     max_depth: 8,
     max_nodes: 250,

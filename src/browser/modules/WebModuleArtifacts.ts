@@ -7,6 +7,7 @@ import type { ExecutionOptions } from "../../application/AnalysisProvider.js";
 import { ArtifactResourceScope } from "../../artifacts/ArtifactResourceScope.js";
 import { jsonObjectSchema } from "../../domain/jsonValue.js";
 import { err, ok } from "../../domain/result.js";
+import { closeWebArtifactResources } from "../WebArtifactCleanup.js";
 import type { WebModuleTraceInput } from "../../domain/webModuleTrace.js";
 import { LocalWebScriptArtifacts } from "../assets/LocalWebScriptArtifacts.js";
 import {
@@ -32,22 +33,11 @@ export class LocalWebModuleArtifacts implements WebModuleArtifactPort {
   }
 
   async close(): Promise<void> {
-    const closeScript =
-      this.scripts instanceof LocalWebScriptArtifacts &&
-      this.scripts.resources === this.#resources
-        ? undefined
-        : this.scripts.close?.bind(this.scripts);
-    const results = await Promise.allSettled([
-      Promise.resolve().then(() => this.#resources.close()),
-      ...(closeScript === undefined
-        ? []
-        : [Promise.resolve().then(closeScript)]),
-    ]);
-    const failures = results.flatMap((result) =>
-      result.status === "rejected" ? [result.reason] : [],
+    return closeWebArtifactResources(
+      "web-module-artifacts",
+      this.#resources,
+      this.scripts,
     );
-    if (failures.length > 0)
-      throw new AggregateError(failures, "Web module artifact cleanup failed");
   }
 
   /** Read selected source and optional map without website requests. */
@@ -79,36 +69,21 @@ export class LocalWebModuleArtifacts implements WebModuleArtifactPort {
     if (input.import_map === undefined)
       return ok({ ...loaded.value, importMap: null });
     const selected = input.import_map;
-    try {
-      const data = await readWebArtifactJson(
-        selected.path,
-        4 * 1024 * 1024,
-        options?.signal,
-        this.#resources,
-      );
-      const importMap: WebModuleArtifacts["importMap"] = {
-        file: {
-          path: selected.path,
-          sha256: data.sha256,
-          bytes: data.bytes.length,
-        },
-        baseUrl: selected.base_url,
-        value: jsonObjectSchema.parse(data.value),
-      };
-      return ok({ ...loaded.value, importMap });
-    } catch (cause: unknown) {
-      return err(
-        webArtifactReadError(
-          cause,
-          {
-            operation: "trace_web_module_imports",
-            field: ["import_map", "path"],
-            targetPath: selected.path,
-            callerSelected: true,
-          },
-          options?.signal,
-        ),
-      );
-    }
+    const data = await readWebArtifactJson(
+      selected.path,
+      4 * 1024 * 1024,
+      options?.signal,
+      this.#resources,
+    );
+    const importMap: WebModuleArtifacts["importMap"] = {
+      file: {
+        path: selected.path,
+        sha256: data.sha256,
+        bytes: data.bytes.length,
+      },
+      baseUrl: selected.base_url,
+      value: jsonObjectSchema.parse(data.value),
+    };
+    return ok({ ...loaded.value, importMap });
   }
 }

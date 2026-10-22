@@ -1,7 +1,11 @@
 import { z } from "zod";
 
+import { webRuntimeCommandTimeoutSchema } from "./browserDeadline.js";
 import { urlDeclaresQueryOrFragment } from "./urlComponents.js";
-import { parseUrlQueryParameterNames } from "./recordedTransportUrl.js";
+import {
+  parseRecordedTransportUrl,
+  parseUrlQueryParameterNames,
+} from "./recordedTransportUrl.js";
 
 const parseExactOrigin = (value: string): string | undefined => {
   let url: URL;
@@ -166,7 +170,11 @@ const browserInput = {
   allowed_origins: browserAllowedOriginsSchema,
 };
 
-/** Public input for complete discovery, optionally filtered by exact origin. */
+/**
+ * Public input for complete discovery, optionally filtered by exact origin.
+ * Discovery uses the fixed deadline and the socket closes without a later
+ * command, so this operation accepts no command_timeout_ms.
+ */
 export const listBrowserTargetsInputSchema = z.strictObject({
   ...browserInput,
 });
@@ -174,7 +182,8 @@ export const listBrowserTargetsInputSchema = z.strictObject({
 const inspectWebPageInputFacts = {
   ...browserInput,
   target_id: z.string().trim().min(1),
-  observation_ms: z.number().int().min(0).default(500),
+  command_timeout_ms: webRuntimeCommandTimeoutSchema,
+  observation_ms: z.int().min(0).default(500),
   include_accessibility_text: z.boolean().default(false),
   include_console_text: z.boolean().default(false),
   include_json_body_shapes: z.boolean().default(false),
@@ -268,32 +277,10 @@ export const sanitizeBrowserUrl = (value: string): SanitizedBrowserUrl => {
 };
 
 const removeUrlUserInfo = (value: string, parsed: URL): string => {
-  const schemeSeparator = value.indexOf("://");
-  const authorityStart =
-    schemeSeparator < 0
-      ? value.startsWith("//")
-        ? 2
-        : -1
-      : schemeSeparator + 3;
-  if (authorityStart < 0) return credentialFreeHref(parsed);
-  const remaining = value.slice(authorityStart);
-  const delimiter = remaining.search(/[/?#]/u);
-  const authorityEnd =
-    delimiter < 0 ? value.length : authorityStart + delimiter;
-  const authority = value.slice(authorityStart, authorityEnd);
-  const userInfoEnd = authority.lastIndexOf("@");
-  if (userInfoEnd < 0) return credentialFreeHref(parsed);
-  const candidate = `${value.slice(0, authorityStart)}${authority.slice(userInfoEnd + 1)}${value.slice(authorityEnd)}`;
-  try {
-    const candidateUrl = new URL(candidate);
-    return candidateUrl.username === "" && candidateUrl.password === ""
-      ? candidate
-      : credentialFreeHref(parsed);
-  } catch (cause: unknown) {
-    // Fallback to the already-sanitized href when the candidate is invalid.
-    void cause;
-    return credentialFreeHref(parsed);
-  }
+  const { credentials } = parseRecordedTransportUrl(value);
+  return credentials === null || credentials === "ambiguous"
+    ? credentialFreeHref(parsed)
+    : `${value.slice(0, credentials.start)}${value.slice(credentials.end)}`;
 };
 
 const credentialFreeHref = (parsed: URL): string => {

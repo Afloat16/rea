@@ -1,17 +1,24 @@
 import { describe, expect, it } from "vitest";
 
-import { runDerivedOperation } from "./runDerivedOperation.js";
+import {
+  runDerivedOperation,
+  type DerivedOperationContext,
+} from "./runDerivedOperation.js";
 import { EvidenceIntegrityError } from "../domain/evidenceErrors.js";
 
 const context = (
   controller: AbortController,
   notifications: unknown[] = [],
+  onMessage: (message: string) => void = () => undefined,
 ) => ({
   mcpReq: {
     signal: controller.signal,
     _meta: { progressToken: "derived-test" },
     notify: (notification: unknown) => {
       notifications.push(notification);
+      const message = (notification as { params?: { message?: unknown } })
+        .params?.message;
+      if (typeof message === "string") onMessage(message);
       return Promise.resolve();
     },
   },
@@ -20,7 +27,8 @@ const context = (
 describe("derived MCP operation boundary", () => {
   it("cancels before computation and never evaluates the operation", async () => {
     const controller = new AbortController();
-    controller.abort();
+    const reason = Object.freeze({ requested: "pre-compute-stop" });
+    controller.abort(reason);
     let computed = false;
     const result = await runDerivedOperation(
       context(controller),
@@ -35,7 +43,45 @@ describe("derived MCP operation boundary", () => {
       ok: false,
       error: { _tag: "AnalysisCancelledError" },
     });
+    expect(result.ok ? undefined : result.error.cause).toBe(reason);
     expect(computed).toBe(false);
+  });
+
+  it("preserves the request's abort reason when cancellation wins after computation", async () => {
+    const controller = new AbortController();
+    const reason = Object.freeze({ requested: "post-compute-stop" });
+    const result = await runDerivedOperation(
+      context(controller),
+      "compare",
+      () => {
+        controller.abort(reason);
+        return "must-not-publish";
+      },
+    );
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { _tag: "AnalysisCancelledError" },
+    });
+    expect(result.ok ? undefined : result.error.cause).toBe(reason);
+  });
+
+  it("preserves the request's abort reason when cancellation wins at terminal delivery", async () => {
+    const controller = new AbortController();
+    const reason = Object.freeze({ requested: "terminal-stop" });
+    const result = await runDerivedOperation(
+      context(controller, [], (message) => {
+        if (message.startsWith("complete:")) controller.abort(reason);
+      }),
+      "compare",
+      () => "must-not-publish",
+    );
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { _tag: "AnalysisCancelledError" },
+    });
+    expect(result.ok ? undefined : result.error.cause).toBe(reason);
   });
 
   it("lets cancellation win immediately before result publication", async () => {
@@ -52,6 +98,34 @@ describe("derived MCP operation boundary", () => {
     expect(result).toMatchObject({
       ok: false,
       error: { _tag: "AnalysisCancelledError" },
+    });
+  });
+
+  it("lets cancellation win while terminal progress delivery is pending", async () => {
+    const controller = new AbortController();
+    let terminalReached = false;
+    const notifications: DerivedOperationContext = {
+      mcpReq: {
+        ...context(controller).mcpReq,
+        notify: async (notification) => {
+          if (notification.params?.message === "complete: Completed compare") {
+            terminalReached = true;
+            await Promise.resolve();
+            controller.abort();
+          }
+        },
+      },
+    };
+    const result = await runDerivedOperation(
+      notifications,
+      "compare",
+      () => "must-not-publish",
+    );
+
+    expect(terminalReached).toBe(true);
+    expect(result).toMatchObject({
+      ok: false,
+      error: { _tag: "AnalysisCancelledError", operation: "compare" },
     });
   });
 

@@ -38,6 +38,8 @@ export type ElectronBrowserWindowFinding = ElectronBrowserWindowPreload & {
   readonly options_status: "object-literal" | "dynamic" | "missing";
   readonly web_preferences_status: "object-literal" | "dynamic" | "missing";
   readonly web_preferences: readonly ElectronWebPreference[];
+  /** Object syntax supporting constant substitution, separate from construction. */
+  readonly resolution_sources?: readonly JavaScriptSourceRange[];
   readonly module_key: string | null;
   /** Recovered factory runtime; absent in older or unbundled findings. */
   readonly module_runtime?: string;
@@ -191,6 +193,8 @@ export interface ElectronNativeAddonBindingFinding {
 
 /** All Electron-specific facts collected during one shared AST traversal. */
 export interface ElectronStaticFindings {
+  /** Calls that may replace the application path used by Electron loadFile. */
+  readonly app_path_changes?: readonly ElectronAppPathChangeFinding[];
   readonly browser_windows: readonly ElectronBrowserWindowFinding[];
   readonly context_bridge_apis: readonly ElectronContextBridgeFinding[];
   readonly ipc: readonly ElectronIpcFinding[];
@@ -199,6 +203,13 @@ export interface ElectronStaticFindings {
   readonly native_addon_bindings: readonly ElectronNativeAddonBindingFinding[];
   /** Source-bound candidate paths through bundled exports and IPC closures. */
   readonly call_paths?: readonly ElectronCallPath[];
+}
+
+/** An Electron application path setter invocation or bound delegate capture. */
+export interface ElectronAppPathChangeFinding {
+  readonly module_key: string | null;
+  readonly module_runtime?: string;
+  readonly location: JavaScriptSourceRange;
 }
 
 export interface ElectronCallPathStep {

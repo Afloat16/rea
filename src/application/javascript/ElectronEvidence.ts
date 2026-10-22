@@ -4,7 +4,6 @@ import {
   type Evidence,
   type EvidenceObservation,
 } from "../../domain/evidence.js";
-import { jsonValueSchema } from "../../domain/jsonValue.js";
 import type {
   ElectronPageInspection,
   ElectronTargetList,
@@ -28,7 +27,7 @@ export const createElectronEvidence = (
         : "rea.electron-page-inspection",
     operation,
     parameters: parameters(input),
-    result: jsonValueSchema.parse(result),
+    result,
     confidence: "observed",
     authority: "external-service",
     environment:
@@ -57,6 +56,9 @@ const parameters = (
         target_id: input.target_id,
         observation_ms: input.observation_ms,
         include_script_sources: input.include_script_sources,
+        ...(input.command_timeout_ms === undefined
+          ? {}
+          : { command_timeout_ms: input.command_timeout_ms }),
       }
     : {}),
 });

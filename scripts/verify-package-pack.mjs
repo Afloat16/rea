@@ -1,8 +1,9 @@
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import { CATALOG_IDENTITY } from "../dist/catalogIdentity.js";
+import { FULL_CATALOG_IDENTITY } from "../dist/catalogIdentity.js";
 
-import { exec } from "./lib/verify-package-core.mjs";
+import { exec, execNpm } from "./lib/verify-package-core.mjs";
+import { parseTarListing } from "./lib/verify-package-listing.mjs";
 import { verifyPackedBridge } from "./verify-packed-bridge.mjs";
 
 /** Create a tarball and assert production packaging constraints. */
@@ -12,16 +13,14 @@ export async function verifyPackagePack({ root, workspace }) {
   const tarball = join(
     packDirectory,
     (
-      await exec(
-        "npm",
-        ["pack", "--silent", "--pack-destination", packDirectory],
-        {
-          cwd: root,
-        },
-      )
+      await execNpm(["pack", "--silent", "--pack-destination", packDirectory], {
+        cwd: root,
+      })
     ).stdout.trim(),
   );
-  const packedFiles = (await exec("tar", ["-tf", tarball])).stdout.split("\n");
+  const packedFiles = parseTarListing(
+    (await exec("tar", ["-tf", tarball])).stdout,
+  );
   const packedManifest = JSON.parse(
     (await exec("tar", ["-xOf", tarball, "package/package.json"])).stdout,
   );
@@ -53,7 +52,7 @@ export async function verifyPackagePack({ root, workspace }) {
   ).stdout;
   if (
     !skill.includes(
-      `  tool_count: ${String(CATALOG_IDENTITY.counts.mcp_tools)}\n`,
+      `  tool_count: ${String(FULL_CATALOG_IDENTITY.counts.mcp_tools)}\n`,
     ) ||
     skill.includes("  catalog_digest:")
   )
@@ -67,6 +66,6 @@ export async function verifyPackagePack({ root, workspace }) {
   ) {
     throw new Error("package contained generated Python bytecode");
   }
-  await verifyPackedBridge({ workspace, tarball, packedFiles });
+  await verifyPackedBridge({ tarball, packedFiles });
   return { tarball };
 }

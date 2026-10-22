@@ -138,6 +138,9 @@ const browserParameters = (
         : "target_id" in input && observedOrigin !== undefined
           ? [observedOrigin]
           : [],
+    ...("command_timeout_ms" in input && input.command_timeout_ms !== undefined
+      ? { command_timeout_ms: input.command_timeout_ms }
+      : {}),
   };
   if (!("target_id" in input)) return scope;
   return {
@@ -160,7 +163,23 @@ const browserParameters = (
         }
       : {}),
     ...("fetch_source_maps" in input
-      ? { fetch_source_maps: input.fetch_source_maps }
+      ? {
+          fetch_source_maps: input.fetch_source_maps,
+          ...(input.max_heap_mb === undefined
+            ? {}
+            : { max_heap_mb: input.max_heap_mb }),
+          ...(input.analysis_timeout_ms === undefined
+            ? {}
+            : { analysis_timeout_ms: input.analysis_timeout_ms }),
+          ...(input.total_analysis_timeout_ms === undefined
+            ? {}
+            : { total_analysis_timeout_ms: input.total_analysis_timeout_ms }),
+          ...(input.source_map_fetch_timeout_ms === undefined
+            ? {}
+            : {
+                source_map_fetch_timeout_ms: input.source_map_fetch_timeout_ms,
+              }),
+        }
       : {}),
   };
 };

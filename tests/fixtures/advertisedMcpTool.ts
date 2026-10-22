@@ -20,7 +20,13 @@ export const advertisedMcpToolSchemas = async (
   const outputSchema: Record<string, unknown> = advertised.outputSchema;
   expect(ajv.validateSchema(inputSchema)).toBe(true);
   expect(ajv.validateSchema(outputSchema)).toBe(true);
-  return { name: advertised.name, ajv, inputSchema, outputSchema };
+  return {
+    name: advertised.name,
+    toolDefinition: advertised,
+    ajv,
+    inputSchema,
+    outputSchema,
+  };
 };
 
 /** Keep public output, provenance and session retention checks together. */
@@ -29,7 +35,8 @@ export const assertRecordedMcpEvidence = (
   name:
     | "inspect_wasm_artifact"
     | "inspect_binary_layout"
-    | "inspect_evm_interface",
+    | "inspect_evm_interface"
+    | "inspect_native_exports",
   schemas: Awaited<ReturnType<typeof advertisedMcpToolSchemas>>,
   session: BinarySession,
   expected: { readonly artifact: { readonly sha256: string } },

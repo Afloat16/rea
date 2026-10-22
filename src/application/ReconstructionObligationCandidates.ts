@@ -1,9 +1,9 @@
-import { createHash } from "node:crypto";
-
-import canonicalize from "canonicalize";
+import { uniqueSorted, uniqueSortedBy } from "../domain/canonicalOrdering.js";
+import { digestCanonicalValue } from "../domain/canonicalDigest.js";
 
 import type { Evidence } from "../domain/evidence.js";
 import {
+  describeValidationFailure,
   parseEvidenceBundle,
   type EvidenceBundle,
 } from "../domain/evidenceBundle.js";
@@ -34,6 +34,14 @@ export interface ReconstructionObligationCandidate extends CandidateFields {
 export interface ReconstructionObligationCandidateSet {
   readonly candidates: readonly ReconstructionObligationCandidate[];
   readonly limitations: readonly string[];
+}
+
+/** Caller input cites review Evidence that its bundle does not contain. */
+export class MissingReviewEvidenceError extends TypeError {
+  constructor(evidenceId: string) {
+    super(`Reviewed obligation Evidence is missing: ${evidenceId}`);
+    this.name = "MissingReviewEvidenceError";
+  }
 }
 
 /** Derive conservative candidates from graph, process, and reviewed inputs. */
@@ -105,7 +113,7 @@ const deriveApplicationCandidates = (
         candidates,
         generatedCandidate({
           key: `application:${node.node_id}:${candidatePolicy.family}`,
-          title: node.observations[0]?.label ?? `${node.kind} boundary`,
+          title: node.observations[0]?.label?.trim() || `${node.kind} boundary`,
           policy: candidatePolicy,
           artifactSha256: source.rootArtifactSha256,
           applicationNodeId: node.node_id,
@@ -134,7 +142,7 @@ const deriveApplicationCandidates = (
           candidates,
           generatedCandidate({
             key: `semantic:${node.node_id}:${candidatePolicy.family}`,
-            title: node.label ?? `${node.kind} semantic boundary`,
+            title: node.label?.trim() || `${node.kind} semantic boundary`,
             policy: candidatePolicy,
             artifactSha256: node.identity.artifact_sha256,
             applicationNodeId: node.application_node_ids[0] ?? null,
@@ -158,7 +166,7 @@ const deriveApplicationCandidates = (
       );
   } catch (cause: unknown) {
     limitations.add(
-      `Application Evidence ${evidence.evidence_id} could not generate candidates: ${errorMessage(cause)}`,
+      `Application Evidence ${evidence.evidence_id} could not generate candidates: ${describeValidationFailure(cause)}`,
     );
   }
 };
@@ -250,7 +258,7 @@ const deriveProcessCandidate = (
       );
   } catch (cause: unknown) {
     limitations.add(
-      `Process Evidence ${evidence.evidence_id} could not generate candidates: ${errorMessage(cause)}`,
+      `Process Evidence ${evidence.evidence_id} could not generate candidates: ${describeValidationFailure(cause)}`,
     );
   }
 };
@@ -322,9 +330,7 @@ const reviewedCandidate = (
     authority_references: reviewEvidenceIds.map((evidenceId) => {
       const evidence = records.get(evidenceId);
       if (evidence === undefined)
-        throw new TypeError(
-          `Reviewed obligation Evidence is missing: ${evidenceId}`,
-        );
+        throw new MissingReviewEvidenceError(evidenceId);
       return {
         evidence_id: evidenceId,
         authority: evidence.authority,
@@ -400,12 +406,12 @@ const addCandidate = (
   }
   candidates.set(candidate.obligation_id, {
     ...current,
-    authority_references: uniqueBy(
+    authority_references: uniqueSortedBy(
       [...current.authority_references, ...candidate.authority_references],
       (reference) =>
         `${reference.evidence_id}:${reference.state}:${reference.location}`,
     ),
-    observed_cases: uniqueBy(
+    observed_cases: uniqueSortedBy(
       [...current.observed_cases, ...candidate.observed_cases],
       (item) => `${item.kind}:${item.evidence_id}:${item.location}`,
     ),
@@ -414,14 +420,14 @@ const addCandidate = (
       ...candidate.authority_references,
     ]),
     // Each observation keeps its own unresolved authority and next steps.
-    unavailable_authority: uniqueBy(
-      [...current.unavailable_authority, ...candidate.unavailable_authority],
-      (item) => item,
-    ),
-    required_next_evidence: uniqueBy(
-      [...current.required_next_evidence, ...candidate.required_next_evidence],
-      (item) => item,
-    ),
+    unavailable_authority: uniqueSorted([
+      ...current.unavailable_authority,
+      ...candidate.unavailable_authority,
+    ]),
+    required_next_evidence: uniqueSorted([
+      ...current.required_next_evidence,
+      ...candidate.required_next_evidence,
+    ]),
     // A generated ID digests its derivation key, so two generated candidates
     // with one ID are the same claim seen by several records. Only another
     // reviewed definition can introduce a competing definition.
@@ -441,23 +447,5 @@ const sourceState = (
   return "unknown";
 };
 
-const uniqueBy = <Value>(
-  values: readonly Value[],
-  key: (value: Value) => string,
-): Value[] =>
-  [...new Map(values.map((value) => [key(value), value])).values()].sort(
-    (left, right) => compareUnicodeCodePoints(key(left), key(right)),
-  );
-
 const obligationId = (key: string): string =>
-  `obl_${digest({ schema: "ReconstructionObligation", key })}`;
-
-const digest = (value: unknown): string => {
-  const encoded = canonicalize(value);
-  if (encoded === undefined)
-    throw new TypeError("Reconstruction obligation key is not canonical JSON");
-  return createHash("sha256").update(encoded).digest("hex");
-};
-
-const errorMessage = (cause: unknown): string =>
-  cause instanceof Error ? cause.message : "unknown validation failure";
+  `obl_${digestCanonicalValue({ schema: "ReconstructionObligation", key }, "Reconstruction obligation key")}`;

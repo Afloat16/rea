@@ -1,9 +1,11 @@
 import { setImmediate as yieldToEventLoop } from "node:timers/promises";
 import {
+  AnalysisCancelledError,
   AnalysisProtocolError,
   AnalysisResourceConstraintError,
 } from "../domain/analysisErrorCore.js";
 import { parseRecordedTransportUrl } from "../domain/recordedTransportUrl.js";
+import { fixedAllowanceOptions } from "../domain/fixedAllowanceRemediation.js";
 import { compareUnicodeCodePoints } from "../domain/unicodeCodePointOrder.js";
 
 const OPERATION = "inspect_pcap_capture";
@@ -11,6 +13,11 @@ const OPERATION = "inspect_pcap_capture";
 export const TSHARK_JSON_MAX_BYTES = 8 * 1024 * 1024;
 const MAX_RETAINED_BYTES = 16 * 1024 * 1024;
 const MAX_DECODED_BYTES = 128 * 1024 * 1024;
+
+const assertOutputReadActive = (signal: AbortSignal | undefined): void => {
+  if (signal?.aborted)
+    throw new AnalysisCancelledError(OPERATION, { cause: signal.reason });
+};
 
 const protocolFailure = (reason: string): never => {
   throw new AnalysisProtocolError(`Invalid packet-capture output: ${reason}`);
@@ -26,6 +33,40 @@ export interface CapinfosMetadata {
   readonly snapshotLength: number | null;
   readonly sha256: string | null;
 }
+
+/**
+ * capinfos -S prints each packet timestamp as seconds since the Unix epoch
+ * with the capture's own fractional precision, a leading minus for an instant
+ * before the epoch. Its default spelling is a zone-less local wall-clock time,
+ * so one capture reads differently on hosts in different time zones. Project
+ * the exact value to an RFC 3339 UTC instant, keeping the fractional digit
+ * count. "n/a" (an empty capture), a wall-clock spelling and a value outside
+ * years 0000 to 9999 stay unknown.
+ */
+const captureInstant = (value: string | undefined): string | null => {
+  // Wireshark formats at most 64-bit seconds and nine fractional digits.
+  const match = /^(-?)(\d{1,20})(?:\.(\d{1,9}))?$/u.exec(value ?? "");
+  if (match?.[2] === undefined) return null;
+  const negative = match[1] === "-";
+  let seconds = BigInt(match[2]);
+  let fraction = match[3] ?? "";
+  if (negative) {
+    // -1.25 is one and a quarter seconds before the epoch: whole second
+    // -2 plus 0.75, so the fraction is borrowed from the next whole second.
+    const digits = fraction.length;
+    const borrowed = digits > 0 && BigInt(fraction) > 0n;
+    seconds = -seconds - (borrowed ? 1n : 0n);
+    if (borrowed)
+      fraction = (10n ** BigInt(digits) - BigInt(fraction))
+        .toString()
+        .padStart(digits, "0");
+  }
+  if (seconds < -62_167_219_200n || seconds > 253_402_300_799n) return null;
+  const date = new Date(Number(seconds) * 1000);
+  const year = date.getUTCFullYear();
+  if (Number.isNaN(year) || year < 0 || year > 9999) return null;
+  return `${date.toISOString().slice(0, 19)}${fraction === "" ? "" : `.${fraction}`}Z`;
+};
 
 /** capinfos -M with a C locale provides exact numbers instead of "20 k". */
 export const parseCapinfosOutput = (stdout: string): CapinfosMetadata => {
@@ -66,8 +107,12 @@ export const parseCapinfosOutput = (stdout: string): CapinfosMetadata => {
     fileType,
     encapsulation,
     packetCount,
-    captureStart: lines.get("Earliest packet time") ?? null,
-    captureEnd: lines.get("Latest packet time") ?? null,
+    captureStart: captureInstant(
+      lines.get("Earliest packet time") ?? lines.get("First packet time"),
+    ),
+    captureEnd: captureInstant(
+      lines.get("Latest packet time") ?? lines.get("Last packet time"),
+    ),
     captureDurationSeconds: duration === null ? null : Number(duration[1]),
     snapshotLength:
       snapshotLength !== null &&
@@ -110,13 +155,14 @@ export const parseTsharkJsonOutput = async (
   stdout: string,
   signal?: AbortSignal,
 ): Promise<TsharkFields> => {
-  signal?.throwIfAborted();
+  assertOutputReadActive(signal);
   if (Buffer.byteLength(stdout) > TSHARK_JSON_MAX_BYTES)
     throw new AnalysisResourceConstraintError(
       OPERATION,
       "memory",
       "tshark JSON exceeds the bounded decoding budget",
       { max_json_bytes: TSHARK_JSON_MAX_BYTES },
+      fixedAllowanceOptions("The tshark JSON decoding allowance", "capture"),
     );
   // The selected-field protocol has five container levels. Reject deeper
   // graphs before materializing them; quoted brackets are string data.
@@ -127,7 +173,7 @@ export const parseTsharkJsonOutput = async (
   for (let index = 0; index < stdout.length; index += 1) {
     if (index % 65536 === 0) {
       await yieldToEventLoop();
-      signal?.throwIfAborted();
+      assertOutputReadActive(signal);
     }
     const char = stdout[index];
     if (quoted) {
@@ -148,6 +194,7 @@ export const parseTsharkJsonOutput = async (
         "memory",
         "tshark JSON expansion exceeds the decoding budget",
         { max_decoded_bytes: MAX_DECODED_BYTES },
+        fixedAllowanceOptions("The tshark JSON expansion allowance", "capture"),
       );
   }
   let packets: unknown;
@@ -176,6 +223,10 @@ export const parseTsharkJsonOutput = async (
         "memory",
         "Packet inventory exceeds the retained-fact budget",
         { max_retained_bytes: MAX_RETAINED_BYTES },
+        fixedAllowanceOptions(
+          "The packet-inventory retained-fact allowance",
+          "capture",
+        ),
       );
   };
   const add = (set: Set<string>, value: string): void => {
@@ -187,7 +238,7 @@ export const parseTsharkJsonOutput = async (
   for (let index = 0; index < packets.length; index += 1) {
     if (index % 256 === 0) {
       await yieldToEventLoop();
-      signal?.throwIfAborted();
+      assertOutputReadActive(signal);
     }
     const packet: unknown = packets[index];
     if (
@@ -218,13 +269,14 @@ export const parseTsharkJsonOutput = async (
       return protocolFailure(
         "frame inventory is missing, duplicated or out of order",
       );
-    if (
-      field("frame.protocols").length !== 1 ||
-      field("frame.protocols")[0] === ""
-    )
+    const protocolStack = field("frame.protocols");
+    if (protocolStack.length !== 1)
       return protocolFailure(
         "packet protocol inventory is missing or ambiguous",
       );
+    // TShark reports [""] for a frame with no dissected protocol, including
+    // zero-length packets. Keep the frame without inventing a protocol row.
+    const protocol = protocolStack[0]!;
     // Count one occurrence per packet even for loopback or nested IP layers.
     for (const address of new Set([
       ...field("ip.src"),
@@ -263,10 +315,9 @@ export const parseTsharkJsonOutput = async (
     }
     for (const value of field("tls.handshake.extensions_server_name"))
       if (value !== "") add(sni, value);
-    for (const value of new Set(field("frame.protocols"))) {
-      if (value === "") continue;
-      if (!protocols.has(value)) charge(value);
-      protocols.set(value, (protocols.get(value) ?? 0) + 1);
+    if (protocol !== "") {
+      if (!protocols.has(protocol)) charge(protocol);
+      protocols.set(protocol, (protocols.get(protocol) ?? 0) + 1);
     }
     for (const value of field("http.request.full_uri")) {
       if (value === "" || observedUris.has(value)) continue;
@@ -282,7 +333,7 @@ export const parseTsharkJsonOutput = async (
       );
     }
   }
-  signal?.throwIfAborted();
+  assertOutputReadActive(signal);
   return {
     endpoints: [...endpoints]
       .sort((a, b) => b[1] - a[1] || compareUnicodeCodePoints(a[0], b[0]))
