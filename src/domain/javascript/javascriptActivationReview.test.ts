@@ -5,6 +5,46 @@ import { analyzeJavaScriptStaticSource } from "./javascriptStaticAnalysis.js";
 
 const cases = [
   [
+    "property name computed read",
+    'const values=(function*(){new Socket("wss://example.test/early");yield 0})();const marker={[values]:0};const [x]=values;const Socket=globalThis.WebSocket;',
+    ["wss://example.test/early"],
+  ],
+  [
+    "getter length throw then later read",
+    'let args;try{(()=>{}).apply(null,args={get length(){return null.value},get 0(){new Socket("wss://example.test/index")}})}catch{}const Socket=globalThis.WebSocket;args[0];',
+    ["wss://example.test/index"],
+  ],
+  [
+    "parameter early work initialized",
+    'const Socket=globalThis.WebSocket;const connect=async(unused=(new Socket("wss://example.test/param"),null.value))=>0;connect().catch(()=>{});',
+    ["wss://example.test/param"],
+  ],
+  [
+    "review property key",
+    'const values=(function*(){new Socket("wss://example.test/early");yield 0})();const marker={values:0};const [x]=values;const Socket=globalThis.WebSocket;',
+    [],
+  ],
+  [
+    "review returned apply length",
+    '(()=>{}).apply(null,{get length(){return 1},get 0(){new Socket("wss://example.test/index")}});const Socket=globalThis.WebSocket;',
+    [],
+  ],
+  [
+    "review failed parameter body",
+    'const connect=async(unused=null.value)=>new Socket("wss://example.test/params");connect().catch(()=>{});const Socket=globalThis.WebSocket;connect(0);',
+    ["wss://example.test/params"],
+  ],
+  [
+    "parameter work is retained",
+    'const connect=async(unused=(new Socket("wss://example.test/param"),null.value))=>0;connect().catch(()=>{});const Socket=globalThis.WebSocket;',
+    [],
+  ],
+  [
+    "parameter destructuring failure",
+    'const connect=async({x})=>new Socket("wss://example.test/params");connect(null).catch(()=>{});const Socket=globalThis.WebSocket;connect({x:0});',
+    ["wss://example.test/params"],
+  ],
+  [
     "unchanged review safe getter",
     'const copy = {...{get first(){return undefined}, get later(){new Socket("wss://example.test/socket")}}}; const Socket = globalThis.WebSocket;',
     [],

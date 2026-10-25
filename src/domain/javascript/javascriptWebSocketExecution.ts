@@ -1,4 +1,5 @@
 import * as t from "@babel/types";
+import { semanticReferenceRole } from "./javascriptSemanticProjection.js";
 import { semanticExpressionCannotThrow } from "./javascriptSemanticExpressionResults.js";
 import { semanticKnownArrayIterationAt } from "./javascriptSemanticReferenceSources.js";
 import {
@@ -320,9 +321,17 @@ const webSocketFreshMethodSelection = (
         // rather than by creation of its array-like object.
         if (key === "length") return consumer;
         const length = semanticFinalObjectMember(literal, "length", "get");
+        const completion =
+          t.isObjectMethod(length) && length.kind === "get"
+            ? semanticGetterCompletionValue(length, state)
+            : undefined;
         const value = t.isObjectProperty(length)
           ? readExactJavaScriptLiteral(length.value)
-          : undefined;
+          : completion?.known
+            ? completion.node === undefined
+              ? { found: true, value: undefined }
+              : readExactJavaScriptNormalResult(completion.node)
+            : undefined;
         const index = key === null ? NaN : Number(key);
         if (
           String(index) === key &&
@@ -966,6 +975,36 @@ const webSocketStoredCalls = (
     webSocketExecutionFacts(state).storedCalls = calls;
   }
   return calls.get(node) ?? [];
+};
+
+/** A proven failed parameter entry blocks only body work, not parameter effects. */
+const webSocketStoredBodyCanBeEntered = (
+  candidate: WebSocketStoredCall,
+  fn: t.Function | t.Class,
+  state: JavaScriptSemanticAnalysisState,
+): boolean => {
+  const { call } = candidate;
+  if (
+    !t.isFunction(fn) ||
+    !t.isCallExpression(call) ||
+    call.arguments.some((argument) => t.isSpreadElement(argument))
+  )
+    return true;
+  const callee = unwrapJavaScriptExpression(call.callee).node;
+  if (semanticExactValueIdentity(callee, state)?.node !== fn) return true;
+  for (const [index, parameter] of runtimeFunctionParameters(fn).entries()) {
+    if (t.isRestElement(parameter)) break;
+    const argument = call.arguments[index];
+    const phase = semanticPatternCompletion(
+      parameter,
+      argument ?? null,
+      state,
+      () => false,
+    );
+    if (phase === "blocked" || phase === "suspended-blocked") return false;
+    if (phase !== "completed") return true;
+  }
+  return true;
 };
 
 /** Binding a literal defers it only until that bound result is invoked. */
@@ -1939,7 +1978,12 @@ const webSocketSinglePatternConsumer = (
         const parent = state.parentsByNode.get(node);
         if (
           binding !== undefined &&
-          !(t.isVariableDeclarator(parent) && parent.id === node)
+          parent !== undefined &&
+          semanticReferenceRole(
+            node,
+            parent,
+            state.parentsByNode.get(parent),
+          ) !== null
         )
           reads.set(
             binding.bindingId,
@@ -2598,8 +2642,11 @@ const webSocketExecutionContextsForCalls = (
       if (activations.has(activation)) return contexts;
       activations.add(activation);
       const allStored = webSocketStoredCalls(activation, state);
-      const stored = allStored.filter((candidate) =>
-        webSocketStoredCallMatches(candidate, selectedCalls),
+      const stored = allStored.filter(
+        (candidate) =>
+          webSocketStoredCallMatches(candidate, selectedCalls) &&
+          (current !== activation.body ||
+            webSocketStoredBodyCanBeEntered(candidate, activation, state)),
       );
       if (allStored.length > 0 && stored.length === 0) return [];
       if (stored.length > 1 && !selectedCalls.has(activation)) {
