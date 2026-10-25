@@ -15,11 +15,11 @@ import {
 } from "../../../src/domain/browserCaptureComparison.js";
 import { inspectWebPageInputSchema } from "../../../src/domain/browserObservation.js";
 import { browserScenarioCaptureSchema } from "../../../src/domain/browserScenarioCapture.js";
-import { ToolResultDelivery } from "../../../src/server/toolResult.js";
+import { createToolResultDelivery } from "../../../src/server/toolResult.js";
 import { toolRegistrationOptions } from "../../../src/server/toolRegistrationOptions.js";
 import { startFakeCdpBrowser } from "../../fixtures/fakeCdpBrowser.js";
 
-const delivery = new ToolResultDelivery(STDIO_DEFAULT_MAX_BUFFER_SIZE);
+const delivery = createToolResultDelivery(STDIO_DEFAULT_MAX_BUFFER_SIZE);
 
 const contract = toolContract("compare_web_captures");
 
@@ -67,8 +67,8 @@ function invalidComparisonInputs(
     { before: passive.before },
     { before: { inspection: {} }, after: passive.after },
     {
-      before: passive.before,
-      after: { ...passive.after, webmcp: {} },
+      before: { ...passive.before, webmcp: {} },
+      after: passive.after,
     },
     { before_scenario: {}, after_scenario: {} },
     { before_scenario: scenario.before_scenario },
@@ -146,6 +146,10 @@ describe("browser comparison input boundary", () => {
         "before + after; before_scenario + after_scenario + [normalization]",
       );
       const runtimeOnlyInvalid = [
+        // The advertisement fits the 64 KiB client limit by presenting
+        // `after` as "Same schema as `before`" (#4081); the canonical
+        // parser still rejects a malformed `after` capture.
+        { before: passive.before, after: { ...passive.after, webmcp: {} } },
         { ...passive, ...scenario },
         { ...passive, normalization: { rules: [] } },
         {

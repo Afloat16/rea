@@ -1,3 +1,4 @@
+import type { AnalysisSettings } from "../application/AnalysisSettings.js";
 import { AsyncLocalStorage } from "node:async_hooks";
 
 import {
@@ -25,12 +26,10 @@ import {
 } from "@modelcontextprotocol/server";
 
 import { analysisErrorProjectionSchema } from "../contracts/errorSchemas.js";
-import {
-  presentAdvertisedInputSchema,
-  type CompactInputSchemaPresentation,
-} from "../contracts/compactInputSchema.js";
+import type { CompactInputSchemaPresentation } from "../contracts/compactInputSchema.js";
 import type { createCatalogIdentity } from "../catalogIdentity.js";
 import { transformAdvertisedInputJsonSchema } from "../contracts/toolSchemaMetadata.js";
+import { presentAdvertisedInputProfile } from "../contracts/inputSchemaPresentation.js";
 import type { EvidenceWriter } from "../application/investigation/InvestigationRecordPort.js";
 import {
   AnalysisInputError,
@@ -162,6 +161,7 @@ export interface StandardToolRegistration {
 
 /** Bind oversized MCP error recovery to this server's Evidence ledger. */
 export class EvidenceMcpServerCore extends RequestTrackingMcpServer {
+  analysisSettings: AnalysisSettings | undefined;
   private identity: ReturnType<typeof createCatalogIdentity> | undefined;
 
   /** Composition supplies identity without importing the canonical schema graph. */
@@ -257,12 +257,16 @@ export class EvidenceMcpServerCore extends RequestTrackingMcpServer {
               typeof transformAdvertisedInputJsonSchema
             >[0],
             (projected) =>
-              presentAdvertisedInputSchema(projected, { budgetBytes: budget }),
+              presentAdvertisedInputProfile(projected, { budgetBytes: budget }),
           )
         : undefined;
     const registeredConfig =
       inputSchema === undefined ? config : { ...config, inputSchema };
-    return this.bindTool(name, registeredConfig as never, callback as never);
+    const scoped = (input: never, context: never) =>
+      this.analysisSettings === undefined
+        ? callback(input, context)
+        : this.analysisSettings.run(() => callback(input, context));
+    return this.bindTool(name, registeredConfig as never, scoped as never);
   }
 
   protected bindTool(

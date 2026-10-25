@@ -583,11 +583,22 @@ capabilities. The default result contains the complete inventory in groups that
 share status facts. `tool_availability.client_requirements` is the baseline for
 each group; a group's optional `client_requirements` replaces that baseline for
 the group's tools. Expand each group's `names` into one tool entry, carrying its
-surface, availability, reason, remediation, default-mode status, modes, and
-client requirements. Compare the union of group names with `tools/list` when
-checking that a client received the full catalog. An operation absent from all
-groups is missing from the complete inventory; it is not an implicit
-unavailable entry.
+availability, reason, remediation, default-mode status, modes, and client
+requirements. Compare the union of group names with `tools/list` when checking
+that a client received the full catalog. An operation absent from all groups is
+missing from the complete inventory; it is not an implicit unavailable entry.
+
+`detail` selects the projection and the result echoes it. The default
+`summary` keeps open state, target identity, the binding, current-route
+`capabilities`, run, activity and health status, and each provider candidate's
+identity, selection, and availability and target-support `status`, `code`, and
+`reason`. It lists the fields it leaves out in `omitted_fields`: provider
+`diagnostics`, candidate `capabilities`, and each tool group's static `surface`,
+`effects`, and `annotations`. Omitted fields are not empty or false.
+`detail: "complete"` returns them inline, groups tools by those flags too, and
+has no `omitted_fields`. The output schema keys each result's candidate,
+tool-group and omission fields by its `detail`. CLI `capabilities` and
+`providers` always return complete provider facts.
 
 `get_call_graph` and `trace_call_path` report `forward` and `backward` modes.
 Each requires `procedure_address` plus `procedure_callees` or `procedure_callers`,
@@ -600,8 +611,8 @@ finish without reading relationships, even when neither traversal mode is
 available. Discovery does not block that direct invocation or replace its typed
 partial/error outcomes.
 
-The `effects` and `annotations` arrays list the true members of their fixed
-vocabularies. A known member omitted from either array is false. This applies
+With complete detail, the `effects` and `annotations` arrays list the true
+members of their fixed vocabularies. A known member omitted from either array is false. This applies
 only to these closed flag sets; it does not make an omitted tool, provider, mode,
 or limitation false. Keep availability reasons, remediation, client-feature
 requirements, and mode facts inline with the grouped tool names. The optional
@@ -632,7 +643,8 @@ identity, availability, reason, rejection code, effects, and ordered
 limitations.
 
 `binary_session.analysis_provider_candidates` is authoritative for deep-engine
-discovery. Each candidate's capability sets describe that possible provider;
+discovery. Each candidate's capability sets, returned with complete detail,
+describe that possible provider;
 they do not select it. The top-level `capabilities` describe the current route,
 while `analysis_provider_binding` identifies the concrete selected route. These
 fields are not interchangeable. Target-free discovery is sorted by provider ID,
@@ -932,6 +944,25 @@ of a later null value. Inspect the slot's `xrefs` and the writer's assembly or
 pseudocode, retaining uncertainty about execution order and runtime values.
 These operations inspect static evidence and do not execute the target.
 
+## Editable analysis settings
+
+Agents can call `update_analysis_settings` to raise a curated admission,
+timeout or worker heap default on a connected server, then retry the same
+request. Errors carry `details.limit` with the setting and bounds when the
+failing owner supports runtime recovery; `inspect_analysis_settings` is optional
+when those facts are supplied. Updates are atomic, apply to new work, survive
+target close/open, and vanish when REA exits. Explicit per-call arguments take
+precedence. Neither tool changes host deadlines or resolves retained cleanup.
+See [runtime settings and recovery](design/limits-and-recovery.md#runtime-settings-through-mcp)
+for the full setting list, reset/revision semantics and ASAR retry example.
+For implementation ownership, accepted-operation snapshots, provider wiring,
+and extension guidance, see the
+[maintainer design](design/limits-and-recovery.md#ownership-and-data-flow).
+
+Ghidra and Hopper startup updates apply to the next startup attempt without
+restarting REA. Ghidra decompile timeout updates apply on the existing Program.
+An operation already accepted retains its original budgets.
+
 ## Ghidra first-query deadlines and recovery
 
 A successful MCP initialize handshake establishes the REA connection.
@@ -1033,11 +1064,13 @@ the current client, so it is not a fresh-start recovery. On the same connection:
    `provider_id: "ghidra"`, then retry the first query with an appropriate client
    deadline. The connection and selected provider do not need to change.
 
-If REA's provider startup allowance also needs raising, preserve Evidence and
-close as above, then update `REA_GHIDRA_STARTUP_TIMEOUT_MS` in REA's launch
-environment and restart the server. Reconnect the MCP client before reopening
-the target. Configuration is read at process startup; close/reopen on the same
-connection cannot apply a changed environment. See the
+If REA's provider startup allowance also needs raising, set
+`ghidra.startup_timeout_ms` through `update_analysis_settings` before the next
+startup attempt. This needs no REA restart and does not change accepted work,
+clear cleanup blockers, or extend the client's deadline. Alternatively, change
+`REA_GHIDRA_STARTUP_TIMEOUT_MS` in REA's launch environment and restart the
+server, preserving Evidence and closing as above. Close/reopen on the same
+connection cannot apply a changed launch environment. See the
 [CLI retry example](installation.md#ghidra).
 
 This close/reopen flow was exercised on one real Linux stdio connection after a
@@ -1187,16 +1220,34 @@ after SDK conversion and check advertised validation and actual calls.
 Individual model APIs can impose additional nesting limits; complete producer
 captures can exceed ten structural levels.
 
+Claude Desktop drops a local connector tool, with a generic "problem with that
+connector" warning, when its input schema serialized as compact JSON exceeds
+64 KiB ([#4081](https://github.com/morluto/rea/issues/4081)). Every advertised
+input schema therefore fits 65,536 UTF-8 bytes, including its examples. A
+self-contained schema that would exceed the limit is fitted in two steps, and
+its root description says it is summarized. First, a property whose schema
+repeats an earlier sibling's, such as `after` beside `before`, is advertised as
+its types and description plus "Same schema as `before`." Second, schemas below
+the deepest instance level that still fits are advertised as their types, size
+constraints and descriptions, unless that summary would be longer than the
+schema itself. Combinator and conditional branches count as the
+level of the instance they describe. Both steps only widen the advertisement:
+canonical inputs and examples stay accepted, required names and nested
+constraints below the cut are not advertised, and the canonical contract still
+validates every call. Schemas within the limit are advertised unchanged. The
+compact profile starts from the complete projection, not from the fitted one.
+
 `search_bytes` advertises its pattern and mask as descriptive strings. Its
 shared canonical validator scans byte pairs, whitespace, wildcards and aligned
 masks without a repeating regular expression or temporary byte arrays. The
 server rejects malformed or unconstrained patterns before provider dispatch;
 the advertised strings alone do not express those rules.
 
-Boolean and empty-string literal constraints in input schemas are relaxed only
-in this advertisement. Boolean `const` becomes `type: boolean`; empty-string
-`const` or an enum containing an empty string is widened without dropping the
-accepted empty value. Defaults and descriptions remain intact.
+Boolean, numeric and empty-string literal constraints in input schemas are
+relaxed only in this advertisement. Boolean `const` becomes `type: boolean`;
+numeric `const` keeps its numeric type; empty-string `const`, an enum containing
+an empty string, and an enum containing a number are widened without dropping
+an accepted value. Defaults and descriptions remain intact.
 An affected `not` is omitted, conditional predicates and their branches are
 omitted together, pure boolean-literal `oneOf` branches collapse to a boolean,
 and other affected `oneOf` branches are presented as `anyOf` to retain branch
@@ -1232,6 +1283,32 @@ Kimi-K3 backend, not the WorkBuddy MCP client. Set the profile on REA's
 registration in the actual MCP host; the host's name alone does not identify
 the downstream model or its schema constraints.
 
+The compact profile also protects strict Anthropic-compatible gateways from
+known schema-translation failures reported in [#3800](https://github.com/morluto/rea/issues/3800):
+primitive `enum` properties without a sibling `type`, and `oneOf`/`allOf`
+inside a property listed in `required`. Affected schemas use the same reduced
+first-level projection described below, so the gateway receives a plain object
+shape while REA continues to validate the complete canonical contract locally.
+This is a compatibility projection, not a claim that the gateway reproduces
+the full union semantics.
+
+For array items expressed as an untyped `oneOf`/`anyOf`, the compact profile
+adds a type when every branch has the same type. Mixed-type item unions use the
+reduced projection; selecting one branch's type would exclude valid calls.
+This addresses the emitted shape reported through a Gemini-backed gateway in
+[#5201](https://github.com/morluto/rea/issues/5201). Gateway conversion and
+live provider acceptance have not been verified for this projection.
+
+Gemini function declarations accept `items` only beside the single `array`
+type. Reduced array properties therefore advertise the element types their
+canonical item schemas accept, such as `{"type": "object"}` for a union of
+object actions, instead of an any-value type list with nested `items`. An
+element whose type is unknown, a tuple, or an array alongside other types uses
+the empty item schema, and a property that may be an array or another type
+lists typed `anyOf` branches. A boundary test rejects any compact
+advertisement that places `items` beside another type or uses an untyped item
+union.
+
 The compact profile renders the same tool set, output schemas, annotations,
 and canonical server-side validation. It changes only the advertised input
 JSON Schema:
@@ -1263,6 +1340,11 @@ Boundary tests pin every advertised compact schema to the budget, keep them
 valid JSON Schema that still accepts every canonical example. Client verification
 also checks provider-facing sizes and canonical examples after conversion by
 the actual Kimi Code CLI; local captures do not establish Moonshot acceptance.
+The SDK catalog test checks that full-profile schemas retain nested ADB extra,
+managed selection, and WASM timeout and detail restrictions. Path-contract tests
+check full-profile local-path rules. Compact MCP workflow tests verify canonical
+rejection of invalid inputs before provider work, independent of how much detail
+the selected advertisement retains.
 
 ### Output schemas
 

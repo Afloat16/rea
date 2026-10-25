@@ -73,9 +73,14 @@ arbitrary nested graph array.
 A top-level array emits its elements in source order. An object must have one
 clear `rows`, `items`, `records`, or `occurrences` array, directly or under
 `page`. Evidence uses the same boundaries inside `normalized_result`.
-An arbitrary report or a scalar selection is refused with an actionable error;
-use `--format json` for a complete document. If several collections exist,
-select one with `--filter-output`, for example `normalized_result.rows`.
+Any other selection is refused before a record is written, including an
+arbitrary report, a scalar, a nested array elsewhere, and a columnar object such
+as the `inspect-sqlite-database --table` `normalized_result.rows`
+(`{columns, values}`). The refusal is the caller error `invalid_request`
+(`invalid_input`) and names the selection and its observed shape; the analysis
+itself succeeded, so use `--format json` for the complete document. If several
+collections exist, select one with `--filter-output`, for example
+`normalized_result.rows` for an analysis view.
 
 Object collections finish with a control record:
 
@@ -235,6 +240,16 @@ rea extract-artifact game.pck --json
 Formats 2, 3 and 4 retain header, directory and integrity facts. Compact delivery
 keeps complete Evidence in the requested bundle. See [Godot PCK](godot-pck.md)
 for embedded packs, batch queries and unknown encrypted coverage.
+
+Inspect a Node.js SEA carrier without running it:
+
+```sh
+rea inspect-artifact ./application --json
+rea extract-artifact ./application --json
+```
+
+See [Node.js SEA](node-sea.md) for supported layouts, script and asset paths,
+fuse observations, and the real-fixture verification lane.
 
 Inspect local model declarations without loading weights:
 
@@ -455,7 +470,14 @@ an exact result when the target bytes, operation, parameters, provider and
 settings match. Mutations and cursor-dependent calls are excluded from the
 cache. Snapshot files are local and use owner-only permissions.
 
-Importing an Evidence bundle refreshes retained subject display names and paths.
+One-shot binary CLI Evidence reports the exact path argument in `caller_input_path`,
+including relative spelling and symlink aliases. Its subject identifies the
+inspected artifact; `caller_input_path` does not change the Evidence ID or
+snapshot query. A replay reports the current invocation's path while leaving
+the saved Evidence unchanged. Provider inspections continue to include the
+established `parameters.input_path` field.
+
+Importing an Evidence bundle refreshes retained request and subject display metadata.
 It preserves cached analysis results, including observations for other targets.
 Snapshot bindings that use a replaced record retain its updated display path.
 
@@ -907,8 +929,10 @@ redirected, which keeps large results smaller for agents and scripts; pipe
 through `jq .` for indented files. Output selection and formatting do not change
 operation status.
 
-`--format md` escapes backslashes and pipes in table headers and cells, and
-renders cell line breaks as `<br>`. These are presentation changes; retained
+`--format md` escapes backslashes, pipes, and inline Markdown syntax in table
+headers and cells so source text is displayed literally, and renders cell line
+breaks as `<br>`. Underscores between letters or digits, as in `source_index`,
+cannot form emphasis and stay unescaped. These are presentation changes; retained
 Evidence and JSON output keep the original values. Nested objects and arrays
 use JSON inside their owning Markdown cells, retaining the field names and
 values instead of replacing them with an object label. Table widths are measured

@@ -1,6 +1,7 @@
 import {
   createdFields,
   documentBodyProblem,
+  optionalFields,
   renewUuids,
   updatedEntity,
   updatedFields,
@@ -28,8 +29,11 @@ import {
   type StateWritePlan,
   type WriteCall,
 } from "../../domain/analysisView/environmentStateWriteRules.js";
+import { withRead } from "../../domain/analysisView/environmentStateWriteObserve.js";
 import {
   formatClock,
+  generatedIntegerDigits,
+  seededInteger,
   seededLike,
   spelledLike,
 } from "../../domain/analysisView/environmentStateWriteValues.js";
@@ -136,17 +140,30 @@ const callBody = ({
     : err(unloadable(tool, `Member ${member}`));
 };
 
-/** The entity a recorded observation shows: the values a create keeps and an update's constants. */
+/** The object a recorded response shows at a pointer. */
+const recordedObject = (
+  serving: StateServing,
+  at: { readonly ordinal: number; readonly pointer: string },
+): JsonObject | undefined => {
+  const exchange = serving.source.exchanges.get(at.ordinal);
+  const body = exchange === undefined ? undefined : recordedJson(exchange);
+  const object = body === undefined ? undefined : valueAt(body, at.pointer);
+  return isObject(object) ? object : undefined;
+};
+
+/** The entity a recorded observation shows, with a create's read-back over it: the values a create keeps and an update's constants. */
 export const observedEntity = (
   serving: StateServing,
   plan: StateWritePlan,
 ): JsonObject | undefined => {
   if (plan.observation === null) return undefined;
-  const exchange = serving.source.exchanges.get(plan.observation.ordinal);
-  const body = exchange === undefined ? undefined : recordedJson(exchange);
-  const object =
-    body === undefined ? undefined : valueAt(body, plan.observation.pointer);
-  return isObject(object) ? object : undefined;
+  const object = recordedObject(serving, plan.observation);
+  if (object === undefined || plan.observation.read === undefined)
+    return object;
+  const read = recordedObject(serving, plan.observation.read);
+  return read === undefined
+    ? undefined
+    : withRead(object, read, plan.observation.read.shape);
 };
 
 /** One past the largest integer these entities hold in the field, read as the exemplar spells it, or undefined when none holds one. */
@@ -169,6 +186,14 @@ export interface GeneratedTarget {
   /** The entity an update writes, whose values a renewed field keeps. */
   readonly current?: JsonObject;
 }
+
+/** The fields of each entity of a type with an id the live state holds, which a referencing write repeats. */
+export const heldEntity =
+  (serving: StateServing) =>
+  (type: string, id: string): JsonObject[] =>
+    serving.store
+      .ofType(type)
+      .flatMap((entity) => (entity.id === id ? [entity.fields] : []));
 
 /** What an update generates values for: the entity it writes, in its collection. */
 export const updateTarget = (
@@ -212,14 +237,14 @@ export const generator = (
   );
   const unused = (
     field: string,
-    make: (attempt: number) => string,
-  ): Result<string, string> => {
+    make: (attempt: number) => JsonValue,
+  ): Result<JsonValue, string> => {
     const held = new Set(
       ofType.map((entity) => scalarText(entity.fields[field])),
     );
     for (let attempt = 0; attempt < GENERATION_ATTEMPTS; attempt += 1) {
       const value = make(attempt);
-      if (!held.has(value)) return ok(value);
+      if (!held.has(scalarText(value))) return ok(value);
     }
     return err(
       `Could not generate a unique value for ${field} after ${String(GENERATION_ATTEMPTS)} attempts without colliding with the held state.`,
@@ -267,7 +292,9 @@ export const generator = (
         );
       case "unique":
         return unused(rule.field, (attempt) =>
-          seededLike(seed(attempt), exemplar),
+          generatedIntegerDigits(exemplar) === undefined
+            ? seededLike(seed(attempt), exemplar)
+            : seededInteger(seed(attempt), exemplar),
         );
       case "renewed":
         return ok(
@@ -331,7 +358,20 @@ export const writeAnswer = (
   const body =
     typeof rendered === "function"
       ? rendered(recorded)
-      : writtenResponse(plan.response, recorded, rendered);
+      : writtenResponse(
+          plan.response,
+          recorded,
+          {
+            ...rendered,
+            clocks:
+              plan.observation?.read?.shape === "item"
+                ? plan.rules.flatMap((rule) =>
+                    rule.rule === "clock" ? [rule.field] : [],
+                  )
+                : [],
+          },
+          optionalFields(plan),
+        );
   if (!body.ok) return err(refused(tool, body.error));
   return stateAnswer(serving, { exchange, exact }, body.value ?? null, state);
 };
@@ -452,6 +492,7 @@ const answerCreate = (
     observed,
     created,
     values.forTarget({ name: collection, collection: members, observed }),
+    heldEntity(serving),
   );
   if (!fields.ok) return err(refused(tool, fields.error));
   const field = unloadableMember(fields.value);
@@ -540,6 +581,7 @@ const answerUpdate = (
     { before: entity.fields, observed },
     { ...call, id: entity.id },
     values.forTarget(updateTarget(serving, entity, observed)),
+    heldEntity(serving),
   );
   if (!written.ok) return err(refused(tool, written.error));
   // An increment can pass the exact integers.

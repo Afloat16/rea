@@ -7,7 +7,7 @@ import {
   effectiveClientServer,
   type ClientConfigurationDocument,
 } from "./ClientConfigurationDocument.js";
-import { lstat } from "node:fs/promises";
+import { lstat, stat } from "node:fs/promises";
 import { err, ok, type Result } from "../domain/result.js";
 import { isAbsolute } from "node:path";
 
@@ -24,10 +24,12 @@ import {
 import {
   inspectClientRegistrationCommand,
   type ClientRegistrationCommandFacts,
+  type ClientRegistrationCommandIdentity,
   packageRunnerRegistrationCommand,
 } from "./ClientRegistrationIdentity.js";
 import {
   clientEvidencePaths,
+  clientOwnershipEvidencePaths,
   manualRegistrationRemediation,
   supportedClients,
 } from "./SupportedClients.js";
@@ -40,6 +42,7 @@ import type { ArtifactResourceScope } from "../artifacts/ArtifactResourceScope.j
 
 import {
   parseClientRegistration,
+  setupPreservesDisabledActivation,
   type ClientRegistration,
 } from "./ClientRegistration.js";
 
@@ -87,6 +90,15 @@ interface ClientRegistrationReadOptions {
   readonly platform?: NodeJS.Platform;
   readonly environment?: NodeJS.ProcessEnv;
   readonly resources?: ArtifactResourceScope;
+  readonly selectedClientIds?: readonly string[];
+  /**
+   * Which evidence authorises inspection. `readiness` inspects a client whose
+   * product applicability is established, plus clients the caller selected
+   * explicitly. `ownership` also inspects shared registration storage, because
+   * a version-pinned registration REA wrote must be refreshed even when the
+   * product profile is absent.
+   */
+  readonly evidence?: "readiness" | "ownership";
   readonly resolveProviderRequestBudget?: ProviderRequestBudgetResolver;
 }
 
@@ -94,6 +106,8 @@ interface ClientRegistrationReadOptions {
 export interface ClientRegistrationInspection {
   readonly status: ClientRegistrationStatus;
   readonly activation: "enabled" | "disabled" | "unknown";
+  /** Ownership remains unknown until this inspection has parsed the launcher. */
+  readonly commandIdentity: ClientRegistrationCommandIdentity;
 }
 
 /** Project diagnostics from the same inspection used to select maintenance. */
@@ -118,14 +132,16 @@ export const readClientRegistrationInspections = async (
   const record = (
     status: ClientRegistrationStatus,
     activation: ClientRegistrationInspection["activation"] = "unknown",
+    commandIdentity: ClientRegistrationCommandIdentity = "unknown",
   ): void => {
-    inspections.push({ status, activation });
+    inspections.push({ status, activation, commandIdentity });
   };
   for (const client of supportedClients(
     home,
     options.platform,
     options.environment,
   )) {
+    const selected = options.selectedClientIds?.includes(client.name) === true;
     if (client.configPathError !== undefined) {
       record({
         client: client.name,
@@ -136,7 +152,10 @@ export const readClientRegistrationInspections = async (
       });
       continue;
     }
-    const presence = await clientEvidencePresent(client);
+    const presence = await clientEvidencePresent(client, {
+      selected,
+      ownership: options.evidence === "ownership",
+    });
     if (!presence.ok) {
       record({
         client: client.name,
@@ -319,7 +338,18 @@ export const readClientRegistrationInspections = async (
               ? packageVersionRemediation(packageReference ?? "", client)
               : alignment === "unknown"
                 ? unknownEntryPointRemediation()
-                : undefined),
+                : undefined) ??
+            // Only a target whose setup preserves the flag is a manual
+            // conflict; a native row (for example ZCode's own storage) is
+            // still repaired by its setup run below.
+            (activation === "disabled" &&
+            registration.enable === false &&
+            setupPreservesDisabledActivation(
+              effectiveClient,
+              effectiveClient.format,
+            )
+              ? sharedDisabledActivationRemediation()
+              : undefined),
           packageReference,
           registrationEnvironment?.ok === true
             ? timeoutAdvisory(
@@ -330,6 +360,7 @@ export const readClientRegistrationInspections = async (
             : undefined,
         ),
         activation,
+        commandFacts.identity,
       );
     } catch (cause: unknown) {
       if (
@@ -351,6 +382,25 @@ export const readClientRegistrationInspections = async (
   );
 };
 
+/** Shared registration storage doubles as ZCode's fallback, so its
+ * `enable: false` activation fact binds every reader of that storage.
+ * Maintenance must not drop the flag by rewriting the row as another
+ * product's registration and silently re-enabling it; whether a repair
+ * actually preserves it is setupPreservesDisabledActivation. */
+const sharedEnableFlagBinds = (
+  registration: ClientRegistration,
+  client: SetupClient,
+  parsed: ClientConfigurationDocument,
+): boolean =>
+  (parsed.dialect === "zcode" ||
+    parsed.dialect === "zcode_fallback" ||
+    client.sharedRegistration === true) &&
+  registration.enable === false;
+
+/** A disable that setup preserves is a manual conflict: its remediation
+ * must not point at an ineffective setup run. */
+const sharedDisabledActivationRemediation = (): string =>
+  "This shared registration row carries enable: false, which binds every reader of the shared storage, including ZCode's fallback view. REA preserves that flag, so rea setup will not change this row. Re-enable it with the product that disabled it, or remove enable: false manually, then rerun rea doctor.";
 // Codex and Kimi Code load a server marked `disabled: true` and honor only
 // `enabled`; Devin loads one marked `enabled: false` and honors only `disabled`.
 const ignoresDisabledKey = new Set(["codex", "kimi"]);
@@ -367,8 +417,7 @@ const registrationActivation = (
   (registration.enabled === false &&
     !ignoresEnabledKey.has(client.name) &&
     !clientServerForcedEnabled(parsed, PRODUCT_IDENTITY.mcpServerKey)) ||
-  ((parsed.dialect === "zcode" || parsed.dialect === "zcode_fallback") &&
-    registration.enable === false) ||
+  sharedEnableFlagBinds(registration, client, parsed) ||
   clientServerListedDisabled(parsed, PRODUCT_IDENTITY.mcpServerKey)
     ? "disabled"
     : "enabled";
@@ -533,18 +582,28 @@ const unavailableStatus = (
   remediation: remediation(client),
 });
 
-/** Entry presence is independent of whether its target can currently be read. */
+/** Product discovery follows targets; configuration evidence retains entry presence. */
 const clientEvidencePresent = async (
   client: SetupClient,
+  evidence: { readonly selected: boolean; readonly ownership: boolean },
 ): Promise<
   Result<boolean, { readonly path: string; readonly detail: string }>
 > => {
+  // An explicit selection authorises the read outright: the caller named this
+  // client, so an unreadable config must surface as unreadable instead of
+  // collapsing to absence. The probes below serve automatic discovery only.
+  if (evidence.selected) return ok(true);
+  const discoveryPaths = new Set(client.discoveryPaths ?? []);
+  const paths = [
+    ...clientEvidencePaths(client),
+    ...(evidence.ownership ? clientOwnershipEvidencePaths(client) : []),
+  ];
   let unavailable:
     | { readonly path: string; readonly detail: string }
     | undefined;
-  for (const path of clientEvidencePaths(client)) {
+  for (const path of paths) {
     try {
-      await lstat(path);
+      await (discoveryPaths.has(path) ? stat(path) : lstat(path));
       return ok(true);
     } catch (cause: unknown) {
       if (!isMissing(cause))

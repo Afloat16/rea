@@ -1,3 +1,4 @@
+import type { AnalysisSettingLimit } from "./analysisSettings.js";
 import type { JsonValue } from "./jsonValue.js";
 
 /** Stable tags exposed by safe analysis-error projections. */
@@ -57,6 +58,7 @@ export interface AnalysisErrorOptions extends ErrorOptions {
   readonly cleanupPrimary?: AnalysisError | undefined;
   /** Producer-owned, caller-safe facts retained through every typed projection. */
   readonly diagnostics?: Readonly<Record<string, JsonValue>> | undefined;
+  readonly limit?: AnalysisSettingLimit | undefined;
   readonly capturedOutput?: AnalysisCapturedOutput | undefined;
   readonly cleanup?: AnalysisCleanupObservation | undefined;
   readonly partialObservation?: AnalysisPartialObservation | undefined;
@@ -69,6 +71,12 @@ export interface AnalysisCleanupResourceOwner {
 
 /** Base class for expected analysis, provider, and session failures. */
 export abstract class AnalysisError extends Error {
+  limit: Readonly<AnalysisSettingLimit> | undefined;
+  /** Bind the accepted setting at its producing boundary. */
+  bindLimit(limit: AnalysisSettingLimit): this {
+    this.limit = Object.freeze({ ...limit });
+    return this;
+  }
   readonly #cleanupPrimary: AnalysisError | undefined;
   // Undefined means unbound; a bound empty set records confirmed completion.
   #cleanupDependencies: Set<AnalysisError> | undefined;
@@ -87,6 +95,7 @@ export abstract class AnalysisError extends Error {
   constructor(message: string, options?: AnalysisErrorOptions) {
     super(message, options);
     this.#cleanupPrimary = options?.cleanupPrimary;
+    if (options?.limit !== undefined) this.bindLimit(options.limit);
     this.diagnostics =
       options?.diagnostics === undefined
         ? undefined
@@ -268,7 +277,11 @@ import type {
   RecordedCrashPartialObservation,
 } from "./native/recordedCrash.js";
 import type { WebPageInspection } from "./browserObservationSchemas.js";
-import type { WebBundleAnalysis } from "./webBundleAnalysis.js";
+import type {
+  WebBundleAcquisitionPartialObservation,
+  WebBundleAnalysis,
+  WebSourceMapFetchPartialObservation,
+} from "./webBundleAnalysis.js";
 import type { WebExecutionObservation } from "./webExecution.js";
 import type { WebEventListenersObservation } from "./webEventListeners.js";
 
@@ -279,9 +292,11 @@ import type { FileSnapshotPartialObservation } from "./fileSnapshotObservation.j
 import type { WebModuleResolutionObservation } from "./webModuleTrace.js";
 import type { WebNetworkCapture } from "./webNetworkCapture.js";
 import type { FridaDeviceList, FridaProcessList } from "./fridaDiscovery.js";
+import type { CutterBridgeDiscovery } from "./cutterDiscovery.js";
 
 /** Provider-neutral evidence collected before a typed analysis failure. */
 export type AnalysisPartialObservation =
+  | CutterBridgeDiscovery
   | FridaDeviceList
   | FridaProcessList
   | WebModuleResolutionObservation
@@ -296,6 +311,8 @@ export type AnalysisPartialObservation =
   | BrowserScenarioPartialObservation
   | WebPageInspection
   | WebBundleAnalysis
+  | WebBundleAcquisitionPartialObservation
+  | WebSourceMapFetchPartialObservation
   | WebExecutionObservation
   | WebEventListenersObservation
   | JavaScriptRuntimeObservation

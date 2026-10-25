@@ -4,7 +4,7 @@ import { AnalysisCleanupLease } from "../artifacts/AnalysisCleanupLease.js";
 import { resolvedAnalysisError } from "../domain/analysisErrorBase.js";
 import { createDeferred } from "../../tests/fixtures/binarySession.js";
 import { ProviderInspectionScope } from "../providers/ProviderInspectionScope.js";
-import { ok as javaProbeOk } from "../domain/result.js";
+import { ok as javaProbeOk, err, ok } from "../domain/result.js";
 import type { GhidraJavaObservation } from "./GhidraJavaProbe.js";
 import type { GhidraSeedReport } from "./GhidraAnalysisSeeds.js";
 import type { GhidraDisabledAnalyzerReport } from "./GhidraDisabledAnalyzers.js";
@@ -43,7 +43,6 @@ import type { GhidraProviderClientFactory } from "./GhidraProviderClient.js";
 import type { GhidraHeadlessLauncher } from "./GhidraLauncher.js";
 import type { GhidraInstallationHost } from "./GhidraInstallation.js";
 import { GHIDRA_SESSION_CAPABILITIES } from "./GhidraSessionValues.js";
-import { err, ok } from "../domain/result.js";
 import type { Result } from "../domain/result.js";
 import { GhidraSessionError } from "./GhidraSessionError.js";
 import { silentLogger } from "../logger.js";
@@ -1151,7 +1150,7 @@ describe("Ghidra client projection", () => {
       {
         operation: "list_procedures",
         input: { document: null },
-        options: {},
+        options: { decompileTimeoutSeconds: null },
       },
     ]);
     expect(result).toMatchObject({
@@ -1368,7 +1367,7 @@ describe("Ghidra decompiler failure projection", () => {
   it("reports one procedure's decompile limit as a request timeout", async () => {
     const code = "decompile_timed_out";
     const message =
-      "Ghidra decompilation of 0x401000 exceeded the 5-second limit set by REA_GHIDRA_DECOMPILE_TIMEOUT_SECONDS";
+      "Ghidra decompilation of 0x401000 exceeded the 5-second configured decompilation limit (ghidra.decompile_timeout_seconds; launch seed REA_GHIDRA_DECOMPILE_TIMEOUT_SECONDS)";
     const ghidra = provider(
       installationHost(),
       () => ({
@@ -1431,7 +1430,7 @@ describe("Ghidra failures during cancellation cleanup", () => {
         remoteCode: "decompile_timed_out",
         projectedCode: "provider_timeout",
         message:
-          "Ghidra decompilation of 0x401000 exceeded the 5-second limit set by REA_GHIDRA_DECOMPILE_TIMEOUT_SECONDS",
+          "Ghidra decompilation of 0x401000 exceeded the 5-second configured decompilation limit (ghidra.decompile_timeout_seconds; launch seed REA_GHIDRA_DECOMPILE_TIMEOUT_SECONDS)",
       },
       {
         remoteCode: "regex_stack_exhausted",
@@ -3203,17 +3202,20 @@ describe("Ghidra deadline guidance", () => {
       "250 ms startup deadline (REA_GHIDRA_STARTUP_TIMEOUT_MS)",
     );
     expect(projected.remediation.action).toContain(
-      "REA_GHIDRA_STARTUP_TIMEOUT_MS above 250",
+      "ghidra.startup_timeout_ms and action set above 250",
     );
     expect(projected.remediation.action).toContain(
       "REA_GHIDRA_DISABLED_ANALYZERS",
     );
-    expect(projected.remediation.action).toContain("restart REA");
-    expect(projected.remediation.action).toContain("reconnect the MCP client");
-    expect(projected.remediation.action).toContain("export useful Evidence");
-    expect(projected.remediation.action).toContain(
-      "Reopening alone keeps the current server settings",
-    );
+    expect(projected.remediation.action).toContain("without restarting REA");
+    expect(projected.remediation.action).toContain("Export useful Evidence");
+    expect(projected.details).toMatchObject({
+      limit: {
+        setting: "ghidra.startup_timeout_ms",
+        effective_value: 250,
+        applies_at: "next_startup",
+      },
+    });
     expect(projected.remediation.action).not.toContain("rea doctor");
   });
 

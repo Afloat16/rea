@@ -316,24 +316,28 @@ run, use `observe_native_calls` with explicit breakpoints and a bounded
 `duration_ms`/`max_events`. It launches a new process under LLDB, so the target
 runs and may change files or use the network. Hardened-runtime targets need the
 `get-task-allow` entitlement.
-Function breakpoints use exact LLDB runtime names: a Darwin C `_main` static symbol
-may be `main` at runtime. REA does not translate names. Set `module` to the image
+Function breakpoints use exact LLDB runtime names: pass an `inspect_macho` export
+or import `runtime_name` (`main`), not its symbol-table `name` (`_main`). REA does
+not translate breakpoint names. Set `module` to the image
 file name when selecting that image only; otherwise loaded system images also
 match. Inspect retained locations and module paths before attributing a call.
 
 Use `binary_session` with no arguments to check the open target, selected
-provider, and alignment. Its default `result.tool_availability` carries a
-complete inventory grouped by shared facts. Expand each group's `names` and
-inherit the inventory-level client requirements unless a group overrides them;
-availability, reasons, remediation, modes, and flags remain inline. The
-`effects` and `annotations` arrays name true flags from fixed vocabularies, so an
-omitted known flag is false. `tools/list` remains the canonical source for full
-tool schemas when target or provider state changes.
+provider, and alignment. Its default summary `result.tool_availability` carries
+the complete tool inventory grouped by current status. Expand each group's
+`names` and inherit the inventory-level client requirements unless a group
+overrides them; availability, reasons, remediation, and modes remain inline.
+Provider candidates keep availability and target-support status, code, and
+reason. `omitted_fields` names what the summary leaves out; `{"detail":
+"complete"}` adds provider diagnostics, candidate capability sets, and tool
+surface, `effects`, and `annotations`. Those arrays name true flags from fixed
+vocabularies, so an omitted known flag is false. `tools/list` remains the
+canonical source for full tool schemas when target or provider state changes.
 
 Provider capability groups carry provider identity and ordered limitations.
 Prepend each set's `shared_limitations` to a group's `limitations` to recover the
-operation's full ordered list. Candidate capabilities describe possible
-providers. Top-level session capabilities describe the current route, and
+operation's full ordered list. Candidate capabilities, returned with complete
+detail, describe possible providers. Top-level session capabilities describe the current route, and
 `analysis_provider_binding` identifies the selected provider.
 
 ## Ghidra startup deadline recovery
@@ -342,14 +346,18 @@ providers. Top-level session capabilities describe the current route, and
 bridge startup, and readiness. The default 330,000 ms is configurable through
 `REA_GHIDRA_STARTUP_TIMEOUT_MS`; a smaller query still needs the same cold import.
 
-Preserve useful Evidence before closing the session or restarting REA. Check
-`close_binary` and resolve reported cleanup failures. Set a larger startup budget
-in the environment that launches REA, then restart REA and reconnect the MCP
-client before reopening the same target. Closing and reopening a binary in the
-existing server keeps its original configuration and starts import again.
-Environment changes in an agent's shell do not update an already running MCP
-server. If its launch configuration cannot be changed, report that constraint
-and the exact retry setting instead of claiming a fixed technical limit.
+When the error names `ghidra.startup_timeout_ms`, call
+`update_analysis_settings` with `action: "set"` and a larger value within the
+reported bounds. Resolve retained cleanup before the next startup attempt.
+No REA restart is needed; an already accepted startup keeps its original
+budget. A new attempt repeats import. Preserve useful Evidence before closing
+and reopening the target when remediation requires that lifecycle step.
+
+For a per-function timeout, update `ghidra.decompile_timeout_seconds` and retry
+the same function on the existing Program. Explicit `null` removes that
+per-function deadline. Inspection is optional when the error supplies the
+setting and bounds. Runtime updates disappear when REA exits; environment
+changes only seed future REA processes.
 
 The client's tool-call deadline must allow startup plus the requested query;
 server settings and progress notifications cannot override it. CLI analysis

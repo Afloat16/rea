@@ -6,6 +6,17 @@ for the reviewed setup transaction and [client IDs](installation.md#supported-ag
 The versioned verification notes below describe their stated runs; live service
 acceptance is verified only where explicitly recorded.
 
+## Runtime settings and client deadlines
+
+`update_analysis_settings` changes curated defaults inside the running REA
+server. It does not edit the client registration, extend the client's tool-call
+deadline, or recompute timeout values previously derived by `rea setup`. When
+raising a REA startup or operation deadline, separately ensure the client allows
+enough time for the full request. Use `inspect_analysis_settings` for the running
+server's defaults; `rea doctor` checks launch configuration and cannot observe
+another process's runtime overrides. See the
+[settings design](design/limits-and-recovery.md) for ownership and lifetime.
+
 ## Client tool names and discovery
 
 REA advertises canonical names such as `binary_session`. The MCP host decides
@@ -492,6 +503,28 @@ server with `enable: false` on its entry; doctor reports such a registration
 as stale, and rerunning setup removes the flag to repair it. Native configuration
 uses strict JSON; setup refuses comments, trailing commas and a BOM rather than
 writing a registration ZCode cannot load.
+
+## FreeBuff
+
+For FreeBuff, the proposed integration writes `mcpServers.rea` into the user-scope
+`~/.agents/mcp.json` shared-agent file. Entries carry `command`, `args`, and
+`env`; stdio is the default transport. The proposed personal skill location is
+`~/.agents/skills`, so setup installs its skill copy there. Because the same
+file doubles as ZCode's user-scope fallback (see above), a `freebuff`
+registration is also in the file ZCode uses until ZCode defines its own native server.
+Setup and doctor detect FreeBuff from its own profile directory
+(`~/.config/freebuff-desktop`), not from the shared `.agents` folder that
+REA's skill installs create for every client.
+
+The configuration write and personal skill locations are proposed integration
+boundaries. FreeBuff MCP loading and skill discovery have not been verified
+with an installed native FreeBuff client/version; filesystem tests cover REA's
+editing, discovery, and ownership behavior only. Automatic applicability
+requires the FreeBuff profile directory even when the shared MCP file exists.
+
+FreeBuff is main-only and is not in a published release yet; npm 6.7.0 is the
+latest. `rea setup --client freebuff` against `@latest` reports an unsupported
+client until a release containing it is published.
 
 ## DeepSeek Harness
 

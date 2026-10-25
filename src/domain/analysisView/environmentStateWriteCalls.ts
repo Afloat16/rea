@@ -3,11 +3,13 @@ import { digestCanonicalValue } from "../canonicalDigest.js";
 import type { JsonValue } from "../jsonValue.js";
 import { same, type JsonObject } from "./environmentStateRules.js";
 import { storedKinds } from "./environmentStateWriteApply.js";
+import { composedValue } from "./environmentStateWriteComposed.js";
 import type { explainUpdate } from "./environmentStateWriteExplain.js";
-import type {
-  FieldRule,
-  StateWritePlan,
-  WriteBody,
+import {
+  alikeRules,
+  type FieldRule,
+  type StateWritePlan,
+  type WriteBody,
 } from "./environmentStateWriteRules.js";
 import { integerOf, slugOf } from "./environmentStateWriteValues.js";
 
@@ -15,6 +17,7 @@ import { integerOf, slugOf } from "./environmentStateWriteValues.js";
 export const unsentChange = (rule: FieldRule): boolean =>
   rule.rule === "increment" ||
   rule.rule === "slug" ||
+  rule.rule === "composed" ||
   rule.rule === "stamp" ||
   rule.rule === "derived" ||
   rule.rule === "set";
@@ -81,6 +84,14 @@ const observedValue = (value: JsonValue): ObservedValue =>
     ? { kind: "structured", digest: digestCanonicalValue(value) }
     : { kind: "scalar", value };
 
+/** The scalar fields a call showed, as a composed rule reads them. */
+const shownScalars = (shown: ReadonlyMap<string, ObservedValue>): JsonObject =>
+  Object.fromEntries(
+    [...shown].flatMap(([field, observed]) =>
+      observed.kind === "scalar" ? [[field, observed.value]] : [],
+    ),
+  );
+
 const sameObserved = (left: ObservedValue, right: ObservedValue): boolean =>
   left.kind === "structured"
     ? right.kind === "structured" && left.digest === right.digest
@@ -93,7 +104,35 @@ export interface UpdateCall {
   readonly kept: readonly string[];
 }
 
-/** Whether a rule a later call showed gives an earlier call a value other than the one it showed for a field it did not send. */
+/** Ambiguous saves may echo an already-derived slug or hold a clock in its own second. Keep the demonstrated derivation; call evidence still has to reproduce it. */
+export const reconciledUpdateRule = (
+  held: FieldRule,
+  later: FieldRule,
+  kept: ReadonlySet<string>,
+): FieldRule | undefined => {
+  const alike = alikeRules(held, later, kept);
+  if (alike !== undefined) return alike;
+  for (const [derived, ambiguous] of [
+    [held, later],
+    [later, held],
+  ] as const) {
+    if (
+      derived.rule === "slug" &&
+      ambiguous.rule === "echo" &&
+      ambiguous.sorted !== true
+    )
+      return derived;
+    if (
+      derived.rule === "clock" &&
+      ambiguous.rule === "held-clock" &&
+      same(derived.format, ambiguous.format)
+    )
+      return derived;
+  }
+  return undefined;
+};
+
+/** Whether a later rule reproduces earlier calls, including echoes promoted to derivations. */
 export const contradictsEarlierCalls = (
   draft: {
     readonly plan: { readonly rules: readonly FieldRule[] };
@@ -101,11 +140,12 @@ export const contradictsEarlierCalls = (
   },
   rules: readonly FieldRule[],
 ): boolean => {
-  const ruled = new Set(draft.plan.rules.map((rule) => rule.field));
+  const ruled = new Map(draft.plan.rules.map((rule) => [rule.field, rule]));
   return rules.some((rule) => {
     if (
       !(unsentChange(rule) || regenerates(rule) || rule.rule === "clock") ||
-      ruled.has(rule.field)
+      (ruled.has(rule.field) &&
+        !(rule.rule === "slug" && ruled.get(rule.field)?.rule === "echo"))
     )
       return false;
     // Compute a structured rule's digest once, rather than once per earlier call.
@@ -129,10 +169,20 @@ export const contradictsEarlierCalls = (
       if (rule.rule === "stamp") return !sameObserved(observation, expected!);
       if (rule.rule === "derived")
         return sent.has(rule.member) && !sameObserved(observation, expected!);
+      if (rule.rule === "composed") {
+        const value = composedValue(rule.parts, shownScalars(shown));
+        return (
+          value === undefined ||
+          !sameObserved(observation, observedValue(value))
+        );
+      }
       const from = rule.rule === "slug" ? sent.get(rule.from) : undefined;
+      // A slug rule runs only when its source is sent; otherwise serving keeps the field.
       return (
-        typeof from === "string" &&
-        !sameObserved(observation, observedValue(slugOf(from)))
+        rule.rule === "slug" &&
+        (typeof from === "string"
+          ? !sameObserved(observation, observedValue(slugOf(from)))
+          : !kept.includes(rule.field))
       );
     });
   });
@@ -169,6 +219,7 @@ export const refinedBody = (
 export const conflictsWithPlan = (
   plan: Pick<StateWritePlan, "body" | "rules">,
   explained: ReturnType<typeof explainUpdate>,
+  kept: ReadonlySet<string>,
 ): boolean => {
   const body = plan.body!;
   const fixed = new Map(body.fixed.map((entry) => [entry.member, entry.sent]));
@@ -186,7 +237,10 @@ export const conflictsWithPlan = (
     (identity !== null && fixed.has(identity)) ||
     explained.rules.some((rule) => {
       const held = rules.get(rule.field);
-      return held !== undefined && !same(held, rule);
+      return (
+        held !== undefined &&
+        reconciledUpdateRule(held, rule, kept) === undefined
+      );
     })
   );
 };
