@@ -21,6 +21,8 @@ import { isImportMetaUrl } from "./javascriptStaticAnalysisHelpers.js";
 import {
   semanticBindingAtRead,
   semanticEffectFollowsReference,
+  semanticEffectTiming,
+  semanticDefiniteEffectPrecedesReference,
   semanticTopLevelEffectFollowsCapture,
   semanticCaptureActivationIsSingle,
 } from "./javascriptSemanticMutationInitializers.js";
@@ -1005,6 +1007,128 @@ export const isUnmodifiedRequiredWebSocketReference = (
       ) &&
       !semanticTopLevelEffectFollowsCapture(capture, node, state.parentsByNode),
   );
+};
+
+/** Match lexical global identity; null denotes a direct global root. */
+const globalReferenceNamespace = (
+  callee: t.Node,
+  state: JavaScriptSemanticAnalysisState,
+  path: readonly [string, ...string[]],
+): string | null | undefined => {
+  const { root, members } = electronMemberPath(callee);
+  const matches = (expected: readonly string[]) =>
+    members.length === expected.length &&
+    members.every((key, index) => key === expected[index]);
+  if (isUnshadowedGlobal(root, state, path[0]) && matches(path.slice(1)))
+    return null;
+  const namespace = globalObjectName(root, state);
+  return namespace !== undefined && matches(path) ? namespace : undefined;
+};
+
+export type GlobalReferenceRead =
+  | { readonly status: "unmodified" | "unrelated" | "unknown" }
+  | { readonly status: "replacement"; readonly value: t.Expression };
+
+/** Reuse retained write provenance and activation ordering at a selected read.
+ * The reader retains only matching effects, refreshing when their owner grows.
+ * Missing timing, possibly repeated activations, conditional replacements and
+ * parent writes stay unknown. */
+export const createGlobalReferenceReader = (
+  state: JavaScriptSemanticAnalysisState,
+  path: readonly [string, ...string[]],
+): ((callee: t.Node) => GlobalReferenceRead) => {
+  const selected = ["global", ...path];
+  let generation = -1;
+  const byNamespace = new Map<
+    string | null,
+    typeof state.ambientReferenceEffects
+  >();
+  const matches = (
+    effect: (typeof state.ambientReferenceEffects)[number],
+    target: readonly string[],
+  ) =>
+    effect.path.length <= target.length &&
+    effect.path.every((key, index) =>
+      semanticPropertyPathKeyMatches(key, target[index]!),
+    );
+  return (callee) => {
+    const namespace = globalReferenceNamespace(callee, state, path);
+    if (namespace === undefined) return { status: "unrelated" };
+    if (
+      !state.ambientWrites.covers(selected) &&
+      (namespace === null || !state.ambientWrites.covers(["global", namespace]))
+    )
+      return { status: "unmodified" };
+    if (generation !== state.ambientReferenceEffects.length) {
+      generation = state.ambientReferenceEffects.length;
+      byNamespace.clear();
+    }
+    let effects = byNamespace.get(namespace);
+    if (effects === undefined) {
+      effects = state.ambientReferenceEffects.filter(
+        (effect) =>
+          effect.kind === "write" &&
+          (matches(effect, selected) ||
+            (namespace !== null && matches(effect, ["global", namespace]))),
+      );
+      byNamespace.set(namespace, effects);
+    }
+    if (effects.length === 0) return { status: "unknown" };
+    const active = effects.filter(
+      (effect) => semanticEffectTiming(callee, effect.node, state) !== "after",
+    );
+    if (active.length === 0) return { status: "unmodified" };
+    if (
+      active.some(
+        (effect) =>
+          effect.path.length !== selected.length ||
+          !effect.path.every((key, index) => key === selected[index]),
+      )
+    )
+      return { status: "unknown" };
+    let replacement: t.AssignmentExpression | undefined;
+    for (const effect of active) {
+      const write = effect.node;
+      const writeNamespace = t.isAssignmentExpression(write)
+        ? globalReferenceNamespace(write.left, state, path)
+        : undefined;
+      if (
+        t.isAssignmentExpression(write, { operator: "=" }) &&
+        writeNamespace !== undefined &&
+        (writeNamespace === null ||
+          !state.ambientWrites.covers(["global", writeNamespace])) &&
+        semanticDefiniteEffectPrecedesReference(
+          write,
+          callee,
+          state.parentsByNode,
+        ) &&
+        (replacement === undefined ||
+          semanticDefiniteEffectPrecedesReference(
+            replacement,
+            write,
+            state.parentsByNode,
+          ))
+      )
+        replacement = write;
+    }
+    if (replacement === undefined) return { status: "unknown" };
+    const confirmed = replacement;
+    if (
+      active.some(
+        (effect) =>
+          effect.node !== confirmed &&
+          semanticEffectTiming(confirmed, effect.node, state) !== "before" &&
+          (effect.node === undefined ||
+            !semanticDefiniteEffectPrecedesReference(
+              effect.node,
+              confirmed,
+              state.parentsByNode,
+            )),
+      )
+    )
+      return { status: "unknown" };
+    return { status: "replacement", value: confirmed.right };
+  };
 };
 
 /** A module URL base is known only while its property has no visible write. */

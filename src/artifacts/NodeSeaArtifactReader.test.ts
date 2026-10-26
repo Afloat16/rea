@@ -1,3 +1,7 @@
+import { createHash } from "node:crypto";
+import { writeFileSync } from "node:fs";
+import { buffer } from "node:stream/consumers";
+import { createReader } from "./inventory/reader.js";
 import { open, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { setImmediate } from "node:timers";
@@ -107,6 +111,27 @@ it.each([
     (node) => node.size === Buffer.byteLength(script),
   );
   expect(scriptNode).toBeDefined();
+  const direct = new NodeSeaArtifactReader(path);
+  try {
+    for await (const entry of direct.entries()) {
+      const occurrence = snapshot.occurrences.find(
+        (row) => row.logical_path === entry.path,
+      );
+      expect(occurrence?.format_metadata).toEqual(entry.formatMetadata);
+      const member = await buffer(await direct.open(entry));
+      expect(
+        snapshot.nodes.find(
+          (node) => node.artifact_id === occurrence?.artifact_id,
+        ),
+      ).toMatchObject({
+        sha256: createHash("sha256").update(member).digest("hex"),
+        size: member.length,
+      });
+    }
+    expect(direct.formatMetadata()).toEqual(root?.format_metadata);
+  } finally {
+    await direct.close();
+  }
 });
 
 it("accepts the __NODE_SEA segment spelling and a universal Mach-O slice", async () => {
@@ -544,6 +569,23 @@ it("retains source asset spelling separately from normalized graph paths", async
   ).toMatchObject({ role: "asset", source_path: "data/cafe\u0301.txt" });
 });
 
+it("leaves Mach-O carriers with unreadable command framing unrecognized", async () => {
+  for (const littleEndian of [true, false]) {
+    const bytes = nodeSeaMachO({ littleEndian });
+    if (littleEndian) bytes.writeUInt32LE(bytes.length, 20);
+    else bytes.writeUInt32BE(bytes.length, 20);
+    const handle = await open(
+      await writeCarrier("command-framing", bytes),
+      "r",
+    );
+    try {
+      expect(await locateNodeSea(handle, bytes.length)).toBeUndefined();
+    } finally {
+      await handle.close();
+    }
+  }
+});
+
 it("rejects missing Mach-O load commands after a confirmed SEA section", async () => {
   const bytes = nodeSeaMachO();
   bytes.writeUInt32LE(2, 16);
@@ -658,5 +700,129 @@ it.each(["cancel", "close"] as const)(
       observer.mockRestore();
       await reader.close();
     }
+  },
+);
+
+it.each(["__TEXT", "NODE_SEA"])(
+  "keeps an incomplete %s segment unrecognized before SEA admission",
+  async (name) => {
+    const bytes = Buffer.alloc(32 + 24);
+    bytes.writeUInt32LE(0xfeedfacf, 0);
+    bytes.writeUInt32LE(0x0100000c, 4);
+    bytes.writeUInt32LE(1, 16);
+    bytes.writeUInt32LE(24, 20);
+    bytes.writeUInt32LE(0x19, 32);
+    bytes.writeUInt32LE(24, 36);
+    bytes.write(name, 40, "latin1");
+    const handle = await open(
+      await writeCarrier("incomplete-segment", bytes),
+      "r",
+    );
+    try {
+      expect(await locateNodeSea(handle, bytes.length)).toBeUndefined();
+    } finally {
+      await handle.close();
+    }
+  },
+);
+
+it("retains SEA admission for a complete segment with a nonaligned command size", async () => {
+  const original = nodeSeaMachO();
+  const commandSize = original.readUInt32LE(20);
+  const payloadAt = 32 + commandSize;
+  const bytes = Buffer.concat([
+    original.subarray(0, payloadAt),
+    Buffer.alloc(1),
+    original.subarray(payloadAt),
+  ]);
+  bytes.writeUInt32LE(commandSize + 1, 20);
+  bytes.writeUInt32LE(commandSize + 1, 32 + 4);
+  bytes.writeBigUInt64LE(BigInt(payloadAt + 1), 32 + 40);
+  bytes.writeUInt32LE(payloadAt + 1, 32 + 72 + 48);
+  const handle = await open(
+    await writeCarrier("unaligned-command", bytes),
+    "r",
+  );
+  try {
+    expect(await locateNodeSea(handle, bytes.length)).toEqual({
+      carrier: "mach-o",
+      blobOffset: payloadAt + 1,
+      blobLength: Number(original.readBigUInt64LE(32 + 72 + 40)),
+    });
+  } finally {
+    await handle.close();
+  }
+});
+
+it.each([0xfeedface, 0xfeedfacf, 0xcefaedfe, 0xcffaedfe])(
+  "classifies four-byte thin magic %i without admitting a truncated SEA carrier",
+  async (magic) => {
+    const bytes = Buffer.alloc(4);
+    bytes.writeUInt32BE(magic);
+    const path = await writeCarrier("thin-prefix", bytes);
+    const inventory = await scanCanonicalArtifactInventory(path);
+    expect(inventory.manifest.root_format).toBe("mach-o");
+    const handle = await open(path, "r");
+    try {
+      expect(await locateNodeSea(handle, bytes.length)).toBeUndefined();
+    } finally {
+      await handle.close();
+    }
+  },
+);
+
+it("confirms SEA naming before rejecting an unrelated cyclic PE resource branch", async () => {
+  const fixture = peResourceFixture(true, [
+    { type: 3, name: 1, language: 1033, payload: Buffer.from("other") },
+    {
+      type: 10,
+      name: "NODE_SEA_BLOB",
+      language: 1033,
+      payload: buildNodeSeaBlob(populated),
+    },
+  ]);
+  const other = fixture.entryOffsets.find(
+    (at) => fixture.bytes.readUInt32LE(at) === 3,
+  );
+  if (other === undefined) throw new Error("Expected unrelated resource type");
+  fixture.bytes.writeUInt32LE(0x80000000, other + 4);
+  const handle = await open(
+    await writeCarrier("sea-with-unrelated-cycle", fixture.bytes),
+    "r",
+  );
+  try {
+    await expect(
+      locateNodeSea(handle, fixture.bytes.length),
+    ).rejects.toMatchObject({ reason: "format" });
+  } finally {
+    await handle.close();
+  }
+});
+
+it.each(["valid replacement", "malformed blob"] as const)(
+  "rejects post-classification carrier mutation before publishing Node SEA facts: %s",
+  async (mode) => {
+    const blob = buildNodeSeaBlob(populated);
+    const original = nodeSeaElf({ blob, fuse: "set" });
+    const changed =
+      mode === "valid replacement"
+        ? buildNodeSeaBlob({ ...populated, main: script.toUpperCase() })
+        : Buffer.from(blob);
+    if (mode === "malformed blob") changed[0] = (changed[0] ?? 0) ^ 0xff;
+    const replacement = nodeSeaElf({ blob: changed, fuse: "set" });
+    expect(replacement.length).toBe(original.length);
+    const path = await writeCarrier("classification-mutation", original);
+    let created: NodeSeaArtifactReader | undefined;
+    await expect(
+      scanCanonicalArtifactInventory(path, {}, (...args) => {
+        expect(args[1]).toBe("node-sea");
+        writeFileSync(args[0], replacement);
+        const reader = createReader(...args);
+        if (reader instanceof NodeSeaArtifactReader) created = reader;
+        return reader;
+      }),
+    ).rejects.toMatchObject({ reason: "integrity" });
+    expect(created).toBeInstanceOf(NodeSeaArtifactReader);
+    expect(created?.formatMetadata()).toBeUndefined();
   },
 );

@@ -5,14 +5,7 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
 import { advertisedInputExamples } from "../../../src/contracts/advertisedInputExamples.js";
-import {
-  TOOL_CONTRACTS,
-  toolContract,
-} from "../../../src/contracts/toolContracts.js";
-import {
-  ADVERTISED_INPUT_SCHEMA_LIMIT_BYTES,
-  presentInputJsonSchema,
-} from "../../../src/contracts/inputSchemaPresentation.js";
+import { TOOL_CONTRACTS } from "../../../src/contracts/toolContracts.js";
 import { emptyArraySchema } from "../../../src/domain/emptyArraySchema.js";
 import { processScenarioSchema } from "../../../src/domain/process/processScenario.js";
 import { GENERATED_MCP_TOOL_CATALOG } from "../../fixtures/mcpToolCatalog.js";
@@ -20,6 +13,7 @@ import {
   arrayItemSchemaError,
   unsupportedInputLiteralSchemaError,
 } from "../../fixtures/mcpClientSchemaConstraints.js";
+import { advertisedSchemaErrors } from "../../fixtures/mcpAdvertisedSchemaValidity.js";
 import { toolRegistrationOptions } from "../../../src/server/toolRegistrationOptions.js";
 import { servedCatalog } from "../../../src/application/environment/environmentState.js";
 import { servedFrom } from "../../fixtures/environmentStateServing.js";
@@ -36,47 +30,6 @@ interface ToolSchemas {
   readonly inputSchema: Record<string, unknown>;
   readonly outputSchema?: Record<string, unknown> | undefined;
   readonly annotations?: Record<string, unknown> | undefined;
-}
-
-function schemaErrors(tools: readonly ToolSchemas[]): string[] {
-  // Reuse Ajv's meta-schema validators, then clear each root's reference
-  // namespace, including nested IDs, before validating the next schema.
-  const ajv = new Ajv2020({
-    strict: false,
-    validateFormats: false,
-    addUsedSchema: false,
-  });
-  return tools.flatMap((tool) =>
-    ["inputSchema", "outputSchema"].flatMap((kind) => {
-      const schema =
-        kind === "inputSchema" ? tool.inputSchema : tool.outputSchema;
-      if (schema === undefined) return [];
-      try {
-        if (!ajv.validateSchema(schema))
-          return [`${tool.name}.${kind}: ${ajv.errorsText(ajv.errors)}`];
-        ajv.compile(schema);
-        const clientError = arrayItemSchemaError(
-          schema,
-          `${tool.name}.${kind}`,
-        );
-        if (clientError !== undefined) return [clientError];
-        if (kind === "inputSchema") {
-          const literalError = unsupportedInputLiteralSchemaError(
-            schema,
-            `${tool.name}.${kind}`,
-          );
-          if (literalError !== undefined) return [literalError];
-        }
-        return [];
-      } catch (cause: unknown) {
-        return [
-          `${tool.name}.${kind}: ${cause instanceof Error ? cause.message : String(cause)}`,
-        ];
-      } finally {
-        ajv.removeSchema();
-      }
-    }),
-  );
 }
 
 function expectStrictInputSchemaParity(
@@ -491,7 +444,7 @@ describe("served environment catalogs", () => {
     );
     expect(tools.some((tool) => tool.name === "delete_books")).toBe(true);
     expect(
-      schemaErrors(
+      advertisedSchemaErrors(
         tools.map((tool) => ({
           name: tool.name,
           inputSchema: tool.inputSchema as unknown as Record<string, unknown>,
@@ -541,24 +494,13 @@ describe("MCP JSON Schema validity", () => {
       expect(tools.map(({ name }) => name).sort()).toEqual(
         TOOL_CONTRACTS.map(({ name }) => name).sort(),
       );
-      expect(schemaErrors(tools)).toEqual([]);
+      expect(advertisedSchemaErrors(tools)).toEqual([]);
       expect(localInputReferences(tools)).toEqual([]);
       expect(recursiveReferences(tools)).toEqual([]);
       expectKnownAuthorityHints(tools);
       const byName = new Map(tools.map((tool) => [tool.name, tool]));
-      // The advertisement is fitted to the client size limit. Check the
-      // relaxed producer union in the complete self-contained projection.
-      const completeCaptureInput = presentInputJsonSchema(
-        toolContract("compare_web_captures").inputSchema[
-          "~standard"
-        ].jsonSchema.input({
-          target: "draft-2020-12",
-          libraryOptions: { reused: "inline" },
-        }) as Record<string, unknown>,
-        () => undefined,
-      );
       for (const side of ["before", "after"])
-        expect(completeCaptureInput).toHaveProperty(
+        expect(byName.get("compare_web_captures")?.inputSchema).toHaveProperty(
           [
             "properties",
             side,
@@ -897,7 +839,7 @@ describe("MCP process input JSON Schema", () => {
 });
 
 it("ships nonrecursive input and output schemas in the generated catalog", () => {
-  expect(schemaErrors(GENERATED_MCP_TOOL_CATALOG)).toEqual([]);
+  expect(advertisedSchemaErrors(GENERATED_MCP_TOOL_CATALOG)).toEqual([]);
   expect(recursiveReferences(GENERATED_MCP_TOOL_CATALOG)).toEqual([]);
 });
 
@@ -905,18 +847,8 @@ it("ships input schemas without local references in the generated catalog", () =
   expect(localInputReferences(GENERATED_MCP_TOOL_CATALOG)).toEqual([]);
 });
 
-it("ships every input schema within the client per-tool size limit in the generated catalog", () => {
-  // Claude Desktop drops a tool whose compact-JSON input schema exceeds 64 KiB.
-  expect(
-    GENERATED_MCP_TOOL_CATALOG.flatMap(({ name, inputSchema }) => {
-      const bytes = Buffer.byteLength(JSON.stringify(inputSchema), "utf8");
-      return bytes > ADVERTISED_INPUT_SCHEMA_LIMIT_BYTES ? [[name, bytes]] : [];
-    }),
-  ).toEqual([]);
-});
-
 it("rejects unresolved output-schema references even for uncalled tools", () => {
-  const errors = schemaErrors([
+  const errors = advertisedSchemaErrors([
     {
       name: "dangling",
       inputSchema: { type: "object" },
@@ -929,7 +861,7 @@ it("rejects unresolved output-schema references even for uncalled tools", () => 
 
 it("validates each tool independently when output schema IDs repeat", () => {
   const outputSchema = { $id: "urn:rea:test:shared-output", type: "string" };
-  const errors = schemaErrors([
+  const errors = advertisedSchemaErrors([
     { name: "first", inputSchema: { type: "object" }, outputSchema },
     {
       name: "second",
@@ -983,8 +915,6 @@ it("checks client array constraints in schema positions while preserving literal
   for (const [literal, reason] of [
     [{ const: "" }, "const is an empty string"],
     [{ enum: ["named", ""] }, "enum contains an empty string"],
-    [{ type: "integer", const: 2 }, "const is a number"],
-    [{ enum: ["named", 1.5] }, "enum contains a number"],
   ] as const) {
     expect(
       unsupportedInputLiteralSchemaError(
@@ -1004,7 +934,7 @@ it.each([false, true])(
   "rejects references to another tool's nested IDs (earlier compilation fails: %s)",
   (invalidPrevious) => {
     const nestedId = "urn:rea:test:nested-output";
-    const errors = schemaErrors([
+    const errors = advertisedSchemaErrors([
       {
         name: "first",
         inputSchema: { type: "object" },

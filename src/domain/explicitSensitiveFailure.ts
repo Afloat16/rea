@@ -1,8 +1,10 @@
+import { EvidenceFileError } from "./evidenceErrors.js";
 import type { AnalysisError } from "./analysisErrorBase.js";
 import {
   AnalysisAccessDeniedError,
   AnalysisArtifactChangedError,
   AnalysisInputError,
+  type AnalysisInputIssue,
   AnalysisOutputError,
   AnalysisCapabilityUnavailableError,
   AnalysisResourceConstraintError,
@@ -14,6 +16,39 @@ import { redactExplicitText } from "./explicitSensitiveValues.js";
 import type { JsonValue } from "./jsonValue.js";
 import { ProviderAdapterError } from "./providerAdapterError.js";
 import { ProviderCleanupError } from "./providerCleanupError.js";
+import {
+  fileSnapshotPartialObservationSchema,
+  type FileSnapshotPartialObservation,
+} from "./fileSnapshotObservation.js";
+
+/** Exclude whole identity values; redacted text is no longer a path or digest. */
+const excludeSnapshotIdentity = (
+  value: unknown,
+  values: readonly string[],
+): FileSnapshotPartialObservation | undefined => {
+  if (
+    value === null ||
+    typeof value !== "object" ||
+    !("kind" in value) ||
+    (value.kind !== "file-snapshot-hash" && value.kind !== "file-snapshot-read")
+  )
+    return undefined;
+  const parsed = fileSnapshotPartialObservationSchema.safeParse(value);
+  if (!parsed.success) return undefined;
+  const snapshot = parsed.data;
+  const exclude = (identity: string | null): string | null =>
+    identity !== null &&
+    values.some((literal) => literal !== "" && identity.includes(literal))
+      ? null
+      : identity;
+  const path = exclude(snapshot.path);
+  if (snapshot.kind === "file-snapshot-hash") {
+    const sha256 = exclude(snapshot.sha256);
+    return { ...snapshot, path, sha256 };
+  }
+  const admitted_sha256 = exclude(snapshot.admitted_sha256);
+  return { ...snapshot, path, admitted_sha256 };
+};
 
 /** Keep a real JSON-pointer ancestor when a property identity is explicitly excluded. */
 export const redactExplicitPointer = (
@@ -41,9 +76,11 @@ export const redactExplicitFailure = (
   values: readonly string[],
 ): AnalysisError => {
   if (values.length === 0) return error;
+  const snapshot = excludeSnapshotIdentity(error.partialObservation, values);
+  if (snapshot !== undefined) error.partialObservation = snapshot;
   const redacted = redactFailure(error, values);
-  // Observation owners already apply format-aware exclusions. Keep their facts
-  // and identity across every diagnostic replacement, including input/capacity.
+  // Other observation owners already apply their format-aware exclusions.
+  // Keep those facts across diagnostic replacements, including input/capacity.
   if (redacted !== error && error.partialObservation !== undefined)
     redacted.retainPartialObservation(error.partialObservation);
   return redacted === error
@@ -86,11 +123,25 @@ const redactFailure = (
         .map(([key, item]) => [key, visit(item)]),
     );
   const visit = (value: JsonValue): JsonValue => {
+    const snapshot = excludeSnapshotIdentity(value, values);
+    if (snapshot !== undefined) return snapshot;
     if (typeof value === "string") return text(value);
     if (Array.isArray(value)) return value.map(visit);
     if (typeof value === "object" && value !== null) return diagnostics(value);
     return value;
   };
+  const issueProjection = (issue: AnalysisInputIssue): AnalysisInputIssue => ({
+    ...issue,
+    // Unknown arguments are literal names, not producer JSON pointers.
+    path: path(issue.path, issue.reason === "unknown_argument"),
+    ...(issue.message === undefined ? {} : { message: text(issue.message) }),
+    ...(issue.expected === undefined
+      ? {}
+      : { expected: visit(issue.expected) }),
+    ...(issue.observed === undefined
+      ? {}
+      : { observed: visit(issue.observed) }),
+  });
   const context = {
     cause: error,
     ...(error.limit === undefined ? {} : { limit: error.limit }),
@@ -120,6 +171,33 @@ const redactFailure = (
           },
         }),
   };
+  if (error instanceof EvidenceFileError) {
+    const identity = (value: string | undefined): string | undefined =>
+      value !== undefined &&
+      values.some((literal) => literal !== "" && value.includes(literal))
+        ? undefined
+        : value;
+    const retainedPath = identity(error.path);
+    const publishedPath = identity(error.published?.path);
+    return new EvidenceFileError(error.operation, error.reason, {
+      ...context,
+      ...(retainedPath === undefined ? {} : { path: retainedPath }),
+      ...(error.userMessage === undefined
+        ? {}
+        : { userMessage: text(error.userMessage) }),
+      ...(error.published === undefined
+        ? {}
+        : {
+            published: {
+              bytes: error.published.bytes,
+              ...(publishedPath === undefined ? {} : { path: publishedPath }),
+            },
+          }),
+      ...(error.contentIssues === undefined
+        ? {}
+        : { contentIssues: error.contentIssues.map(issueProjection) }),
+    });
+  }
   if (error instanceof AnalysisCancelledError)
     return new AnalysisCancelledError(error.operation, {
       ...context,
@@ -153,21 +231,7 @@ const redactFailure = (
     return new AnalysisInputError(
       error.operation,
       context,
-      error.issues.map((issue) => ({
-        ...issue,
-        // Unknown-argument paths contain literal field names, including names
-        // beginning with '/'; they are not producer JSON-pointer coordinates.
-        path: path(issue.path, issue.reason === "unknown_argument"),
-        ...(issue.message === undefined
-          ? {}
-          : { message: text(issue.message) }),
-        ...(issue.expected === undefined
-          ? {}
-          : { expected: visit(issue.expected) }),
-        ...(issue.observed === undefined
-          ? {}
-          : { observed: visit(issue.observed) }),
-      })),
+      error.issues.map(issueProjection),
     );
   if (error instanceof AnalysisOutputError)
     return new AnalysisOutputError(

@@ -1,3 +1,4 @@
+import type { ManagedMethodImplementationFlags } from "./ManagedMethodDefinitionRows.js";
 import {
   admitManagedProjection,
   type ManagedDecodeBudget,
@@ -84,10 +85,7 @@ const readMethodBodyHeader = (
 };
 
 export interface MethodBodyContext {
-  readonly implementation: {
-    readonly implFlags: number;
-    readonly flags: number;
-  };
+  readonly implementation: ManagedMethodImplementationFlags;
   readonly budget: ManagedDecodeBudget;
   readonly metadataLayout: ManagedMetadataLayout;
   readonly methodToken: string;
@@ -122,8 +120,9 @@ export const methodBody = (
       issues,
     };
   const native =
-    (context.implementation.implFlags & 7) !== 0 ||
-    (context.implementation.flags & 0x2000) !== 0;
+    context.implementation.codeType !== "il" ||
+    context.implementation.managedKind !== "managed" ||
+    context.implementation.pinvokeFlag;
   if (native) {
     const issue =
       "CIL decoding is unavailable for native, runtime, unmanaged, or P/Invoke implementations";
@@ -136,8 +135,10 @@ export const methodBody = (
     };
   }
   try {
-    const offset = pe.rvaToOffset(rva, 1, "method.body");
-    const methodExtent = pe.rvaAvailableBytes(rva, "method.body");
+    const { offset, available: methodExtent } = pe.rvaFileRange(
+      rva,
+      "method.body",
+    );
     const header = readMethodBodyHeader(bytes, offset);
     if (
       header.size > methodExtent ||

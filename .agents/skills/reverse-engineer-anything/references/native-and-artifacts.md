@@ -13,6 +13,13 @@ Select columns, batch IDs and page individual facts; aliases remain unresolved.
 Unpaired observations do not prove additions/removals. Existing matched dossier
 pairs include inputs for `compare_functions`; otherwise analyze just chosen pairs.
 
+For a matching representation refusal, inspect `details.limit` and raise
+`native.matching_representation_bytes` with `update_analysis_settings` before
+retrying the unchanged MCP request. CLI launch seed:
+`REA_NATIVE_MATCHING_REPRESENTATION_BYTES`. The default is 96 MiB; the policy
+range is 1 byte to 1 GiB and does not bound process RSS. Keep the complete
+inventories: splitting them changes global name/body uniqueness.
+
 ## Apple app resources
 
 Use `open_bundle_resources` with the selected app path, then `inspect_plist`,
@@ -340,6 +347,19 @@ operation's full ordered list. Candidate capabilities, returned with complete
 detail, describe possible providers. Top-level session capabilities describe the current route, and
 `analysis_provider_binding` identifies the selected provider.
 
+## Reuse caller-selected Ghidra analysis
+
+When the caller supplies an expanded project, configure `REA_GHIDRA_PROJECT_PATH`
+(the `.gpr` marker) and optionally `REA_GHIDRA_PROGRAM_NAME` (one root program),
+then restart/reconnect before `open_binary`. CLI uses the same configuration.
+REA opens only a fingerprint-bound owned copy with `-process -noanalysis -readOnly`;
+original project files are not opened by the engine or saved. Database edits,
+import overrides and repair scripts are unavailable in this mode. Treat original
+analysis completeness/settings as unknown and prior edits as caller-project state.
+The program's recorded import digest must match the target; changed project content
+requires reopening for a fresh profile. See the
+[setup and preparation guide](https://github.com/morluto/rea/blob/main/docs/installation.md#reuse-an-existing-ghidra-project).
+
 ## Ghidra startup deadline recovery
 
 `provider_timeout` during the first Ghidra query can cover import, auto-analysis,
@@ -403,6 +423,21 @@ encoded in bounded batches.
 The 25000 ms Cutter request deadline and the 256-candidate discovery budget
 still have no runtime override.
 
+## Selected native facts and call graphs
+
+For a large `get_call_graph`, or repeated `procedure_address`,
+`procedure_callees`, `procedure_callers` and `resolve_containing_procedure`
+queries, select `detail: "summary"` when the first 64 recorded observations
+suffice. Read further `native-observation` pages from the returned parent Evidence
+ID. Graph message IDs index that page's exact-text dictionary; keep level,
+source index, failed nodes, and partial/unknown relationship coverage.
+Read referenced source context through `native-context` facets `overview`,
+`analysis-profile`, `limitations` and `result-limitations`. Reuse inspected
+context/profile values only for the same digest; until caveats are read,
+interpretation beyond the returned facts remains unknown. Complete Evidence
+remains retained and exportable. Small complete replies can cost fewer tokens
+than additional context/page calls; count the completed task and discovery.
+
 ## Static memory and original file bytes
 
 For Ghidra, `read_bytes` reads initialized analysis memory, including loader
@@ -429,6 +464,14 @@ For an admitted DOS MZ target, use `inspect_native_load_image` to check measured
 loaded bytes, file mappings, relocations and the entry against the immutable
 snapshot. Keep `mismatch` and `unsupported` explicit. Verified import covers the
 reported static image, not runtime DOS or PC-98 hardware behavior.
+
+For a large load-image report, select `detail: "summary"` and query its
+`parent_evidence_id` with `inspect_analysis_view` kind `native-load-image`.
+Choose a collection such as `relocations` or `mappings`, select only needed
+fields, and page with offset/limit. Original indices preserve same-address
+alternatives. Null collections remain unrecorded or inapplicable; paging does
+not upgrade unsupported verification. CLI requires `--evidence_output` for
+summary delivery so complete source Evidence remains accessible.
 
 For Ghidra decompilation, `procedure_pseudo_code` also accepts `procedure: "file-offset:0x..."`; CLI `rea decompile <path> --file-offset=0x... --provider ghidra` resolves the source byte offset internally. An unresolved 0x-prefixed numeric procedure selector also falls back to a unique file mapping. Existing symbols and analysis addresses win; multiple mappings fail as ambiguous. Preserve the returned file-offset and address locations and raw selection observations. ELF virtual addresses are distinct from file offsets; never assume an arbitrary offset plus image base is an analysis address.
 
@@ -560,6 +603,7 @@ discovery are unsupported. Windows Ghidra P0 admits raw images only for `6502`. 
 
 ### Function annotations in Ghidra
 
+Fresh-import sessions admit annotations; existing-project reuse is read-only.
 Use `annotate_native_function` for one function name and/or entry comments, with at least one explicit change. Review its annotation readback and refreshed dossier inline. Changes are atomic and session-scoped; empty comments clear them, omitted fields preserve them. Later MCP calls observe edits until close. CLI `annotate-native-function` returns the updated analysis before discarding the session. Original executable bytes are unchanged; edits invalidate immutable snapshots. Windows P0 does not admit database mutations. For naming only, `set_address_name` / `set_addresses_names` also work with Ghidra: they name function entries or data addresses (primary labels) and return compact per-address success booleans instead of a dossier.
 
 ## Offline PE resource inventory

@@ -1,4 +1,17 @@
 import {
+  nativeObservationViewRequestSchema,
+  nativeContextViewRequestSchema,
+  nativeObservationItemsSchemas,
+  nativeContextItemsSchemas,
+  nativeSourceContextReferenceSchema,
+  nativeObservationOperationSchema,
+} from "./nativeObservationSchemas.js";
+import {
+  NATIVE_OBSERVATION_OPERATIONS,
+  type NativeObservationOperation,
+} from "../native/nativeObservation.js";
+import { projectNativeObservationView } from "./nativeObservationView.js";
+import {
   devicetreeViewRequestSchema,
   devicetreeViewItemsSchema,
   devicetreeSummarySchema,
@@ -48,6 +61,14 @@ import {
   javaScriptRoutesSourceReferenceSchema,
   projectJavaScriptRoutesView,
 } from "./javascriptRoutesView.js";
+import {
+  webBundleViewRequestSchema,
+  webBundleViewItemsSchema,
+  webBundleSummarySchema,
+  projectWebBundleView,
+} from "./webBundleView.js";
+import { webBundleAnalysisSchema } from "../webBundleAnalysis.js";
+import { recordedBrowserOriginSchema } from "../browserObservation.js";
 import { javaScriptRouteInventorySchema } from "../javascript/javascriptRouteInventory.js";
 import {
   sourceToBundleViewRequestSchema,
@@ -111,10 +132,10 @@ import {
 import {
   nativeInventoryViewRequestSchema,
   nativeInventoryViewRowSchema,
-  nativeInventoryViewContext,
   nativeInventorySummarySchema,
   projectNativeInventoryView,
 } from "./nativeInventoryView.js";
+import { nativeViewSourceContext } from "./nativeViewContext.js";
 import {
   NATIVE_INVENTORY_OPERATIONS,
   nativeInventoryOperationSchema,
@@ -129,6 +150,12 @@ import {
   browserScenarioViewRequestSchema,
 } from "./browserScenarioViewSchemas.js";
 import { projectBrowserScenarioView } from "./browserScenarioView.js";
+import {
+  nativeLoadImageViewRequestSchema,
+  nativeLoadImageViewItemsSchema,
+  nativeLoadImageSummarySchema,
+  projectNativeLoadImageView,
+} from "./nativeLoadImageView.js";
 import {
   desktopViewRequestSchema,
   desktopViewItemsSchema,
@@ -369,11 +396,14 @@ const nativeViewSchema = z.strictObject({
 
 /** Caller-selected projection of already completed analysis Evidence. */
 export const analysisViewRequestSchema = z.discriminatedUnion("kind", [
+  nativeObservationViewRequestSchema,
+  nativeContextViewRequestSchema,
   devicetreeViewRequestSchema,
   erlangBeamViewRequestSchema,
   pythonPycViewRequestSchema,
   nativeExportsViewRequestSchema,
   javaScriptRoutesViewRequestSchema,
+  webBundleViewRequestSchema,
   nativeFunctionMatchingViewRequestSchema,
   sourceToBundleViewRequestSchema,
   summaryViewSchema,
@@ -387,6 +417,7 @@ export const analysisViewRequestSchema = z.discriminatedUnion("kind", [
   javascriptFactsViewRequestSchema,
   nativeViewSchema,
   nativeInventoryViewRequestSchema,
+  nativeLoadImageViewRequestSchema,
   artifactInventoryViewRequestSchema,
   wasmViewRequestSchema,
   machoViewRequestSchema,
@@ -527,6 +558,7 @@ const viewResultBase = {
     "inspect_model_artifact",
     "inspect_gpu_code_objects",
     ...NATIVE_INVENTORY_OPERATIONS,
+    ...NATIVE_OBSERVATION_OPERATIONS,
     "match_native_functions",
   ]),
   parent_digest: digestSchema,
@@ -542,6 +574,79 @@ const summaryViewResultBase = {
   view: summaryViewSchema,
   ...viewResultBase,
 } as const;
+
+const nativeObservationSummaryFor = <
+  Operation extends NativeObservationOperation,
+>(
+  operation: Operation,
+) =>
+  z.strictObject({
+    ...summaryViewResultBase,
+    ...nativeViewSourceContext,
+    artifact: artifactSchema.nullable(),
+    parent_operation: z.literal(operation),
+    source_context: nativeSourceContextReferenceSchema,
+    summary: z.strictObject({ observations: z.int().nonnegative() }),
+    items: nativeObservationItemsSchemas[operation],
+  });
+export const nativeObservationSummaryViewResultSchemas = {
+  procedure_address: nativeObservationSummaryFor("procedure_address"),
+  procedure_callees: nativeObservationSummaryFor("procedure_callees"),
+  procedure_callers: nativeObservationSummaryFor("procedure_callers"),
+  resolve_containing_procedure: nativeObservationSummaryFor(
+    "resolve_containing_procedure",
+  ),
+  get_call_graph: nativeObservationSummaryFor("get_call_graph"),
+};
+const nativeObservationSummaryViewResultSchema = z.discriminatedUnion(
+  "parent_operation",
+  [
+    nativeObservationSummaryViewResultSchemas.procedure_address,
+    nativeObservationSummaryViewResultSchemas.procedure_callees,
+    nativeObservationSummaryViewResultSchemas.procedure_callers,
+    nativeObservationSummaryViewResultSchemas.resolve_containing_procedure,
+    nativeObservationSummaryViewResultSchemas.get_call_graph,
+  ],
+);
+const nativeObservationPageFor = <Operation extends NativeObservationOperation>(
+  operation: Operation,
+) =>
+  nativeObservationSummaryFor(operation)
+    .omit({ kind: true, view: true })
+    .extend({
+      kind: z.literal("native-observation"),
+      view: nativeObservationViewRequestSchema,
+    });
+const nativeObservationPageViewResultSchema = z.discriminatedUnion(
+  "parent_operation",
+  [
+    nativeObservationPageFor("procedure_address"),
+    nativeObservationPageFor("procedure_callees"),
+    nativeObservationPageFor("procedure_callers"),
+    nativeObservationPageFor("resolve_containing_procedure"),
+    nativeObservationPageFor("get_call_graph"),
+  ],
+);
+const nativeContextFor = <Facet extends keyof typeof nativeContextItemsSchemas>(
+  facet: Facet,
+) =>
+  z.strictObject({
+    ...viewResultBase,
+    ...nativeViewSourceContext,
+    kind: z.literal("native-context"),
+    artifact: artifactSchema.nullable(),
+    parent_operation: nativeObservationOperationSchema,
+    source_context: nativeSourceContextReferenceSchema,
+    facet: z.literal(facet),
+    view: nativeContextViewRequestSchema.extend({ facet: z.literal(facet) }),
+    items: nativeContextItemsSchemas[facet],
+  });
+const nativeContextViewResultSchema = z.discriminatedUnion("facet", [
+  nativeContextFor("overview"),
+  nativeContextFor("analysis-profile"),
+  nativeContextFor("limitations"),
+  nativeContextFor("result-limitations"),
+]);
 
 export const byteEntropySummaryViewResultSchema = z.strictObject({
   ...summaryViewResultBase,
@@ -785,6 +890,32 @@ export const javaScriptRoutesViewResultSchema = z.strictObject({
   byte_limited: z.boolean(),
 });
 
+/** Compact web bundle findings retain endpoint observations and inference candidates. */
+export const webBundleSummaryViewResultSchema = z.strictObject({
+  ...summaryViewResultBase,
+  artifact: artifactSchema.nullable(),
+  parent_operation: z.literal("analyze_web_bundle"),
+  target_url: z.string(),
+  target_origin: recordedBrowserOriginSchema.nullable().optional(),
+  source_unknowns: webBundleAnalysisSchema.shape.unknowns,
+  summary: webBundleSummarySchema,
+});
+
+export const webBundlePageViewResultSchema = z.strictObject({
+  ...viewResultBase,
+  artifact: artifactSchema.nullable(),
+  kind: z.literal("web-bundle"),
+  parent_operation: z.literal("analyze_web_bundle"),
+  target_url: z.string(),
+  target_origin: recordedBrowserOriginSchema.nullable().optional(),
+  source_unknowns: webBundleAnalysisSchema.shape.unknowns,
+  view: webBundleViewRequestSchema,
+  completeness: webBundleAnalysisSchema.shape.completeness,
+  items: webBundleViewItemsSchema,
+  summary: webBundleSummarySchema.nullable(),
+  byte_limited: z.boolean(),
+});
+
 export const gpuCodeObjectsSummaryViewResultSchema = z.strictObject({
   ...summaryViewResultBase,
   parent_operation: z.literal("inspect_gpu_code_objects"),
@@ -839,10 +970,19 @@ export const il2cppMetadataSummaryViewResultSchema = z.strictObject({
 /** Exact inventory summary with the original observation's provider and query. */
 export const nativeInventorySummaryViewResultSchema = z.strictObject({
   ...summaryViewResultBase,
-  ...nativeInventoryViewContext,
+  ...nativeViewSourceContext,
   parent_operation: nativeInventoryOperationSchema,
   artifact: artifactSchema.nullable(),
   summary: nativeInventorySummarySchema,
+});
+
+/** Compact provider load observations retain the independent verification state. */
+export const nativeLoadImageSummaryViewResultSchema = z.strictObject({
+  ...summaryViewResultBase,
+  ...nativeViewSourceContext,
+  artifact: artifactSchema.nullable(),
+  parent_operation: z.literal("inspect_native_load_image"),
+  summary: nativeLoadImageSummarySchema,
 });
 
 /** Compact native matching discovery retains the complete matching report. */
@@ -964,7 +1104,10 @@ export const sourceToBundlePageViewResultSchema = z.strictObject({
 
 /** Projected facts for one selected view of retained analysis Evidence. */
 export const analysisViewResultSchema = z.discriminatedUnion("kind", [
+  nativeObservationPageViewResultSchema,
+  nativeContextViewResultSchema,
   javaScriptRoutesViewResultSchema,
+  webBundlePageViewResultSchema,
   sourceToBundlePageViewResultSchema,
   z.strictObject({
     ...viewResultBase,
@@ -1017,6 +1160,7 @@ export const analysisViewResultSchema = z.discriminatedUnion("kind", [
     view: environmentCoverageViewRequestSchema,
   }),
   z.discriminatedUnion("parent_operation", [
+    nativeObservationSummaryViewResultSchema,
     erlangBeamSummaryViewResultSchema,
     devicetreeSummaryViewResultSchema,
     pythonPycSummaryViewResultSchema,
@@ -1047,9 +1191,11 @@ export const analysisViewResultSchema = z.discriminatedUnion("kind", [
     modelArtifactSummaryViewResultSchema,
     gpuCodeObjectsSummaryViewResultSchema,
     nativeInventorySummaryViewResultSchema,
+    nativeLoadImageSummaryViewResultSchema,
     nativeFunctionMatchingSummaryViewResultSchema,
     nativeFunctionSummaryViewResultSchema,
     sourceToBundleSummaryViewResultSchema,
+    webBundleSummaryViewResultSchema,
   ]),
   z.strictObject({
     ...viewResultBase,
@@ -1071,12 +1217,22 @@ export const analysisViewResultSchema = z.discriminatedUnion("kind", [
   }),
   z.strictObject({
     ...viewResultBase,
-    ...nativeInventoryViewContext,
+    ...nativeViewSourceContext,
     kind: z.literal("native-inventory"),
     parent_operation: nativeInventoryOperationSchema,
     artifact: artifactSchema.nullable(),
     view: nativeInventoryViewRequestSchema,
     rows: z.array(nativeInventoryViewRowSchema),
+  }),
+  z.strictObject({
+    ...viewResultBase,
+    kind: z.literal("native-load-image"),
+    ...nativeViewSourceContext,
+    verification_status: z.enum(["unsupported", "verified", "mismatch"]),
+    parent_operation: z.literal("inspect_native_load_image"),
+    artifact: artifactSchema.nullable(),
+    view: nativeLoadImageViewRequestSchema,
+    items: nativeLoadImageViewItemsSchema,
   }),
   z.strictObject({
     kind: z.literal("protobuf"),
@@ -1253,13 +1409,22 @@ export type InspectAnalysisViewInput = z.output<
 export type AnalysisViewResult = z.output<typeof analysisViewResultSchema>;
 export type AnalysisViewCoverage = z.output<typeof coverageSchema>;
 
+export {
+  webBundleViewRequestSchema,
+  webBundleViewItemsSchema,
+  webBundleSummarySchema,
+  projectWebBundleView,
+};
+
 /** Parent record already resolved from inline Evidence or a session reference. */
 export interface AnalysisViewParent {
   readonly evidenceId: string;
   readonly operation: string;
   readonly normalizedResult: unknown;
   readonly provider?: Evidence["provider"];
-  readonly analysisProfileDigest?: string | null;
+  readonly analysisProfile?: Evidence["analysis_profile"];
+  readonly authority?: Evidence["authority"];
+  readonly environment?: Evidence["environment"];
   /** The owner proved normalizedResult belongs to a sealed, deep-frozen Evidence snapshot. */
   readonly sealedResult?: boolean;
   /** Preserve the authenticated source identity, including explicit absence. */
@@ -1335,9 +1500,13 @@ const parentArtifactPath = (parent: AnalysisViewParent): string => {
 
 /** Named source owners for views that need no extra decoder or accumulator. */
 const retainedViewProjectors = new Map<string, typeof projectWasmArtifactView>([
+  ...NATIVE_OBSERVATION_OPERATIONS.map(
+    (operation) => [operation, projectNativeObservationView] as const,
+  ),
   ["inspect_erlang_beam", projectErlangBeamView],
   ["inspect_devicetree", projectDevicetreeView],
   ["inspect_native_exports", projectNativeExportsView],
+  ["inspect_native_load_image", projectNativeLoadImageView],
   ["inspect_python_pyc", projectPythonPycView],
   ["frida_session_status", projectFridaSessionStatusView],
   ["gdb_console", projectCommandObservationView],
@@ -1365,6 +1534,7 @@ const retainedViewProjectors = new Map<string, typeof projectWasmArtifactView>([
   ["compare_source_to_bundle", projectSourceToBundleView],
   ["inspect_artifact", projectArtifactInventoryView],
   ["inventory_artifact", projectArtifactInventoryView],
+  ["analyze_web_bundle", projectWebBundleView],
 ]);
 
 /** Budgets retained across source admission and the selected grouping projection. */
@@ -1466,6 +1636,10 @@ export const projectAnalysisView = (
     );
   if (view.kind === "javascript-routes") {
     const projected = projectJavaScriptRoutesView(parent, view);
+    return projected.ok ? ok(sealAnalysisView(projected.value)) : projected;
+  }
+  if (view.kind === "web-bundle") {
+    const projected = projectWebBundleView(parent, view);
     return projected.ok ? ok(sealAnalysisView(projected.value)) : projected;
   }
   if (isGroupingView(view)) {

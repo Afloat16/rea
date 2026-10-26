@@ -13,6 +13,7 @@ import { silentLogger } from "../logger.js";
 import type { Logger } from "pino";
 import { withEvidenceCallerInputPath } from "../domain/evidence.js";
 import { createImmutableEvidenceBundle } from "../domain/evidenceBundle.js";
+import { retainAnalysisResultSources } from "./investigation/recordEvidenceSources.js";
 import type { Evidence } from "../domain/evidence.js";
 import type { NativeToolName } from "../contracts/native/nativeToolContracts.js";
 import {
@@ -506,13 +507,15 @@ const runAnalysis = async (
       );
       if (written.ok) publishedSnapshot = written.value;
       else {
-        if (written.error instanceof EvidenceFileError)
-          publishedSnapshot = written.error.published;
-        const recovered =
-          written.error instanceof EvidenceFileError &&
-          written.error.published !== undefined &&
-          (await session.closeFileResources()).ok;
-        if (!recovered)
+        const published =
+          written.error instanceof EvidenceFileError
+            ? written.error.published
+            : undefined;
+        if (published?.path !== undefined)
+          publishedSnapshot = { path: published.path, bytes: published.bytes };
+        const released =
+          published !== undefined && (await session.closeFileResources()).ok;
+        if (!released || published?.path === undefined)
           return err(written.error.retainPartialObservation(evidence));
       }
     }
@@ -570,11 +573,16 @@ const executeAnalysisTool = async (input: {
   if (tool === "analyze_function") {
     const { executeFunctionAnalysisEvidence } =
       await import("./FunctionAnalysisEvidence.js");
-    const result = await executeFunctionAnalysisEvidence(
+    let result = await executeFunctionAnalysisEvidence(
       session,
       input.arguments,
       input.openedTarget,
       { signal },
+    );
+    result = retainAnalysisResultSources(
+      tool,
+      (source) => session.recordEvidence(source),
+      result,
     );
     return result.ok ? ok({ evidence: result.value }) : result;
   }
@@ -588,11 +596,16 @@ const executeAnalysisTool = async (input: {
     tool === "decompile_all"
   ) {
     const { EnhancedTools } = await import("./EnhancedTools.js");
-    const result = await executeComposedWorkflow(
+    let result = await executeComposedWorkflow(
       session,
       (observed) =>
         new EnhancedTools(observed).execute(tool, input.arguments, signal),
       composedLimitationBudget(tool),
+    );
+    result = retainAnalysisResultSources(
+      tool,
+      (source) => session.recordEvidence(source),
+      result,
     );
     if (!result.ok) return result;
     const evidence = createWorkflowEvidence({

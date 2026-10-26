@@ -18,12 +18,12 @@ import {
   readManagedTypeNesting,
   type ManagedTypeNesting,
 } from "./ManagedTypeNesting.js";
-import type {
-  ManagedMetadataLayout,
-  MetadataTableLayout,
+import {
+  MANAGED_CODED_INDEXES,
+  type ManagedMetadataLayout,
+  type MetadataTableLayout,
 } from "./ManagedMetadataLayout.js";
 import {
-  metadataRowCursor,
   readManagedCompressedUnsigned,
   decodeMetadataCodedIndex,
   metadataCodedIndexCoordinate,
@@ -34,7 +34,11 @@ import {
   sha256Bytes,
 } from "./ManagedMetadataHeaps.js";
 import { memberListTable } from "./ManagedMemberPointers.js";
-import type { TypeMemberListFacts } from "./ManagedTypeMemberLists.js";
+import type {
+  TypeMemberListEntry,
+  TypeMemberListFacts,
+} from "./ManagedTypeMemberLists.js";
+import type { TypeDefinitionRowFacts } from "./ManagedTypeDefinitionRows.js";
 
 export type ManagedType = ManagedMemberInspection["types"][number];
 /** A renderable TypeDef projection paired with its original source row. */
@@ -72,6 +76,7 @@ export interface TypeRange {
 
 /** One TypeDef row's names and coordinates, including unreadable declarations. */
 interface TypeDefinition extends TypeRange {
+  readonly source: TypeDefinitionRowFacts;
   readonly row: number;
   readonly name: string | undefined;
   readonly namespace: string | undefined;
@@ -173,12 +178,10 @@ const readTypeDefinition = (
   layout: ManagedMetadataLayout,
   row: number,
   issues: ManagedParseIssue[],
-  memberLists: TypeMemberListFacts,
+  current: TypeMemberListEntry,
 ): TypeDefinition => {
-  const cursor = metadataRowCursor(bytes, layout, 2, row);
-  cursor.readUInt32();
-  const nameIndex = cursor.readIndex(layout.stringIndexSize);
-  const namespaceIndex = cursor.readIndex(layout.stringIndexSize);
+  const { source } = current;
+  const { nameIndex, namespaceIndex } = source;
   // Keep both independent name failures, but decode each heap coordinate once.
   const namespace = readManagedValue(
     () =>
@@ -189,9 +192,8 @@ const readTypeDefinition = (
     () => readMetadataString(bytes, layout, nameIndex, layout.strings.size),
     issues,
   );
-  cursor.readIndex(layout.codedIndexSize("TypeDefOrRef"));
-  const current = memberLists.entries[row - 1];
   return {
+    source,
     row,
     name,
     namespace,
@@ -200,10 +202,10 @@ const readTypeDefinition = (
       namespace === undefined || name === undefined
         ? null
         : fullName(namespace, name),
-    fieldStart: current?.field.start.value ?? null,
-    fieldEnd: current?.field.end ?? null,
-    methodStart: current?.method.start.value ?? null,
-    methodEnd: current?.method.end ?? null,
+    fieldStart: current.field.start.value,
+    fieldEnd: current.field.end,
+    methodStart: current.method.start.value,
+    methodEnd: current.method.end,
   };
 };
 
@@ -214,11 +216,10 @@ export const readTypeDefinitions = (
   memberLists: TypeMemberListFacts,
 ): readonly TypeDefinition[] => {
   appendManagedParseIssues(issues, memberLists.issues);
-  const typeTable = layout.table(2);
   const definitions: TypeDefinition[] = [];
-  for (let row = 1; row <= (typeTable?.rowCount ?? 0); row += 1)
+  for (const [index, entry] of memberLists.entries.entries())
     definitions.push(
-      readTypeDefinition(bytes, layout, row, issues, memberLists),
+      readTypeDefinition(bytes, layout, index + 1, issues, entry),
     );
   return definitions;
 };
@@ -249,12 +250,7 @@ export const parseTypes = (
       definition.fullName === null
     )
       continue;
-    const cursor = metadataRowCursor(bytes, layout, 2, row);
-    const flags = cursor.readUInt32();
-    cursor.readIndex(layout.stringIndexSize);
-    cursor.readIndex(layout.stringIndexSize);
-    const extendsOffset = cursor.offset;
-    const extendsRaw = cursor.readIndex(layout.codedIndexSize("TypeDefOrRef"));
+    const { flags, extendsRaw, extendsOffset, rowOffset } = definition.source;
     const fieldRange = rowRange(
       fields,
       definition.fieldStart,
@@ -267,8 +263,8 @@ export const parseTypes = (
     );
     const extendsIndex = decodeMetadataCodedIndex(
       extendsRaw,
-      2,
-      [2, 1, 27],
+      MANAGED_CODED_INDEXES.TypeDefOrRef.bits,
+      MANAGED_CODED_INDEXES.TypeDefOrRef.tables,
       layout.rowCounts,
     );
     if (extendsIndex.kind === "invalid")
@@ -279,12 +275,12 @@ export const parseTypes = (
         detail: `TypeDef Extends coded index 0x${extendsRaw.toString(16)} is invalid: ${extendsIndex.reason}`,
       });
     const enclosingRow = nesting.enclosing.get(row);
-    managedDecodeBudget(layout).reserve(128, cursor.start);
+    managedDecodeBudget(layout).reserve(128, rowOffset);
     items.push({
       row,
       type: {
         token,
-        row_offset: cursor.start,
+        row_offset: rowOffset,
         namespace,
         name,
         full_name: definition.fullName,
@@ -523,18 +519,22 @@ const POSITION_ELEMENTS: ReadonlyMap<number, readonly SignaturePosition[]> =
     [0x10, ["return", "parameter", "local", "field"]],
   ]);
 
+/** GENERICINST names a TypeDef or TypeRef, excluding the family's TypeSpec alternative. */
+const GENERIC_TYPE_DEFINITION_TABLES: readonly number[] =
+  MANAGED_CODED_INDEXES.TypeDefOrRef.tables.slice(0, 2);
+
 /** Decode a type operand once; spec callers also validate its metadata coordinate. */
 const readTypeOperand = (
   blob: Buffer,
   offset: number,
   layout?: ManagedMetadataLayout,
-  tables: readonly number[] = [2, 1, 27],
+  tables: readonly number[] = MANAGED_CODED_INDEXES.TypeDefOrRef.tables,
 ): Omit<TypeOperand, "offset"> => {
   const token = readCompressed(blob, offset);
   if (layout !== undefined) {
     const decoded = decodeMetadataCodedIndex(
       token.value,
-      2,
+      MANAGED_CODED_INDEXES.TypeDefOrRef.bits,
       tables,
       layout.rowCounts,
     );
@@ -547,7 +547,11 @@ const readTypeOperand = (
       );
     return { ...token, coordinate: { table: decoded.table, row: decoded.row } };
   }
-  const { table, row } = metadataCodedIndexCoordinate(token.value, 2, tables);
+  const { table, row } = metadataCodedIndexCoordinate(
+    token.value,
+    MANAGED_CODED_INDEXES.TypeDefOrRef.bits,
+    tables,
+  );
   return { ...token, coordinate: { table, row } };
 };
 
@@ -700,7 +704,12 @@ const readTypeSignature = (
           "generic instantiation does not name a class or value type",
           cursor + 1,
         );
-      const token = readTypeOperand(blob, cursor + 2, layout, [2, 1]);
+      const token = readTypeOperand(
+        blob,
+        cursor + 2,
+        layout,
+        GENERIC_TYPE_DEFINITION_TABLES,
+      );
       if (
         cursor === offset &&
         (token.coordinate.table === 1 || token.coordinate.table === 2)

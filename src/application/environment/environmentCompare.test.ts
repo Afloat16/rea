@@ -735,6 +735,11 @@ describe("probe request chronology", () => {
   it.each([
     ["2026-10-20T09:00:00.000100Z", "2026-10-20T10:00:00.0001+01:00"],
     ["2026-10-20T09:00:00.0001Z", "2026-10-20T09:00:00.000100"],
+    ["2026-10-20T10:00+01:00", "2026-10-20 09:00"],
+    [
+      "2026-10-20T10:00:00.0000000001+01:00",
+      "2026-10-20 09:00:00.000000000100",
+    ],
     ["Tue, 20 Oct 2026 09:00:00 GMT", "2026-10-20T09:00:00Z"],
   ])(
     "keeps ordinal order for equal instants and native-Date spelling compatibility (%s)",
@@ -836,41 +841,53 @@ const registerProbeCoverageCases = () => {
 };
 
 const registerProbeOrderingAndCaptureCases = () => {
-  it("keeps the recorded order when a record has no start time, as state extraction does", () => {
-    const { startedDateTime: _undated, ...read } = {
-      ...exchange(1, "GET", "http://app.example/api/books/2", 404),
-      response: {
-        status: 404,
-        content: {
-          mimeType: "application/json",
-          text: JSON.stringify(BOOK_NOT_FOUND),
+  it.each([undefined, "2026-02-30T09:00:00Z"])(
+    "keeps replay in recorded order when a start is missing or invalid: %s",
+    (startedDateTime) => {
+      const { startedDateTime: _undated, ...read } = {
+        ...exchange(1, "GET", "http://app.example/api/books/2", 404),
+        response: {
+          status: 404,
+          content: {
+            mimeType: "application/json",
+            text: JSON.stringify(BOOK_NOT_FOUND),
+          },
         },
-      },
-    };
-    const report = run(
-      analysisViewCaptureEvidence(
-        environmentManifestCaptureFixture([
-          exchange(0, "DELETE", "http://app.example/api/books/2", 204),
-          read,
-        ]),
-      ),
-    );
-    if (!report.ok) throw report.error;
-    expect(report.value.summary).toMatchObject({ steps: 2, equal: 2 });
-  });
+      };
+      const report = run(
+        analysisViewCaptureEvidence(
+          environmentManifestCaptureFixture([
+            exchange(0, "DELETE", "http://app.example/api/books/2", 204),
+            {
+              ...read,
+              ...(startedDateTime === undefined ? {} : { startedDateTime }),
+            },
+          ]),
+        ),
+      );
+      if (!report.ok) throw report.error;
+      expect(report.value.summary).toMatchObject({ steps: 2, equal: 2 });
+      expect(
+        report.value.probes[0]?.results.map(({ ordinal }) => ordinal),
+      ).toEqual([0, 1]);
+    },
+  );
 
   it.each([
-    ["0002", "0001"],
-    ["002", "001"],
+    ["2026-10-20T09:00:00.0002Z", "2026-10-20T09:00:00.0001Z"],
+    ["2026-10-20T09:00:00.002Z", "2026-10-20T09:00:00.001Z"],
+    ["2026-10-20 09:00:00.0000000002Z", "2026-10-20 09:00:00.0000000001Z"],
+    ["2026-10-20 09:00:00.0000000002", "2026-10-20T10:00:00.0000000001+01:00"],
+    ["2026-10-20 09:01", "2026-10-20T10:00+01:00"],
   ])(
-    "orders probe requests by complete fractional timestamps: %s after %s",
-    (readFraction, writeFraction) => {
+    "orders probe requests by the owner's UTC instant: %s after %s",
+    (readTime, writeTime) => {
       const report = run(
         analysisViewCaptureEvidence(
           environmentManifestCaptureFixture([
             {
               ...exchange(0, "GET", "http://app.example/api/books/2", 404),
-              startedDateTime: `2026-10-20T09:00:00.${readFraction}Z`,
+              startedDateTime: readTime,
               response: {
                 status: 404,
                 content: {
@@ -881,7 +898,7 @@ const registerProbeOrderingAndCaptureCases = () => {
             },
             {
               ...exchange(0, "DELETE", "http://app.example/api/books/2", 204),
-              startedDateTime: `2026-10-20T09:00:00.${writeFraction}Z`,
+              startedDateTime: writeTime,
             },
           ]),
         ),

@@ -1,3 +1,5 @@
+import { parseAnalysisInput } from "../AnalysisInput.js";
+import { isNativeObservationOperation } from "../../domain/native/nativeObservation.js";
 import { setImmediate } from "node:timers/promises";
 import { dispatchQueuedInterrupts } from "../../process/queuedInterrupts.js";
 import { readImmutableEvidenceBundle } from "../EvidenceBundleFiles.js";
@@ -59,22 +61,18 @@ export const inspectAnalysisView = async (
   lookup?: EvidenceLookup,
   options: AnalysisViewReadOptions = {},
 ): Promise<Result<Evidence, AnalysisError>> => {
-  const parsed = inspectAnalysisViewInputSchema.safeParse(rawInput);
-  if (!parsed.success)
-    return err(
-      analysisInputErrorFromIssues(
-        INSPECT_ANALYSIS_VIEW_OPERATION,
-        parsed.error.issues,
-        rawInput,
-        { cause: parsed.error },
-      ),
-    );
+  const parsed = parseAnalysisInput(
+    INSPECT_ANALYSIS_VIEW_OPERATION,
+    rawInput,
+    inspectAnalysisViewInputSchema,
+  );
+  if (!parsed.ok) return parsed;
   if (options.evidenceBundlePath !== undefined)
-    return inspectBundleView(parsed.data, options.evidenceBundlePath, options);
-  const source = parsed.data.source;
+    return inspectBundleView(parsed.value, options.evidenceBundlePath, options);
+  const source = parsed.value.source;
   if (source.kind === "evidence-file")
-    return inspectFileView({ ...parsed.data, source }, lookup, options);
-  return inspectAnalysisViewValidated({ ...parsed.data, source }, lookup);
+    return inspectFileView({ ...parsed.value, source }, lookup, options);
+  return inspectAnalysisViewValidated({ ...parsed.value, source }, lookup);
 };
 
 /**
@@ -202,7 +200,9 @@ const projectResolvedAnalysisView = (
     evidenceId: parent.evidence_id,
     operation: parent.operation,
     provider: parent.provider,
-    analysisProfileDigest: parent.analysis_profile?.digest ?? null,
+    analysisProfile: parent.analysis_profile,
+    authority: parent.authority,
+    environment: parent.environment,
     normalizedResult:
       immutableJsonSnapshotMember(parent, "normalized_result") ??
       parent.normalized_result,
@@ -372,6 +372,11 @@ const createAnalysisViewEvidence = (
       result.parent_operation === "analyze_function")
       ? result
       : undefined;
+  const nativeObservationView =
+    result.kind === "native-observation" ||
+    result.kind === "native-context" ||
+    (result.kind === "summary" &&
+      isNativeObservationOperation(result.parent_operation));
   return createEvidence(
     target,
     ANALYSIS_VIEW_PROVIDER,
@@ -396,7 +401,7 @@ const createAnalysisViewEvidence = (
           : "derived",
       authority: parent.authority,
       limitations: result.limitations,
-      ...(nativeFunctionView !== undefined &&
+      ...((nativeFunctionView !== undefined || nativeObservationView) &&
       parent.relationship_coverage !== null
         ? { relationshipCoverage: parent.relationship_coverage }
         : {}),

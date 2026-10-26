@@ -1,5 +1,6 @@
 import { procedureInfoSchema } from "../domain/native/procedureInfo.js";
 import { z } from "zod";
+import { utcDateTimeSchema } from "../domain/offsetDateTime.js";
 
 import { functionDossierSchema } from "../domain/hopperValues.js";
 import { analysisProfileSchema } from "../domain/analysisProfile.js";
@@ -7,7 +8,7 @@ import {
   evidenceSchema,
   validateAnalysisProfileProvider,
 } from "../domain/evidence.js";
-import { jsonValueSchema } from "../domain/jsonValue.js";
+import { jsonObjectSchema } from "../domain/jsonValue.js";
 import {
   PROVIDER_REJECTION_CODES,
   type ProviderRejectionCode,
@@ -18,7 +19,6 @@ import {
   PROVIDER_RETRY_ACTIONS,
 } from "../domain/providerOperationHealth.js";
 import { analysisErrorProjectionSchema } from "./errorSchemas.js";
-import { relationshipCoverageSchema } from "../domain/relationshipCoverage.js";
 import { ZIP_PACKAGE_FORMATS } from "../domain/zipPackageFormat.js";
 import { objcClassImportIdentitySchema } from "../domain/native/objcSwiftMetadata.js";
 import { BINARY_SESSION_SUMMARY_OMITTED_FIELDS } from "./sessionStatusContract.js";
@@ -180,13 +180,13 @@ const processCoordinates = {
 const processLineageObservation = z.discriminatedUnion("status", [
   z.object({
     status: z.literal("unavailable"),
-    observed_at: z.iso.datetime(),
+    observed_at: utcDateTimeSchema,
     ...processCoordinates,
     reason: z.string().min(1),
   }),
   z.object({
     status: z.literal("verified"),
-    observed_at: z.iso.datetime(),
+    observed_at: utcDateTimeSchema,
     ...processCoordinates,
     launcher_parent_pid: z.int().min(0),
     descendants: z.array(
@@ -255,8 +255,6 @@ const providerRejectionCode: z.ZodType<ProviderRejectionCode> = z.enum(
   PROVIDER_REJECTION_CODES,
 );
 
-const providerDiagnostics = z.record(z.string(), jsonValueSchema);
-
 const providerAvailabilityStates = {
   unknown: z.object({
     status: z.literal("unknown"),
@@ -277,13 +275,13 @@ const providerAvailabilityStates = {
 
 const providerAvailability = z.discriminatedUnion("status", [
   providerAvailabilityStates.unknown.extend({
-    diagnostics: providerDiagnostics,
+    diagnostics: jsonObjectSchema,
   }),
   providerAvailabilityStates.available.extend({
-    diagnostics: providerDiagnostics,
+    diagnostics: jsonObjectSchema,
   }),
   providerAvailabilityStates.unavailable.extend({
-    diagnostics: providerDiagnostics,
+    diagnostics: jsonObjectSchema,
   }),
 ]);
 
@@ -313,13 +311,13 @@ const providerTargetSupportStates = {
 
 const providerTargetSupport = z.discriminatedUnion("status", [
   providerTargetSupportStates.unknown.extend({
-    diagnostics: providerDiagnostics,
+    diagnostics: jsonObjectSchema,
   }),
   providerTargetSupportStates.supported.extend({
-    diagnostics: providerDiagnostics,
+    diagnostics: jsonObjectSchema,
   }),
   providerTargetSupportStates.unsupported.extend({
-    diagnostics: providerDiagnostics,
+    diagnostics: jsonObjectSchema,
   }),
 ]);
 
@@ -659,7 +657,6 @@ export const sessionProvider = z.discriminatedUnion("detail", [
 ]);
 
 export const nullableText = z.string().nullable();
-export const addressList = z.array(z.string());
 export const addressedEntry = z.object({
   address: z.string(),
   name: z.string(),
@@ -728,20 +725,5 @@ export const objcClassDiscoveryOutput = evidenceResultOf(
     }),
   }),
 );
-
-export const graphNode = z.discriminatedUnion("status", [
-  z.object({
-    address: z.string(),
-    status: z.literal("ok"),
-    calls: z.array(z.string()),
-    relationship_coverage: relationshipCoverageSchema,
-    limitations: z.array(z.string()).optional(),
-  }),
-  z.object({
-    address: z.string(),
-    status: z.literal("error"),
-    error: analysisErrorProjectionSchema,
-  }),
-]);
 
 export const functionDossierOutput = evidenceResultOf(functionDossierSchema);

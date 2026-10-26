@@ -6,6 +6,40 @@ for the reviewed setup transaction and [client IDs](installation.md#supported-ag
 The versioned verification notes below describe their stated runs; live service
 acceptance is verified only where explicitly recorded.
 
+## Launchers and PATH
+
+A client launched from a desktop app, IDE or service can inherit a different
+`PATH` from your terminal. An absolute path to `rea-agents` does not resolve its
+interpreter: the npm launcher's `#!/usr/bin/env node` still searches `PATH` for
+Node. Running that command successfully in a terminal does not establish that
+the client can launch it.
+
+For direct JavaScript installations, setup registers the selected runtime
+executable and REA script by absolute path. On POSIX, it prefers executable
+`node` or `bun` and REA aliases on setup's `PATH` only when they resolve to the
+same selected files. This preserves manager-owned aliases across version updates;
+otherwise setup uses the selected paths directly. Package-runner registrations keep
+their selected runner. Setup does not copy your ambient environment into client
+settings. To refresh an older registration, preview
+`rea setup --client <client-id> --skill=false --dry-run`, then run the same command
+without `--dry-run` and approve the displayed changes. Setup preserves unrelated
+settings, backs up changed configuration and leaves an aligned registration
+unchanged. Restart the client after applying the update.
+
+If a runtime manager removes the registered executable and no surviving alias
+was available, doctor reports its identity as unknown and setup retains the
+registration. REA does not infer that an arbitrary missing executable was Node
+from its script argument. Back up the client's configuration, verify the absolute
+path and supported version of the runtime you intend to use, then update only
+the runtime command, preserving the REA script arguments and other settings.
+Rerun setup to review the registration and restart the client.
+
+`rea mcp doctor --json` tests the production MCP adapter using the runtime
+executable and environment of the terminal running doctor. It does not launch
+the client's configured command or reproduce the client's environment. If doctor
+passes but the client disconnects, inspect the client's startup error and registered
+launcher; see [verification scope](client-verification.md#launch-environment-verification).
+
 ## Runtime settings and client deadlines
 
 `update_analysis_settings` changes curated defaults inside the running REA
@@ -170,14 +204,25 @@ and Claude Code reports that autocompact is thrashing. To avoid this:
   `mcpServers.rea` entry in `~/.claude.json` (`$CLAUDE_CONFIG_DIR/.claude.json`
   when that variable is set), then restart Claude Code. Setup keeps this
   override.
+- To remove entire tool families from the upfront catalog, run
+  `rea setup --client claude_code --tool-families <ids>` with the families the
+  workflow needs (see [the advertising scope contract](mcp-contracts.md#tool-family-advertising-scope)).
+  Out-of-scope tools are not advertised and their calls fail with the SDK's
+  disabled-tool error, so widen the selection when a task needs another
+  family. Setup writes the scope into the entry's `env` as
+  `REA_MCP_TOOL_FAMILIES`; rerun setup with a different selection to refresh
+  it, then restart Claude Code.
 
 The sizes above come from REA's own `tools/list`. A live Claude Code session
 against DeepSeek's API is unverified.
 
-For a client whose stdio reader rejects the complete catalog frame, add
-`"REA_MCP_OUTPUT_SCHEMA_PROFILE": "off"` to REA's `env` object and restart the
-client. This omits only advertised output schemas; REA still validates complete
-structured results against its canonical contracts. See [MCP output schema
+For a client whose stdio reader rejects the complete catalog frame, set
+`"REA_MCP_OUTPUT_SCHEMA_PROFILE": "compact"` to bound every advertised output
+schema, or `"off"` to omit them, in REA's `env` object, then restart the client.
+Both keep canonical result validation and complete structured results; `compact`
+keeps a widened root shape and `off` advertises nothing. On catalogs large
+enough that full input schemas alone approach the frame limit, also keep the
+input profile at its `compact` default. See [MCP output schema
 profiles](mcp-contracts.md#output-schemas).
 
 ## Kimi Code
@@ -210,6 +255,20 @@ registration but does not contribute to the derived tool timeout; raise
 `toolTimeoutMs` to cover a longer selected JADX deadline.
 This headroom is a practical default, not a guarantee for every analysis
 duration. Setup preserves positive timeout values already in the `rea` entry.
+
+Setup also forwards explicitly selected input/output schema profiles,
+`REA_MCP_MAX_RESPONSE_BYTES`, provider paths and supported Ghidra, JADX and Kuna
+settings. It also forwards explicit executable and resource selections for ADB,
+apktool, packet capture, GDB/Rizin/objdump, Cutter, WABT, Wakaru, firmware and
+signal tools, browser inspection, and pwntools/pwndbg. This includes their
+supported prlimit overrides, Darwin Swift compiler/SDK/module-cache selections,
+and compile timeout, logging level and explicitly configured reference-secret
+patterns. A provider being unavailable does not discard its selected paths;
+doctor reports its readiness separately. Explicit selections override discovered
+defaults, including when setup runs again with a changed selection. Unrelated
+environment variables, process ownership tokens and one-shot target paths are not
+copied. Existing client environment overrides remain intact unless setup supplies
+the same key.
 You can edit `startupTimeoutMs` and `toolTimeoutMs` there; doctor keeps positive
 caller-selected values aligned and reports a non-blocking advisory when a tool
 timeout is shorter than the known provider allowance.
@@ -266,6 +325,15 @@ user-level `~/.qwen/settings.json`, or `$QWEN_HOME/settings.json` when configure
 Setup and doctor follow Qwen Code's tilde and working-directory-relative home
 overrides. Qwen Code also discovers personal skills in `~/.agents/skills`,
 where setup installs the bundled workflow.
+
+If an existing direct-script registration fails with `env: node: No such file or
+directory`, refresh it through setup as described under [Launchers and PATH](#launchers-and-path).
+For an immediate Qwen-specific workaround, when Node is installed in
+`/opt/homebrew/bin`, add `"PATH": "/opt/homebrew/bin:${PATH}"` to that server's
+existing `env` object and restart Qwen. Qwen expands `${PATH}` from its parent
+environment; other clients can use different substitution syntax. Qwen's stdio
+launcher inherits the parent `PATH` and applies server overrides; a reduced
+parent environment does not establish that Qwen removed Homebrew from it.
 
 ## Antigravity
 
@@ -522,9 +590,9 @@ with an installed native FreeBuff client/version; filesystem tests cover REA's
 editing, discovery, and ownership behavior only. Automatic applicability
 requires the FreeBuff profile directory even when the shared MCP file exists.
 
-FreeBuff is main-only and is not in a published release yet; npm 6.7.0 is the
-latest. `rea setup --client freebuff` against `@latest` reports an unsupported
-client until a release containing it is published.
+FreeBuff setup support requires `rea-agents@6.8.0` or later. Older versions
+reject `rea setup --client freebuff` as an unsupported client. See the
+[installation guide](installation.md#supported-agents) for client availability.
 
 ## DeepSeek Harness
 
@@ -591,8 +659,10 @@ become active again. Malformed applicable files block setup before changes.
 Grok Build loads `[mcp_servers.rea]` from `$GROK_HOME/config.toml`, or from
 `~/.grok/config.toml` when `GROK_HOME` is unset or empty. Setup edits that server
 table, `[mcp_servers.rea.env]`, and a root `disabled_mcp_servers` entry that
-names `rea`. It sets `startup_timeout_sec = 30` and leaves every other name
-in that list. The shared skill installed under `~/.agents/skills` is already
+names `rea`. It defaults `startup_timeout_sec` to 30 seconds, preserves an
+existing positive timeout, and leaves every other name in that list.
+[Grok supports longer startup timeouts](https://docs.x.ai/build/features/mcp-servers)
+for cold package-runner launches. The shared skill installed under `~/.agents/skills` is already
 on Grok Build's skill path.
 
 Grok Bot (`grok_bot`) is detected from `~/.grokbot`, or from `SAND_DATA_ROOT`

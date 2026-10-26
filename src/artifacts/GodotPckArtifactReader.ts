@@ -1,3 +1,4 @@
+import { readGodotPckHeaderFacts } from "../domain/godotPckFormat.js";
 import { artifactExpansionBudgetBytes } from "../domain/artifactExpansionBudget.js";
 import type { FileHandle } from "node:fs/promises";
 import { setImmediate } from "node:timers/promises";
@@ -124,12 +125,14 @@ export class GodotPckArtifactReader implements ArtifactReader {
       // retirement before a caller has attached its own error listener.
       output.on("error", () => undefined);
       this.#streams.add(output);
+      // Writable completion can leave an unread member buffered on the readable
+      // side. The returned stream stays owned until that side closes too.
+      output.once("close", () => this.#streams.delete(output));
       void this.#scope
         .run(
           () =>
             new Promise<void>((resolve) => {
               pipeline(source, output, () => {
-                this.#streams.delete(output);
                 resolve();
               });
             }),
@@ -301,7 +304,8 @@ const readGodotPckHeader = async (
     throw formatFailure("no standalone header or executable trailer");
   const { start, end, embedded } = location;
   const fixed = await readPckBytes(handle, start, 40, end, signal);
-  const version = fixed.readUInt32LE(4);
+  const header = readGodotPckHeaderFacts(fixed);
+  const version = header.formatVersion;
   if (![2, 3, 4].includes(version))
     throw new ArtifactReaderFailure(
       "unavailable",
@@ -343,9 +347,9 @@ const readGodotPckHeader = async (
   return {
     kind: "godot-pck",
     format_version: version,
-    engine_major: fixed.readUInt32LE(8),
-    engine_minor: fixed.readUInt32LE(12),
-    engine_patch: fixed.readUInt32LE(16),
+    engine_major: header.engineMajor,
+    engine_minor: header.engineMinor,
+    engine_patch: header.enginePatch,
     pack_start: start,
     pack_end: end,
     embedded,

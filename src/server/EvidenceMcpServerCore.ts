@@ -26,10 +26,17 @@ import {
 } from "@modelcontextprotocol/server";
 
 import { analysisErrorProjectionSchema } from "../contracts/errorSchemas.js";
-import type { CompactInputSchemaPresentation } from "../contracts/compactInputSchema.js";
+import {
+  presentAdvertisedInputSchema,
+  type CompactInputSchemaPresentation,
+} from "../contracts/compactInputSchema.js";
+import { presentAdvertisedOutputSchema } from "../contracts/compactOutputSchema.js";
+import {
+  compactPresentationForMcpOutputSchemaProfile,
+  type McpOutputSchemaProfile,
+} from "../config/mcpOutputSchemaProfile.js";
 import type { createCatalogIdentity } from "../catalogIdentity.js";
 import { transformAdvertisedInputJsonSchema } from "../contracts/toolSchemaMetadata.js";
-import { presentAdvertisedInputProfile } from "../contracts/inputSchemaPresentation.js";
 import type { EvidenceWriter } from "../application/investigation/InvestigationRecordPort.js";
 import {
   AnalysisInputError,
@@ -108,26 +115,48 @@ const replaceToolResultPayload = (
   };
 };
 
-/** Remove only client-facing output schemas; SDK registrations stay canonical. */
-const omitOutputSchemasFromToolsList = (
+/**
+ * Rewrite only client-facing output schemas; SDK registrations stay canonical.
+ * `compact` bounds each advertised schema, while `off` omits it entirely.
+ * The SDK memoises each tool's converted schema, so the caller passes a cache
+ * keyed by that object; repeated listings reuse the same projection.
+ */
+const presentOutputSchemasForToolsList = (
   message: JSONRPCMessage,
   requestId: RequestId,
+  profile: McpOutputSchemaProfile,
+  compactedSchemas: WeakMap<Record<string, unknown>, Record<string, unknown>>,
 ): JSONRPCMessage => {
   if (
+    profile === "full" ||
     !isJSONRPCResultResponse(message) ||
     message.id !== requestId ||
     !isRecord(message.result) ||
     !Array.isArray(message.result.tools)
   )
     return message;
+  const compactPresentation =
+    compactPresentationForMcpOutputSchemaProfile(profile);
   return {
     ...message,
     result: {
       ...message.result,
       tools: message.result.tools.map((tool: unknown) => {
         if (!isRecord(tool)) return tool;
-        const { outputSchema: _outputSchema, ...advertisedTool } = tool;
-        return advertisedTool;
+        if (compactPresentation === undefined) {
+          const { outputSchema: _outputSchema, ...advertisedTool } = tool;
+          return advertisedTool;
+        }
+        if (!isRecord(tool.outputSchema)) return tool;
+        let outputSchema = compactedSchemas.get(tool.outputSchema);
+        if (outputSchema === undefined) {
+          outputSchema = presentAdvertisedOutputSchema(
+            tool.outputSchema,
+            compactPresentation,
+          );
+          compactedSchemas.set(tool.outputSchema, outputSchema);
+        }
+        return { ...tool, outputSchema };
       }),
     },
   } as JSONRPCMessage;
@@ -212,8 +241,11 @@ export class EvidenceMcpServerCore extends RequestTrackingMcpServer {
     private recordEvidence: EvidenceWriter["recordEvidence"] | undefined,
     public delivery: ToolResultDelivery,
     compactPresentation: CompactInputSchemaPresentation | undefined = undefined,
-    private readonly omitOutputSchemas = false,
+    private readonly outputSchemaProfile: McpOutputSchemaProfile = "full",
     identity?: ReturnType<typeof createCatalogIdentity>,
+    readonly advertisedToolFamilies:
+      | ReadonlySet<string>
+      | undefined = undefined,
   ) {
     super(info, options);
     this.compactPresentation =
@@ -224,9 +256,9 @@ export class EvidenceMcpServerCore extends RequestTrackingMcpServer {
   }
 
   /**
-   * Compact advertised input schemas and optionally omit output-schema
-   * advertisements. Canonical parsers and contracts remain registered; the
-   * output-schema-off path validates successful structured results locally.
+   * Compact advertised input schemas and bound or omit output-schema
+   * advertisements. Canonical parsers and contracts remain registered; both
+   * output profiles validate successful structured results locally.
    * The signatures mirror the SDK's registrations so call sites keep their
    * inferred handler argument types.
    */
@@ -257,7 +289,7 @@ export class EvidenceMcpServerCore extends RequestTrackingMcpServer {
               typeof transformAdvertisedInputJsonSchema
             >[0],
             (projected) =>
-              presentAdvertisedInputProfile(projected, { budgetBytes: budget }),
+              presentAdvertisedInputSchema(projected, { budgetBytes: budget }),
           )
         : undefined;
     const registeredConfig =
@@ -266,7 +298,26 @@ export class EvidenceMcpServerCore extends RequestTrackingMcpServer {
       this.analysisSettings === undefined
         ? callback(input, context)
         : this.analysisSettings.run(() => callback(input, context));
-    return this.bindTool(name, registeredConfig as never, scoped as never);
+    const registered = this.bindTool(
+      name,
+      registeredConfig as never,
+      scoped as never,
+    );
+    if (!this.advertisesTool(name)) registered.disable();
+    return registered;
+  }
+
+  /** Whether this process advertises one named operation. */
+  advertisesTool(_name: string): boolean {
+    return true;
+  }
+
+  /** Provider probes consult the registration scope before doing work. */
+  advertisesFamily(family: string): boolean {
+    return (
+      this.advertisedToolFamilies === undefined ||
+      this.advertisedToolFamilies.has(family)
+    );
   }
 
   protected bindTool(
@@ -284,7 +335,7 @@ export class EvidenceMcpServerCore extends RequestTrackingMcpServer {
         transport,
         () => this.recordEvidence,
         () => this.delivery,
-        this.omitOutputSchemas,
+        this.outputSchemaProfile,
       ),
     );
   }
@@ -307,13 +358,19 @@ class ErrorEvidenceTransport implements Transport {
     return this.currentDelivery();
   }
 
+  /** Bounded projections already computed for this server's budget. */
+  private readonly compactedOutputSchemas = new WeakMap<
+    Record<string, unknown>,
+    Record<string, unknown>
+  >();
+
   constructor(
     private readonly transport: Transport,
     private readonly currentEvidenceWriter: () =>
       | EvidenceWriter["recordEvidence"]
       | undefined,
     private readonly currentDelivery: () => ToolResultDelivery,
-    private readonly omitOutputSchemas: boolean,
+    private readonly outputSchemaProfile: McpOutputSchemaProfile,
   ) {
     if (transport.hasPerRequestStream !== undefined)
       this.hasPerRequestStream = transport.hasPerRequestStream;
@@ -427,14 +484,19 @@ class ErrorEvidenceTransport implements Transport {
         ? message.id
         : undefined;
     const tool = id === undefined ? undefined : this.pendingTools.get(id);
-    const omitToolSchemas =
-      this.omitOutputSchemas &&
+    const rewritesOutputSchemas =
+      this.outputSchemaProfile !== "full" &&
       id !== undefined &&
       this.pendingToolLists.has(id);
     try {
       const recovered = this.recoverProtocolError(message, tool);
-      const advertised = omitToolSchemas
-        ? omitOutputSchemasFromToolsList(recovered, id)
+      const advertised = rewritesOutputSchemas
+        ? presentOutputSchemasForToolsList(
+            recovered,
+            id,
+            this.outputSchemaProfile,
+            this.compactedOutputSchemas,
+          )
         : recovered;
       if (
         isJSONRPCResultResponse(advertised) &&

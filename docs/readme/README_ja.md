@@ -20,7 +20,7 @@
 
 **[ウェブサイト](https://rea.tools/ja/) · [ガイド](https://rea.tools/ja/guides/) · [事例](https://rea.tools/ja/showcase/)**
 
-[クイックスタート](#クイックスタート) · [REA の仕組み](#rea-の仕組み) · [分析できる対象](#分析できる対象) · [事例](#事例) · [よくある質問](#よくある質問) · [GNU objdump・Rizin ツール](../reverse-engineering-tools.md) · [ドキュメント](#ドキュメント)
+[クイックスタート](#クイックスタート) · [REA の仕組み](#rea-の仕組み) · [分析できる対象](#分析できる対象) · [事例](#事例) · [RL 環境を構築する](#build-rl-environments) · [よくある質問](#よくある質問) · [GNU objdump・Rizin ツール](../reverse-engineering-tools.md) · [ドキュメント](#ドキュメント)
 
 <code>npx rea-agents setup</code>
 
@@ -225,7 +225,50 @@ REA には Node.js 22.x（>=22.23.4）、24.x（>=24.22.1）、または 26+ (>=
 [事例を読む](https://rea.tools/ja/showcase/th04/) ·
 [再構築リポジトリ](https://github.com/N0zoM1z0/th04)
 
+### REA で RL 環境を構築する
+
+Web アプリのセッションを記録し、API をツールに変換して、AI エージェントが使える環境をエクスポートします。AgentEnv で実行し、タスクと報酬のチェックを追加して、RL の学習や評価に使えます。
+
+[環境構築ガイド](https://rea.tools/guides/rl-environments/) ·
+[X でデモを見る](https://x.com/reatools/status/2112574822584918075?s=20)
+
 REA で興味深い対象を調べたら、ぜひ共有してください。[issue](https://github.com/morluto/rea/issues) または [pull request](https://github.com/morluto/rea/pulls) に、対象、調べたかったこと、REA がどう役立ったか、何が分かったかを記載してください。
+
+<a id="build-rl-environments"></a>
+
+## RL 環境を構築する
+
+元のアプリを動かさずに、AI エージェントが issue の検索やフォルダーの作成などを練習できるローカル環境を構築します。強化学習（RL）や、エージェントのタスク遂行能力のテストに使えます。
+
+REA は記録した API のリクエストと応答を、エージェントが呼び出せるツールに変換します。環境は記録したデータを使い、記録で効果が確認された変更だけをサポートします。
+
+エージェントに REA を設定したら、次の URL とフォルダー操作を自分の環境に合わせて変更してください。
+
+```text
+REA を使い、次のテスト用 Web アプリから RL 環境を構築してください。
+http://127.0.0.1:3000
+フォルダーの一覧表示、作成、名前変更、削除を対象にしてください。
+テスト用フォルダーの作成と削除は許可します。既存のデータは変更しないでください。
+my-env というフォルダーに保存し、使える操作を確認して実行方法を教えてください。
+```
+
+<details>
+<summary>コマンドラインを使う場合</summary>
+
+アプリのブラウザーリクエストと応答を記録したファイルがあれば、このコマンドを使えます。作成した環境の実行には AgentEnv と Docker も必要です。
+
+```sh
+rea environment-build ./session.har ./my-env --name my-env --json
+agent-env run ./my-env
+```
+
+</details>
+
+REA は実行可能な環境と、起動して応答することを確認する基本テストをエクスポートします。RL フレームワークに接続して、タスクの目標や報酬のチェックを定義し、学習を実行できます。
+
+[環境構築ガイド](https://rea.tools/guides/rl-environments/) ·
+[環境リファレンス](../agent-environments.md) ·
+[X でデモを見る](https://x.com/reatools/status/2112574822584918075?s=20)
 
 ## よくある質問
 
