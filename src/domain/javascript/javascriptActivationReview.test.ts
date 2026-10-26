@@ -10,6 +10,16 @@ const inheritanceChain = Array.from(
 
 const cases = [
   [
+    "review unknown preceding rest parameter retains immediate ordering",
+    'const input={x:0};(function({...rest},[value]){})(input,(function*(){new Socket("wss://example.test/unknown-param");yield 0})());const Socket=globalThis.WebSocket;',
+    [],
+  ],
+  [
+    "review unknown preceding rest parameter initialized control",
+    'const Socket=globalThis.WebSocket;const input={x:0};(function({...rest},[value]){})(input,(function*(){new Socket("wss://example.test/unknown-param-ready");yield 0})());',
+    ["wss://example.test/unknown-param-ready"],
+  ],
+  [
     "review deep implicit construction retains early field ordering",
     `class C0{field=new Socket("wss://example.test/deep-class")};${inheritanceChain};try{new C10000()}catch{}const Socket=globalThis.WebSocket;`,
     [],

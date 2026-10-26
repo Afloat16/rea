@@ -1968,7 +1968,9 @@ const webSocketArgumentParameter = (
       undefined,
       call,
     );
-    if (phase !== "completed") return undefined;
+    // Unknown completion still permits same-turn consumption. Only a proven
+    // abrupt prefix removes this invocation from the generator's ordering.
+    if (phase === "blocked" || phase === "suspended-blocked") return undefined;
   }
   const parameter = runtimeParameters[index - offset];
   const pattern = t.isAssignmentPattern(parameter) ? parameter.left : parameter;
