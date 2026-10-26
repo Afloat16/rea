@@ -332,16 +332,22 @@ const webSocketFreshMethodSelection = (
               ? { found: true, value: undefined }
               : readExactJavaScriptNormalResult(completion.node)
             : undefined;
+        // ToLength converts proven primitives, but must not execute object coercion.
+        const numericLength =
+          value?.found &&
+          typeof value.value !== "bigint" &&
+          typeof value.value !== "symbol"
+            ? Number(value.value)
+            : undefined;
         const index = key === null ? NaN : Number(key);
         if (
           String(index) === key &&
           Number.isSafeInteger(index) &&
           index >= 0 &&
-          value?.found &&
-          typeof value.value === "number" &&
+          numericLength !== undefined &&
           index <
             Math.min(
-              Math.max(Math.trunc(value.value), 0),
+              Math.max(Math.trunc(numericLength), 0),
               Number.MAX_SAFE_INTEGER,
             )
         ) {
@@ -1648,65 +1654,84 @@ const webSocketClassConstruction = (
     calls.get(declaration) ?? webSocketImmediateInvocation(declaration, state);
   if (t.isNewExpression(invocation)) return invocation;
 
+  // One query reuses construction facts per capture, bounded by indexed callable identities.
+  const ancestry = new WeakMap<t.NewExpression, Map<t.Class, boolean>>();
   const implicitlyConstructs = (
     derived: t.Class,
     capture: t.NewExpression,
-    seen: Set<t.Class> = new Set(),
   ): boolean => {
-    if (derived === declaration) return true;
-    if (
-      seen.has(derived) ||
-      derived.superClass == null ||
-      derived.body.body.some(
-        (member) => t.isClassMethod(member) && member.kind === "constructor",
-      )
-    )
-      return false;
-    seen.add(derived);
-    state.memberMutationFactsPhase ??= "requested";
-    // Construction proof depends on the alias-aware prototype mutation index.
-    // Preserve the field conservatively while discovery requests that index;
-    // the final pass will decide from the completed effects.
-    if (state.memberMutationFactsPhase !== "indexed") return false;
-    const bindings = new Set<
-      NonNullable<ReturnType<typeof resolveSemanticBindingState>>
-    >();
-    if (derived.id != null) {
-      const binding = resolveSemanticBindingState(
-        state,
-        derived.id,
-        derived.id.name,
-      );
-      if (binding !== undefined) bindings.add(binding);
+    let facts = ancestry.get(capture);
+    if (facts === undefined) {
+      facts = new Map();
+      ancestry.set(capture, facts);
     }
-    for (const { read } of semanticExactValueIdentity(derived, state)
-      ?.aliases ?? []) {
-      const binding = resolveSemanticBindingState(state, read, read.name);
-      if (binding !== undefined) bindings.add(binding);
-    }
-    // A class's inner self binding and its outer declaration binding select
-    // one allocation. Prototype effects belong to that shared identity.
-    const prototypeEffects = [
-      ...(state.literalMemberEffects?.get(derived) ?? []),
-      ...[...bindings].flatMap((binding) => [
-        ...binding.memberWrites,
-        ...binding.escapedPaths,
-      ]),
-    ];
-    if (
-      prototypeEffects.some(
-        ({ path, node }) =>
-          semanticPrototypeLookupMayChange(path, "__proto__") &&
-          semanticEffectTiming(capture, node, state) !== "after",
+    const visited = new Set<t.Class>();
+    let current = derived;
+    let result = false;
+    for (
+      let remaining = state.callableNodesById.size + 1;
+      remaining > 0;
+      remaining--
+    ) {
+      if (current === declaration) {
+        result = true;
+        break;
+      }
+      const known = facts.get(current);
+      if (known !== undefined) {
+        result = known;
+        break;
+      }
+      if (
+        visited.has(current) ||
+        current.superClass == null ||
+        current.body.body.some(
+          (member) => t.isClassMethod(member) && member.kind === "constructor",
+        )
       )
-    )
-      return false;
-    const bases = semanticClassCandidates(derived.superClass, state);
-    return (
-      bases.length === 1 &&
-      bases[0] !== undefined &&
-      implicitlyConstructs(bases[0], capture, seen)
-    );
+        break;
+      visited.add(current);
+      state.memberMutationFactsPhase ??= "requested";
+      if (state.memberMutationFactsPhase !== "indexed") break;
+      const bindings = new Set<
+        NonNullable<ReturnType<typeof resolveSemanticBindingState>>
+      >();
+      if (current.id != null) {
+        const binding = resolveSemanticBindingState(
+          state,
+          current.id,
+          current.id.name,
+        );
+        if (binding !== undefined) bindings.add(binding);
+      }
+      for (const { read } of semanticExactValueIdentity(current, state)
+        ?.aliases ?? []) {
+        const binding = resolveSemanticBindingState(state, read, read.name);
+        if (binding !== undefined) bindings.add(binding);
+      }
+      // A class's inner self binding and its outer declaration binding select
+      // one allocation. Prototype effects belong to that shared identity.
+      const prototypeEffects = [
+        ...(state.literalMemberEffects?.get(current) ?? []),
+        ...[...bindings].flatMap((binding) => [
+          ...binding.memberWrites,
+          ...binding.escapedPaths,
+        ]),
+      ];
+      if (
+        prototypeEffects.some(
+          ({ path, node }) =>
+            semanticPrototypeLookupMayChange(path, "__proto__") &&
+            semanticEffectTiming(capture, node, state) !== "after",
+        )
+      )
+        break;
+      const bases = semanticClassCandidates(current.superClass, state);
+      if (bases.length !== 1 || bases[0] === undefined) break;
+      current = bases[0];
+    }
+    for (const value of visited) facts.set(value, result);
+    return result;
   };
   const constructions = new Set<t.NewExpression>();
   for (const [activation, call] of calls)
@@ -1931,7 +1956,21 @@ const webSocketArgumentParameter = (
     arguments_.slice(0, index).some((argument) => t.isSpreadElement(argument))
   )
     return undefined;
-  const parameter = runtimeFunctionParameters(owner)[index - offset];
+  const runtimeParameters = runtimeFunctionParameters(owner);
+  for (let prior = 0; prior < index - offset; prior++) {
+    const parameter = runtimeParameters[prior];
+    if (parameter === undefined || t.isRestElement(parameter)) return undefined;
+    const phase = semanticPatternCompletion(
+      parameter,
+      arguments_[prior + offset] ?? null,
+      state,
+      () => false,
+      undefined,
+      call,
+    );
+    if (phase !== "completed") return undefined;
+  }
+  const parameter = runtimeParameters[index - offset];
   const pattern = t.isAssignmentPattern(parameter) ? parameter.left : parameter;
   return pattern !== undefined
     ? { parameter: pattern, invocation: call }

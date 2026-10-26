@@ -625,7 +625,49 @@ export const semanticAmbientCallKeepsReceiver = (
   path: readonly string[],
 ): boolean =>
   path[0] === "global" &&
-  ((path.length === 3 && ["Object", "Reflect"].includes(path[1]!)) ||
+  ((path.length === 3 &&
+    ((path[1] === "Object" &&
+      [
+        "assign",
+        "create",
+        "defineProperties",
+        "defineProperty",
+        "entries",
+        "freeze",
+        "fromEntries",
+        "getOwnPropertyDescriptor",
+        "getOwnPropertyDescriptors",
+        "getOwnPropertyNames",
+        "getOwnPropertySymbols",
+        "getPrototypeOf",
+        "groupBy",
+        "hasOwn",
+        "is",
+        "isExtensible",
+        "isFrozen",
+        "isSealed",
+        "keys",
+        "preventExtensions",
+        "seal",
+        "setPrototypeOf",
+        "values",
+      ].includes(path[2]!)) ||
+      (path[1] === "Reflect" &&
+        [
+          "apply",
+          "construct",
+          "defineProperty",
+          "deleteProperty",
+          "get",
+          "getOwnPropertyDescriptor",
+          "getPrototypeOf",
+          "has",
+          "isExtensible",
+          "ownKeys",
+          "preventExtensions",
+          "set",
+          "setPrototypeOf",
+        ].includes(path[2]!)))) ||
     (path.length === 3 &&
       path[1] === "Promise" &&
       [

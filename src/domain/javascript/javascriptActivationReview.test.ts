@@ -3,7 +3,47 @@ import { createWebPageInspection } from "../../../tests/support/browser/webPageI
 import { analyzeWebBundleFixture } from "../../../tests/support/browser/analyzeWebBundleFixture.js";
 import { analyzeJavaScriptStaticSource } from "./javascriptStaticAnalysis.js";
 
+const inheritanceChain = Array.from(
+  { length: 10000 },
+  (_, i) => `class C${i + 1} extends C${i} {}`,
+).join(";");
+
 const cases = [
+  [
+    "review deep implicit construction retains early field ordering",
+    `class C0{field=new Socket("wss://example.test/deep-class")};${inheritanceChain};try{new C10000()}catch{}const Socket=globalThis.WebSocket;`,
+    [],
+  ],
+  [
+    "review deep implicit construction initialized control",
+    `const Socket=globalThis.WebSocket;class C0{field=new Socket("wss://example.test/deep-class-ready")};${inheritanceChain};new C10000();`,
+    ["wss://example.test/deep-class-ready"],
+  ],
+  [
+    "review failed preceding parameter leaves generator dormant",
+    'try{(function({x},[y]){})(null,(function*(){new Socket("wss://example.test/later-param");yield 0})())}catch{}const Socket=globalThis.WebSocket;',
+    ["wss://example.test/later-param"],
+  ],
+  [
+    "review completed preceding parameter consumes generator",
+    'try{(function({x},[y]){})({x:0},(function*(){new Socket("wss://example.test/later-param-control");yield 0})())}catch{}const Socket=globalThis.WebSocket;',
+    [],
+  ],
+  [
+    "review apply string length consumes indexed getter",
+    '(()=>{}).apply(null,{length:"1",get 0(){new Socket("wss://example.test/string-length")}});const Socket=globalThis.WebSocket;',
+    [],
+  ],
+  [
+    "review apply boolean length consumes indexed getter",
+    '(()=>{}).apply(null,{length:true,get 0(){new Socket("wss://example.test/boolean-length")}});const Socket=globalThis.WebSocket;',
+    [],
+  ],
+  [
+    "review unknown Object method exposes receiver",
+    'export {};Object.prototype.mutate=function(){this.prototype.with=null};Object.mutate();const {WebSocket:Socket}=await import("ws",{});new Socket("wss://example.test/failed");',
+    [],
+  ],
   [
     "property name computed read",
     'const values=(function*(){new Socket("wss://example.test/early");yield 0})();const marker={[values]:0};const [x]=values;const Socket=globalThis.WebSocket;',
