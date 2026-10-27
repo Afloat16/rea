@@ -10,6 +10,36 @@ const inheritanceChain = Array.from(
 
 const cases = [
   [
+    "safe own length read",
+    '(()=>{}).apply(null,{count:1,get length(){return this.count},get 0(){new Socket("wss://example.test/safe-read")}});const Socket=globalThis.WebSocket;',
+    [],
+  ],
+  [
+    "custom class apply",
+    'class Target{static apply(){}}let args;Target.apply(null,args={get length(){new Socket("wss://example.test/custom");return 0}});const Socket=globalThis.WebSocket;args.length;',
+    ["wss://example.test/custom"],
+  ],
+  [
+    "inherited custom class apply",
+    'class Base{static apply(){}}class Target extends Base{}let args;Target.apply(null,args={get length(){new Socket("wss://example.test/inherited");return 0}});const Socket=globalThis.WebSocket;args.length;',
+    ["wss://example.test/inherited"],
+  ],
+  [
+    "initialized inherited native class apply",
+    'const Socket=globalThis.WebSocket;class Base{}class Target extends Base{}Target.apply(null,{get length(){new Socket("wss://example.test/native");return 0}});',
+    ["wss://example.test/native"],
+  ],
+  [
+    "own class getter apply",
+    'class Target{static get apply(){return()=>{}}}let args;Target.apply(null,args={get length(){new Socket("wss://example.test/custom-get");return 0}});const Socket=globalThis.WebSocket;args.length;',
+    ["wss://example.test/custom-get"],
+  ],
+  [
+    "nested accessor length mutates index",
+    'let saved;(()=>{}).apply(null,{get count(){saved=Object.getOwnPropertyDescriptor(this,"0").get;delete this[0];return 1},get length(){return this.count},get 0(){new Socket("wss://example.test/nested-get")}});const Socket=globalThis.WebSocket;saved();',
+    ["wss://example.test/nested-get"],
+  ],
+  [
     "review removed index getter is independently called later",
     'let saved;try{(()=>{}).apply(null,{get length(){saved=Object.getOwnPropertyDescriptor(this,"0").get;delete this[0];return 1},get 0(){new Socket("wss://example.test/saved-index")}})}catch{}const Socket=globalThis.WebSocket;saved();',
     ["wss://example.test/saved-index"],

@@ -1,3 +1,4 @@
+import { semanticLiteralProjectionSlot } from "./javascriptSemanticLiteralProjection.js";
 import { childNodes } from "./javascriptSemanticTraversal.js";
 import { semanticCoercionOperands } from "./javascriptSemanticLanguageInvocations.js";
 import {
@@ -588,6 +589,7 @@ export const semanticGetterPreservesReceiverSlot = (
   getter: t.ObjectMethod,
   key: string,
   state: JavaScriptSemanticAnalysisState,
+  capture: t.Node,
 ): boolean =>
   !semanticAccessorEffectOperands(getter).some(
     (operand) =>
@@ -595,6 +597,32 @@ export const semanticGetterPreservesReceiverSlot = (
       semanticGetterReceiverReferences(getter, operand.node, state).some(
         (reference) => {
           if (reference.node !== getter) return false;
+          if (operand.kind === "read") {
+            // Reads retain their projection separately from their receiver.
+            // Only an unresolved/accessor lookup may execute receiver effects;
+            // selecting proven data does not expose the allocation.
+            let selected = state.parentsByNode.get(getter);
+            for (const part of [...reference.path, ...operand.path]) {
+              if (
+                selected === undefined ||
+                part === null ||
+                typeof part === "object"
+              )
+                return true;
+              const slot = semanticLiteralProjectionSlot(
+                selected,
+                String(part),
+                capture,
+                state,
+                { ownedResultEscape: capture },
+              );
+              if (slot.kind === "value") selected = slot.node;
+              else if (slot.kind === "undefined" || slot.kind === "inert-data")
+                return false;
+              else return true;
+            }
+            return false;
+          }
           const path =
             operand.kind === "write"
               ? [...reference.path, ...operand.path]

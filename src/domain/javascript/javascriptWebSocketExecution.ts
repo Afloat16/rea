@@ -372,7 +372,7 @@ const webSocketFreshMethodSelection = (
           lengthSlot.kind === "accessor" ? lengthSlot.node : undefined;
         if (
           t.isObjectMethod(length) &&
-          !semanticGetterPreservesReceiverSlot(length, key!, state)
+          !semanticGetterPreservesReceiverSlot(length, key!, state, consumer)
         )
           return undefined;
         const completion =
@@ -525,6 +525,46 @@ const webSocketInvocationHelperIntact = (
     })
   )
     return false;
+  if (t.isClass(value)) {
+    // Class definitions own static slots even though they are not later writes.
+    // A dynamic/decorated definition or unresolved superclass is not proof of
+    // the native Function.prototype helper.
+    if (
+      value.decorators?.length ||
+      value.body.body.some(
+        (member) =>
+          t.isStaticBlock(member) ||
+          ((t.isClassMethod(member) || javaScriptClassField(member)) &&
+            member.static &&
+            (member.decorators?.length ||
+              semanticStaticPropertyKey(
+                member.key,
+                "computed" in member ? member.computed : false,
+              ) === null ||
+              semanticStaticPropertyKey(
+                member.key,
+                "computed" in member ? member.computed : false,
+              ) === method)),
+      )
+    )
+      return false;
+    if (value.superClass != null) {
+      const base = semanticExactValueIdentity(value.superClass, state)?.node;
+      if (
+        !t.isClass(base) ||
+        !webSocketInvocationHelperIntact(
+          base,
+          method,
+          capture,
+          state,
+          parameters,
+          undefined,
+          seen,
+        )
+      )
+        return false;
+    }
+  }
   let freshBound = false;
   if (t.isCallExpression(value) || t.isOptionalCallExpression(value)) {
     const callee = unwrapJavaScriptExpression(value.callee).node;
