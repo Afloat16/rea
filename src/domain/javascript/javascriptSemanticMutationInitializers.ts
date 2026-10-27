@@ -135,7 +135,11 @@ const computeTopLevelPosition = (
   let declarator: t.VariableDeclarator | undefined;
   let child: t.Node | undefined;
   while (node !== undefined) {
-    if (t.isFunction(node)) return null;
+    if (
+      t.isFunction(node) &&
+      (child === undefined || !semanticComputedMethodKey(node, child))
+    )
+      return null;
     if (t.isLoop(node)) {
       if (!repeatingEffect) return null;
       // A capture outside the loop may precede the entire repeating region.

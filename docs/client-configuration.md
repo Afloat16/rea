@@ -497,17 +497,52 @@ comments and unrelated settings. It resolves that file from `HERMES_HOME`, else
 from the platform default Hermes itself uses — `%LOCALAPPDATA%\hermes` on
 Windows, `~/.hermes` elsewhere — including any `HERMES_DATA_DIR_SUFFIX`. Hermes
 connects an entry unless `enabled` is false, so setup states `enabled: true`.
+Aliases whose anchor is defined in the `rea` entry retain their original resolved
+values when setup refreshes or uninstall removes that entry. Setup does not
+redirect another server's alias to REA's new launcher or policy.
+This also covers an anchor on the removed registration key. References to
+definitions outside the entry keep sharing the original value, including when
+another definition later reuses the same anchor name.
 
 Hermes personal skills install under the active Hermes home's `skills` directory.
-Setup, doctor and uninstall follow the root's `active_profile` selection, as
-plain Hermes CLI commands do. An explicit `HERMES_HOME` pointing to
-`profiles/<name>` selects that named profile directly. An invalid, missing or
-deleted sticky profile is reported instead of writing into the default home;
-it also remains an unresolved skill selection, so setup cannot report a
-successful empty installation. Overrides nested beneath the native Hermes home
-use that native home's sticky selection and profile root together, matching
-[Hermes's root rules](https://github.com/NousResearch/hermes-agent/blob/748c79a1c6873124d84071cdabb4062a75913e1f/hermes_constants.py#L83).
-Repair the profile or run `hermes profile use default` before retrying.
+Setup, doctor and uninstall share REA's sticky-profile resolver.
+A custom `HERMES_HOME` outside the platform default home
+reads its own `active_profile`. An existing override directory physically inside
+the default home uses that default home's sticky selection and profile root
+together.
+
+For example, with `HERMES_HOME=~/.hermes/sub` and `~/.hermes/active_profile` set
+to `coder`, setup selects `~/.hermes/profiles/coder/config.yaml` and that
+profile's skills directory. It does not read `~/.hermes/sub/active_profile`.
+Without an outer named selection, this override uses `~/.hermes/sub/config.yaml`.
+Use a home outside the platform default tree for an independent sticky selection.
+
+This describes REA's current routing, not full Hermes CLI equivalence.
+At Hermes commit `748c79a1`, the
+[sticky lookup](https://github.com/NousResearch/hermes-agent/blob/748c79a1c6873124d84071cdabb4062a75913e1f/hermes_cli/main.py#L612-L632)
+also reads the outer selection, but
+[`resolve_profile_env`](https://github.com/NousResearch/hermes-agent/blob/748c79a1c6873124d84071cdabb4062a75913e1f/hermes_cli/profiles.py#L2431-L2461)
+resolves it beneath the configured `HERMES_HOME`. For nested overrides, confirm
+the profile Hermes actually uses and point `HERMES_HOME` directly at that
+`profiles/<name>` directory before setup. Compatibility is tracked in
+[#3939](https://github.com/morluto/rea/issues/3939).
+
+Before setup, create an override directory whose path includes a symlink,
+junction, or another prefix that resolves to a different spelling. When the
+override does not exist, REA falls back to its lexical spelling for containment.
+This can miss physical containment — for example, beneath a symlinked default
+home or `HOME`/`USERPROFILE`/`LOCALAPPDATA` ancestor — ignoring the outer selection
+and planning the override root's configuration. It can also falsely assume
+containment: if `~/.hermes/link` points outside the default home,
+`HERMES_HOME=~/.hermes/link/new` can select the default home's profile even though
+the override lies outside it. Once the override directory exists, REA checks its
+physical location. Inspect setup's previewed destinations before applying changes.
+
+An explicit `HERMES_HOME` pointing to `profiles/<name>` selects that named
+profile directly, bypassing sticky selection. An invalid, missing or deleted
+sticky profile is reported instead of writing into the default home; repair the
+profile or run `hermes profile use default` before retrying. It also remains an
+unresolved skill selection, so setup cannot report a successful empty installation.
 REA follows `HERMES_HOME` whitespace trimming, environment-variable expansion,
 and home expansion before resolving that profile. Setup previews the resolved
 configuration and skill destinations; doctor and uninstall use those same paths.
@@ -524,10 +559,12 @@ installs its skill copy there.
 ## Factory Droid
 
 For [Factory Droid](https://docs.factory.com/harness/mcp), setup writes
-`mcpServers.rea` into the user-level `~/.factory/mcp.json`. Entries carry
-`command`, `args`, and `env`. Droid discovers personal skills from
-`~/.factory/skills` ([skills](https://docs.factory.com/harness/skills)), so
-setup installs its skill copy there.
+`mcpServers.rea` into the user-level `~/.factory/mcp.json` (the
+`FACTORY_HOME_OVERRIDE` override replaces the home that contains `.factory`).
+Entries carry `command`, `args`, and `env`. Droid discovers personal skills
+from `~/.factory/skills` ([skills](https://docs.factory.com/harness/skills),
+following `FACTORY_HOME_OVERRIDE` when set), so setup installs its skill copy
+there.
 
 ## Trae
 
@@ -702,10 +739,6 @@ Legacy activation is normalized before layer merging, so an explicit enable
 can override an inherited disable. Lower files and other server entries remain
 unchanged; a legacy server named `servers` that conflicts with the native table
 requires manual repair before setup can write.
-
-When Hermes aliases refer to an anchored REA entry, refreshing or removing REA
-retains the aliases' original resolved values. Setup does not redirect another
-server's alias to REA's new launcher or policy.
 
 With no client selected, the interactive skill choice targets the shared
 `~/.agents/skills` copy. Selecting a client targets its personal destination
