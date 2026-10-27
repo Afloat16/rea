@@ -667,20 +667,13 @@ export const semanticClassMemberKey = (
     | t.ClassAccessorProperty,
   symbolKey?: (node: t.Node) => boolean,
 ): string | null | undefined => {
-  if (
-    member.decorators?.length ||
-    t.isClassAccessorProperty(member) ||
-    (javaScriptClassField(member) &&
-      member.value != null &&
-      !readExactJavaScriptLiteral(member.value).found &&
-      !t.isFunctionExpression(member.value) &&
-      !t.isArrowFunctionExpression(member.value))
-  )
-    return null;
-  if (t.isClassPrivateProperty(member)) return undefined;
-  return member.computed && symbolKey?.(member.key)
+  if (t.isPrivateName(member.key)) return undefined;
+  return "computed" in member && member.computed && symbolKey?.(member.key)
     ? undefined
-    : semanticStaticPropertyKey(member.key, member.computed);
+    : semanticStaticPropertyKey(
+        member.key,
+        "computed" in member && member.computed,
+      );
 };
 
 /** Class fields initialize after all method definitions, in field order. */
@@ -719,6 +712,18 @@ export const semanticFinalClassMember = (
       member.static !== isStatic
     )
       continue;
+    // Selecting a stored member value owns initializer-effect safety separately
+    // from its key. Other consumers use their indexed mutation/effect facts.
+    if (
+      member.decorators?.length ||
+      t.isClassAccessorProperty(member) ||
+      (javaScriptClassField(member) &&
+        member.value != null &&
+        !readExactJavaScriptLiteral(member.value).found &&
+        !t.isFunctionExpression(member.value) &&
+        !t.isArrowFunctionExpression(member.value))
+    )
+      return undefined;
     const name = semanticClassMemberKey(member, symbolKey);
     if (name === null) return undefined;
     if (t.isClassPrivateProperty(member) || t.isClassAccessorProperty(member))

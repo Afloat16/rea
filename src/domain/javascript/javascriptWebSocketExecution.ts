@@ -545,7 +545,17 @@ const webSocketInvocationHelperIntact = (
           const key = semanticClassMemberKey(member, (node) =>
             webSocketIntrinsicSymbolKey(node, state),
           );
-          return key === null || key === lookup.method;
+          // Key identity and initializer safety are separate proofs. Reuse the
+          // narrow syntax-only completion proof for inert allocations/values;
+          // calls, writes and unresolved reads do not satisfy that proof.
+          return (
+            member.decorators?.length ||
+            (javaScriptClassField(member) &&
+              member.value != null &&
+              !syntaxEvaluationCannotThrow(member.value)) ||
+            key === null ||
+            key === lookup.method
+          );
         })
       )
         return false;

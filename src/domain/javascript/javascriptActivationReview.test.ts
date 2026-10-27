@@ -9,6 +9,36 @@ const inheritanceChain = Array.from(
 ).join(";");
 
 const cases = [
+  ...["{}", "[]", "void 0"].flatMap(
+    (initializer) =>
+      [
+        [
+          `review harmless static initializer ${initializer} early getter`,
+          `class Target{static marker=${initializer}};Target.apply(null,{get length(){new Socket("wss://example.test/harmless");return 0}});const Socket=globalThis.WebSocket;`,
+          [],
+        ],
+        [
+          `review harmless static initializer ${initializer} initialized getter`,
+          `const Socket=globalThis.WebSocket;class Target{static marker=${initializer}};Target.apply(null,{get length(){new Socket("wss://example.test/harmless-ready");return 0}});`,
+          ["wss://example.test/harmless-ready"],
+        ],
+      ] as const,
+  ),
+  [
+    "review harmless private object initializer early getter",
+    'class Target{static #marker={}};Target.apply(null,{get length(){new Socket("wss://example.test/private-object");return 0}});const Socket=globalThis.WebSocket;',
+    [],
+  ],
+  [
+    "review harmless Symbol array initializer early getter",
+    'class Target{static [Symbol.iterator]=[]};Target.apply(null,{get length(){new Socket("wss://example.test/symbol-array");return 0}});const Socket=globalThis.WebSocket;',
+    [],
+  ],
+  [
+    "review static initializer really replaces helper",
+    'class Target{static marker=(this.apply=()=>{})};let args;Target.apply(null,args={get length(){new Socket("wss://example.test/initializer-write");return 0}});const Socket=globalThis.WebSocket;args.length;',
+    ["wss://example.test/initializer-write"],
+  ],
   [
     "review deep helper inheritance retains early getter",
     `class C0{};${inheritanceChain};try{C10000.apply(null,{get length(){new Socket("wss://example.test/deep-helper");return 0}})}catch{}const Socket=globalThis.WebSocket;new WebSocket("wss://example.test/independent");`,
