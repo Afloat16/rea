@@ -4,6 +4,7 @@ import { semanticExpressionCannotThrow } from "./javascriptSemanticExpressionRes
 import { semanticKnownArrayIterationAt } from "./javascriptSemanticReferenceSources.js";
 import {
   semanticLiteralOwnKeysStable,
+  semanticLiteralProjectionSlot,
   semanticLiteralCopyGetterIsReached,
 } from "./javascriptSemanticLiteralProjection.js";
 import {
@@ -271,11 +272,25 @@ const webSocketFreshMethodSelection = (
           t.isObjectProperty(item) &&
           semanticStaticPropertyKey(item.key, item.computed) === key,
       );
-      if (t.isObjectProperty(selected))
+      if (t.isObjectProperty(selected)) {
+        const phase = semanticPatternCompletionBeforeTarget(
+          pattern,
+          result,
+          selected,
+          state,
+          (operand) =>
+            webSocketCompletedSuspension(operand, state) !== undefined,
+          (node) => webSocketExecutionContexts(node, state, true),
+        );
+        // A failed earlier binding does not select this getter at all. Its
+        // later independent reads must not inherit the failed pattern's frame.
+        if (phase === "blocked" || phase === "suspended-blocked")
+          return undefined;
         // Getter entry follows the selected pattern key. Returning the RHS
         // literal here would incorrectly place the getter before an awaited
         // computed key has finished evaluating.
         return selected;
+      }
       const excluded = new Set<string>();
       for (const item of pattern.properties) {
         if (t.isObjectProperty(item)) {
@@ -320,18 +335,41 @@ const webSocketFreshMethodSelection = (
         // explicit arguments have completed. A getter is owned by that call,
         // rather than by creation of its array-like object.
         if (key === "length") return consumer;
-        const length = semanticFinalObjectMember(literal, "length", "get");
+        const index = key === null ? NaN : Number(key);
+        if (String(index) !== key || !Number.isSafeInteger(index) || index < 0)
+          return undefined;
+        state.memberMutationFactsPhase ??= "requested";
+        const lengthSlot = semanticLiteralProjectionSlot(
+          literal,
+          "length",
+          consumer,
+          state,
+          { ownedResultEscape: consumer },
+        );
+        // A write during explicit argument evaluation invalidates the original
+        // slot. An unproven length can still select this getter immediately.
+        if (
+          state.memberMutationFactsPhase !== "indexed" ||
+          lengthSlot.kind === "invalid" ||
+          lengthSlot.kind === "unknown"
+        )
+          return consumer;
+        const length =
+          lengthSlot.kind === "accessor" ? lengthSlot.node : undefined;
         const completion =
-          t.isObjectMethod(length) && length.kind === "get"
-            ? semanticGetterCompletionValue(length, state)
-            : undefined;
-        const value = t.isObjectProperty(length)
-          ? readExactJavaScriptLiteral(length.value)
-          : completion?.known
-            ? completion.node === undefined
+          length === undefined
+            ? undefined
+            : semanticGetterCompletionValue(length, state);
+        const value =
+          lengthSlot.kind === "value"
+            ? readExactJavaScriptLiteral(lengthSlot.node)
+            : lengthSlot.kind === "undefined"
               ? { found: true, value: undefined }
-              : readExactJavaScriptNormalResult(completion.node)
-            : undefined;
+              : completion?.known
+                ? completion.node === undefined
+                  ? { found: true, value: undefined }
+                  : readExactJavaScriptNormalResult(completion.node)
+                : undefined;
         // ToLength converts proven primitives, but must not execute object coercion.
         const numericLength =
           value?.found &&
@@ -339,11 +377,20 @@ const webSocketFreshMethodSelection = (
           typeof value.value !== "symbol"
             ? Number(value.value)
             : undefined;
-        const index = key === null ? NaN : Number(key);
         if (
-          String(index) === key &&
-          Number.isSafeInteger(index) &&
-          index >= 0 &&
+          numericLength === undefined &&
+          !(
+            value?.found &&
+            (typeof value.value === "bigint" || typeof value.value === "symbol")
+          ) &&
+          !(
+            t.isObjectMethod(length) &&
+            (syntaxAlwaysThrows(length.body) ||
+              syntaxEvaluationAlwaysThrows(length.body))
+          )
+        )
+          return consumer;
+        if (
           numericLength !== undefined &&
           index <
             Math.min(

@@ -10,6 +10,91 @@ const inheritanceChain = Array.from(
 
 const cases = [
   [
+    "review apply never reads non-index getter",
+    'let args;(()=>{}).apply(null,args={length:0,get other(){new Socket("wss://example.test/other")}},args.length=1);const Socket=globalThis.WebSocket;args.other;',
+    ["wss://example.test/other"],
+  ],
+  [
+    "review unproven apply length retains immediate getter",
+    '(()=>{}).apply(null,{length:maybeLength,get 0(){new Socket("wss://example.test/unknown-length")}});const Socket=globalThis.WebSocket;',
+    [],
+  ],
+  [
+    "review unproven apply length initialized control",
+    'const Socket=globalThis.WebSocket;(()=>{}).apply(null,{length:maybeLength,get 0(){new Socket("wss://example.test/unknown-length-ready")}});',
+    ["wss://example.test/unknown-length-ready"],
+  ],
+  [
+    "review unrelated Promise property retains native aggregate",
+    'export{};Promise.other=0;Promise.all([0]);const{WebSocket:Socket}=await import("ws",{});new Socket("wss://example.test/native-other");',
+    ["wss://example.test/native-other"],
+  ],
+  [
+    "review apply later argument changes length",
+    'let args;(()=>{}).apply(null,args={length:0,get 0(){new Socket("wss://example.test/early");}},args.length=1);const Socket=globalThis.WebSocket;',
+    [],
+  ],
+  [
+    "review apply changed length initialized control",
+    'const Socket=globalThis.WebSocket;let args;(()=>{}).apply(null,args={length:0,get 0(){new Socket("wss://example.test/early-ready");}},args.length=1);',
+    ["wss://example.test/early-ready"],
+  ],
+  [
+    "review apply unrelated later write preserves zero length",
+    'let args;(()=>{}).apply(null,args={length:0,get 0(){new Socket("wss://example.test/later");}},args.other=1);const Socket=globalThis.WebSocket;args[0];',
+    ["wss://example.test/later"],
+  ],
+  [
+    "review blocked preceding binding leaves getter dormant",
+    'let box;try{const{first:{x},later}=box={first:null,get later(){new Socket("wss://example.test/later");}};}catch{}const Socket=globalThis.WebSocket;box.later;',
+    ["wss://example.test/later"],
+  ],
+  [
+    "review completed preceding binding reaches getter",
+    'let box;try{const{first:{x},later}=box={first:{x:0},get later(){new Socket("wss://example.test/later");}};}catch{}const Socket=globalThis.WebSocket;box.later;',
+    [],
+  ],
+  [
+    "review Promise all exposes replaced resolve receiver",
+    'export{};Promise.resolve=function(value){this.__proto__.__proto__.with=null;return{then(ok){ok(value)}};};Promise.all([0]);const{WebSocket:Socket}=await import("ws",{});new Socket("wss://example.test/failed");',
+    [],
+  ],
+  [
+    "review native Promise all keeps receiver",
+    'export{};Promise.all([0]);const{WebSocket:Socket}=await import("ws",{});new Socket("wss://example.test/native");',
+    ["wss://example.test/native"],
+  ],
+  [
+    "review Promise allSettled exposes replaced resolve receiver",
+    'export{};Promise.resolve=function(value){this.__proto__.__proto__.with=null;return{then(ok){ok(value)}};};Promise.allSettled([0]);const{WebSocket:Socket}=await import("ws",{});new Socket("wss://example.test/failed");',
+    [],
+  ],
+  [
+    "review native Promise allSettled keeps receiver",
+    'export{};Promise.allSettled([0]);const{WebSocket:Socket}=await import("ws",{});new Socket("wss://example.test/native");',
+    ["wss://example.test/native"],
+  ],
+  [
+    "review Promise any exposes replaced resolve receiver",
+    'export{};Promise.resolve=function(value){this.__proto__.__proto__.with=null;return{then(ok){ok(value)}};};Promise.any([0]);const{WebSocket:Socket}=await import("ws",{});new Socket("wss://example.test/failed");',
+    [],
+  ],
+  [
+    "review native Promise any keeps receiver",
+    'export{};Promise.any([0]);const{WebSocket:Socket}=await import("ws",{});new Socket("wss://example.test/native");',
+    ["wss://example.test/native"],
+  ],
+  [
+    "review Promise race exposes replaced resolve receiver",
+    'export{};Promise.resolve=function(value){this.__proto__.__proto__.with=null;return{then(ok){ok(value)}};};Promise.race([0]);const{WebSocket:Socket}=await import("ws",{});new Socket("wss://example.test/failed");',
+    [],
+  ],
+  [
+    "review native Promise race keeps receiver",
+    'export{};Promise.race([0]);const{WebSocket:Socket}=await import("ws",{});new Socket("wss://example.test/native");',
+    ["wss://example.test/native"],
+  ],
+  [
     "review unknown preceding rest parameter retains immediate ordering",
     'const input={x:0};(function({...rest},[value]){})(input,(function*(){new Socket("wss://example.test/unknown-param");yield 0})());const Socket=globalThis.WebSocket;',
     [],

@@ -1524,8 +1524,10 @@ export function* collectSemanticMemberMutationsSteps(
         resolved.ownership === "ambient" &&
         path?.[0] === "global" &&
         path.every((key): key is string => key !== null) &&
-        semanticAmbientCallKeepsReceiver(path) &&
-        !createSemanticAmbientModificationQuery(state, expression)(path)
+        semanticAmbientCallKeepsReceiver(
+          path,
+          createSemanticAmbientModificationQuery(state, expression),
+        )
       )
         return;
     }

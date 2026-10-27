@@ -623,8 +623,18 @@ export const createAmbientPathResolver = (
 /** These native operations do not pass their namespace receiver to user code. */
 export const semanticAmbientCallKeepsReceiver = (
   path: readonly string[],
+  modified: (selected: readonly string[]) => boolean,
 ): boolean =>
   path[0] === "global" &&
+  !modified(path) &&
+  // Aggregate methods call the selected resolve with the Promise constructor
+  // as receiver. Replacing that dependency exposes the namespace indirectly.
+  !(
+    path.length === 3 &&
+    path[1] === "Promise" &&
+    ["all", "allSettled", "any", "race"].includes(path[2]!) &&
+    modified(["global", "Promise", "resolve"])
+  ) &&
   ((path.length === 3 &&
     ((path[1] === "Object" &&
       [
@@ -922,8 +932,10 @@ export function* indexJavaScriptAmbientWritesSteps(
       if (
         resolved.ownership === "ambient" &&
         selected?.every((key): key is string => key !== null) &&
-        semanticAmbientCallKeepsReceiver(selected) &&
-        !createSemanticAmbientModificationQuery(state, receiver)(selected)
+        semanticAmbientCallKeepsReceiver(
+          selected,
+          createSemanticAmbientModificationQuery(state, receiver),
+        )
       )
         continue;
     }
