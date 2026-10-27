@@ -1809,7 +1809,7 @@ for (const count of [8, 3000]) {
       );
       if (count === 3000)
         expect(
-          result.analysis_coverage.examination.semantic_resource_limits,
+          result.analysis_coverage?.examination.semantic_resource_limits,
         ).toContain("alias-selections");
     }, 20000);
   }
