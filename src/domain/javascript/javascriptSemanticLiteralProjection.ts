@@ -143,9 +143,28 @@ export const semanticLiteralProjectionSlot = (
         semanticStaticPropertyKey(property.key, false) === "__proto__" &&
         t.isNullLiteral(unwrapJavaScriptExpression(property.value).node),
     );
+    // Object.prototype has no built-in length. A fresh ordinary object can
+    // therefore prove this particular missing lookup undefined, but only while
+    // the collected prototype and opaque effects preserve that native absence.
+    const nativeMissingLength =
+      key === "length" &&
+      !container.properties.some(
+        (property) =>
+          t.isObjectProperty(property) &&
+          !property.computed &&
+          !property.shorthand &&
+          semanticStaticPropertyKey(property.key, false) === "__proto__",
+      ) &&
+      !["length", "__proto__"].some(
+        (name) =>
+          state.ambientWrites.covers(["global", "Object", "prototype", name]) ||
+          state.ambientEscapes.covers(["global", "Object", "prototype", name]),
+      ) &&
+      state.opaqueEffects.byScope.size === 0 &&
+      state.opaqueEffects.globalSites.length === 0;
     if (
       slot.kind === "missing" &&
-      nullPrototype &&
+      (nullPrototype || nativeMissingLength) &&
       container.properties.every(
         (property) =>
           !t.isSpreadElement(property) &&

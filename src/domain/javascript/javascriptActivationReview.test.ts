@@ -10,6 +10,26 @@ const inheritanceChain = Array.from(
 
 const cases = [
   [
+    "review absent apply length permits later getter",
+    'let args;(()=>{}).apply(null,args={get 0(){new Socket("wss://example.test/later")}});const Socket=globalThis.WebSocket;args[0];',
+    ["wss://example.test/later"],
+  ],
+  [
+    "review inherited apply length reaches getter",
+    'Object.prototype.length=1;let args;(()=>{}).apply(null,args={get 0(){new Socket("wss://example.test/early")}});const Socket=globalThis.WebSocket;args[0];',
+    [],
+  ],
+  [
+    "review explicit prototype length reaches getter",
+    'let args;(()=>{}).apply(null,args={__proto__:{length:1},get 0(){new Socket("wss://example.test/early")}});const Socket=globalThis.WebSocket;args[0];',
+    [],
+  ],
+  [
+    "review absent length with null prototype permits later getter",
+    'Object.prototype.length=1;let args;(()=>{}).apply(null,args={__proto__:null,get 0(){new Socket("wss://example.test/later")}});const Socket=globalThis.WebSocket;args[0];',
+    ["wss://example.test/later"],
+  ],
+  [
     "review apply never reads non-index getter",
     'let args;(()=>{}).apply(null,args={length:0,get other(){new Socket("wss://example.test/other")}},args.length=1);const Socket=globalThis.WebSocket;args.other;',
     ["wss://example.test/other"],
