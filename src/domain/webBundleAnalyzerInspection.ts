@@ -1,3 +1,7 @@
+import {
+  isBrowserNetworkRequest,
+  createXhrOpenRequestQuery,
+} from "./javascript/javascriptNetworkRequests.js";
 import type {
   AnalysisAccumulator,
   IncludedScript,
@@ -10,8 +14,8 @@ import { sanitizeEndpointCandidate } from "./browserObservation.js";
 import { compositeKey } from "./unicodeCodePointOrder.js";
 import type { WebBundleAnalysis } from "./webBundleAnalysis.js";
 import {
-  completeSemanticSteps,
   traverseJavaScriptAst,
+  completeSemanticSteps,
 } from "./javascript/javascriptSemanticTraversal.js";
 import { indexJavaScriptBindingsWithReceiversSteps } from "./javascript/javascriptSemanticAnalysis.js";
 import type { JavaScriptOpenReceiverFact } from "./javascript/javascriptSemanticAnalysis.js";
@@ -39,6 +43,7 @@ import {
   isUrlLikeModuleSpecifier,
 } from "./webBundleAnalyzerAst.js";
 import { createJavaScriptRpcScan } from "./javascript/javascriptRpcEndpoints.js";
+import { semanticStaticModuleSource } from "./javascript/javascriptModuleDeclaration.js";
 import { parseJavaScriptSource } from "./javascript/javascriptSourceParser.js";
 
 type BundleObservations = WebBundleAnalysis["observations"];
@@ -91,6 +96,7 @@ export const analyzeScript = (
     }
     return isIntrinsicMapLookup(node, index.bindings, index) === true;
   };
+  const isXhrRequest = createXhrOpenRequestQuery(index);
   const rpc = createJavaScriptRpcScan(
     script.source.artifact.text,
     receivers.rpcClientRoots,
@@ -104,9 +110,10 @@ export const analyzeScript = (
         script,
         node,
         accumulator,
-        bindings,
         openReceiverFacts,
         isMapLookup,
+        index.bindings,
+        isXhrRequest,
       );
       const endpoint = rpc.inspect(node);
       if (endpoint !== undefined)
@@ -139,27 +146,18 @@ const inspectNode = (
   script: IncludedScript,
   node: t.Node,
   accumulator: AnalysisAccumulator,
-  bindings: JavaScriptSemanticAnalysisState,
   openReceiverFacts: ReadonlyMap<number, JavaScriptOpenReceiverFact>,
   isMapLookup: (
     node: t.CallExpression | t.OptionalCallExpression | t.NewExpression,
   ) => boolean,
+  bindings: JavaScriptSemanticAnalysisState,
+  isXhrRequest: (node: t.Node) => boolean,
 ): void => {
-  if (
-    (t.isImportDeclaration(node) || t.isExportAllDeclaration(node)) &&
-    node.source !== undefined
-  )
+  const moduleSource = semanticStaticModuleSource(node);
+  if (moduleSource !== null)
     addEdge({
       script,
-      specifier: node.source.value,
-      kind: "static_import",
-      node,
-      accumulator,
-    });
-  else if (t.isExportNamedDeclaration(node) && node.source != null)
-    addEdge({
-      script,
-      specifier: node.source.value,
+      specifier: moduleSource.value,
       kind: "static_import",
       node,
       accumulator,
@@ -184,9 +182,10 @@ const inspectNode = (
       script,
       node,
       accumulator,
-      bindings,
       openReceiverFacts,
       isMapLookup,
+      bindings,
+      isXhrRequest,
     );
 };
 
@@ -194,11 +193,12 @@ const inspectCall = (
   script: IncludedScript,
   node: t.CallExpression | t.OptionalCallExpression | t.NewExpression,
   accumulator: AnalysisAccumulator,
-  bindings: JavaScriptSemanticAnalysisState,
   openReceiverFacts: ReadonlyMap<number, JavaScriptOpenReceiverFact>,
   isMapLookup: (
     node: t.CallExpression | t.OptionalCallExpression | t.NewExpression,
   ) => boolean,
+  bindings: JavaScriptSemanticAnalysisState,
+  isXhrRequest: (node: t.Node) => boolean,
 ): void => {
   const name = calleeName(node.callee);
   const first = stringValue(node.arguments[0]);
@@ -234,8 +234,13 @@ const inspectCall = (
     bindings,
     openReceiverFacts.get(node.start ?? -1),
   );
+  const mapLookup = isMapLookup(node);
+  const knownRequest =
+    isBrowserNetworkRequest(node, bindings) || isXhrRequest(node);
   const networkEndpoint =
-    endpoint !== undefined && !isMapLookup(node) ? endpoint : undefined;
+    endpoint !== undefined && !mapLookup
+      ? { ...endpoint, kind: knownRequest ? "endpoint" : endpoint.kind }
+      : undefined;
   if (networkEndpoint?.kind === "candidate")
     addEndpointCandidate(
       script,

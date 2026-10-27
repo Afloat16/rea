@@ -65,6 +65,7 @@ export const inspectAnalysisView = async (
     INSPECT_ANALYSIS_VIEW_OPERATION,
     rawInput,
     inspectAnalysisViewInputSchema,
+    options.signal,
   );
   if (!parsed.ok) return parsed;
   if (options.evidenceBundlePath !== undefined)
@@ -400,6 +401,7 @@ const createAnalysisViewEvidence = (
           ? "inferred"
           : "derived",
       authority: parent.authority,
+      environment: parent.environment,
       limitations: result.limitations,
       ...((nativeFunctionView !== undefined || nativeObservationView) &&
       parent.relationship_coverage !== null

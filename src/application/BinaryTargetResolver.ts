@@ -1,3 +1,7 @@
+import {
+  artifactNameForClassification,
+  namedArtifactFormat,
+} from "../domain/artifactNameSelection.js";
 import { readFileHandleRange } from "../filesystem/readFileHandleRange.js";
 import { readPeCoffHeader } from "../domain/peCoffHeader.js";
 import {
@@ -166,7 +170,7 @@ export const parseBinaryTarget = async (
         try {
           return await readOpenedBinaryTarget(
             source,
-            { path, sourcePath, ...bundle },
+            { path, sourcePath, selectedPath: candidate, ...bundle },
             options,
           );
         } catch (cause: unknown) {
@@ -245,12 +249,13 @@ const readOpenedBinaryTarget = async (
   selected: {
     readonly path: string;
     readonly sourcePath: string;
+    readonly selectedPath: string;
     readonly bundleInfoPlist?: string;
   },
   options: BinaryTargetResolverOptions,
 ): Promise<TargetResolution> => {
   const { handle, initial: metadata } = source;
-  const { path, sourcePath, bundleInfoPlist } = selected;
+  const { path, sourcePath, selectedPath, bundleInfoPlist } = selected;
   const bundle = bundleInfoPlist === undefined ? {} : { bundleInfoPlist };
   const hostArchitecture = options.hostArchitecture ?? process.arch;
   const { targetKind, formatHint, signal, architecture, entryPoint } = options;
@@ -371,10 +376,11 @@ const readOpenedBinaryTarget = async (
   }
   // Probe WASM content before suffix-only database routing; an explicit
   // database selection keeps the caller's chosen interpretation.
+  const classificationPath = artifactNameForClassification(selectedPath, path);
   const artifactFormat =
     targetKind === "database"
       ? undefined
-      : await detectArtifactFormat(path, source, signal);
+      : await detectArtifactFormat(classificationPath, source, signal);
   if (
     targetKind === "database" ||
     (targetKind === undefined && path.toLowerCase().endsWith(".hop"))
@@ -390,6 +396,7 @@ const readOpenedBinaryTarget = async (
     const identity = {
       path,
       sourcePath,
+      artifactSelectedPath: selectedPath,
       sha256: await sha256Handle(handle, path, metadata, signal),
     };
     return isArchiveFormat(artifactFormat)
@@ -415,7 +422,8 @@ const readOpenedBinaryTarget = async (
         sourcePath,
         sha256: await sha256Handle(handle, path, metadata, signal),
         kind: "archive",
-        format: zipRootPackageFormat(path),
+        format: zipRootPackageFormat(classificationPath),
+        artifactSelectedPath: selectedPath,
       });
     const reason =
       typeof detected.error === "string"
@@ -660,7 +668,8 @@ const detectArtifactFormat = async (
   // Binary plists, including keyed archives, often use other extensions.
   if (hasBinaryPlistSignature(magic)) return "plist";
   const named = namedArtifactFormat(lower);
-  if (named !== undefined) return named;
+  if (named !== undefined && !claimsExecutableHeader(magic, initial.size))
+    return named;
   if (
     lower.endsWith(".pkg") &&
     magic.length >= 4 &&
@@ -706,15 +715,6 @@ const detectArtifactFormat = async (
       );
   }
   return undefined;
-};
-
-const namedArtifactFormat = (
-  lowerPath: string,
-): "asar" | "plist" | "source-map" | "javascript" | undefined => {
-  if (lowerPath.endsWith(".asar")) return "asar";
-  if (lowerPath.endsWith(".plist")) return "plist";
-  if (lowerPath.endsWith(".map")) return "source-map";
-  return /\.(?:m?js|cjs)$/u.test(lowerPath) ? "javascript" : undefined;
 };
 
 const isArchiveFormat = (
