@@ -10,6 +10,66 @@ const inheritanceChain = Array.from(
 
 const cases = [
   [
+    "review deep helper inheritance retains early getter",
+    `class C0{};${inheritanceChain};try{C10000.apply(null,{get length(){new Socket("wss://example.test/deep-helper");return 0}})}catch{}const Socket=globalThis.WebSocket;new WebSocket("wss://example.test/independent");`,
+    ["wss://example.test/independent"],
+  ],
+  [
+    "review deep helper inheritance initialized control",
+    `const Socket=globalThis.WebSocket;class C0{};${inheritanceChain};try{C10000.apply(null,{get length(){new Socket("wss://example.test/deep-helper-ready");return 0}})}catch{}new WebSocket("wss://example.test/independent");`,
+    ["wss://example.test/deep-helper-ready", "wss://example.test/independent"],
+  ],
+  [
+    "review separated native private field getter",
+    'class Target{static #marker=0};Target.apply(null,{get length(){new Socket("wss://example.test/private-separated");return 0}});const Socket=globalThis.WebSocket;',
+    [],
+  ],
+  [
+    "review separated native Symbol field getter",
+    'class Target{static [Symbol.iterator]=0};Target.apply(null,{get length(){new Socket("wss://example.test/symbol-separated");return 0}});const Socket=globalThis.WebSocket;',
+    [],
+  ],
+  [
+    "review Symbol initializer replaces helper",
+    'class Target{static [Symbol.iterator]=(this.apply=()=>{})};let args;Target.apply(null,args={get length(){new Socket("wss://example.test/symbol-initializer");return 0}});const Socket=globalThis.WebSocket;args.length;',
+    ["wss://example.test/symbol-initializer"],
+  ],
+  [
+    "review unknown computed helper remains unproven",
+    'const key=unknown;class Target{static [key](){}}let args;Target.apply(null,args={get length(){new Socket("wss://example.test/unknown-key");return 0}});const Socket=globalThis.WebSocket;args.length;',
+    ["wss://example.test/unknown-key"],
+  ],
+  [
+    "review native class private field retains early getter",
+    'class Target{static #marker=0}Target.apply(null,{get length(){new Socket("wss://example.test/private");return 0}});const Socket=globalThis.WebSocket;',
+    [],
+  ],
+  [
+    "review native class Symbol method retains early getter",
+    'class Target{static [Symbol.iterator](){}}Target.apply(null,{get length(){new Socket("wss://example.test/symbol");return 0}});const Socket=globalThis.WebSocket;',
+    [],
+  ],
+  [
+    "review initialized class private field getter",
+    'const Socket=globalThis.WebSocket;class Target{static #marker=0}Target.apply(null,{get length(){new Socket("wss://example.test/private-ready");return 0}});',
+    ["wss://example.test/private-ready"],
+  ],
+  [
+    "review class private initializer replaces helper",
+    'class Target{static #marker=(this.apply=()=>{})}let args;Target.apply(null,args={get length(){new Socket("wss://example.test/private-write");return 0}});const Socket=globalThis.WebSocket;args.length;',
+    ["wss://example.test/private-write"],
+  ],
+  [
+    "review shadowed Symbol string helper",
+    'const Symbol={iterator:"apply"};class Target{static [Symbol.iterator](){}}let args;Target.apply(null,args={get length(){new Socket("wss://example.test/symbol-write");return 0}});const Socket=globalThis.WebSocket;args.length;',
+    ["wss://example.test/symbol-write"],
+  ],
+  [
+    "review inherited native class early getter",
+    'class Base{}class Target extends Base{}Target.apply(null,{get length(){new Socket("wss://example.test/inherited-early");return 0}});const Socket=globalThis.WebSocket;',
+    [],
+  ],
+  [
     "safe own length read",
     '(()=>{}).apply(null,{count:1,get length(){return this.count},get 0(){new Socket("wss://example.test/safe-read")}});const Socket=globalThis.WebSocket;',
     [],

@@ -658,6 +658,31 @@ export const semanticFinalObjectProperty = (
   return property.status === "explicit" ? property.value : undefined;
 };
 
+/** A proven non-string key is distinct from unknown public-key syntax. */
+export const semanticClassMemberKey = (
+  member:
+    | t.ClassMethod
+    | t.ClassProperty
+    | t.ClassPrivateProperty
+    | t.ClassAccessorProperty,
+  symbolKey?: (node: t.Node) => boolean,
+): string | null | undefined => {
+  if (
+    member.decorators?.length ||
+    t.isClassAccessorProperty(member) ||
+    (javaScriptClassField(member) &&
+      member.value != null &&
+      !readExactJavaScriptLiteral(member.value).found &&
+      !t.isFunctionExpression(member.value) &&
+      !t.isArrowFunctionExpression(member.value))
+  )
+    return null;
+  if (t.isClassPrivateProperty(member)) return undefined;
+  return member.computed && symbolKey?.(member.key)
+    ? undefined
+    : semanticStaticPropertyKey(member.key, member.computed);
+};
+
 /** Class fields initialize after all method definitions, in field order. */
 export const semanticFinalClassMember = (
   node: t.ClassExpression,
@@ -694,37 +719,11 @@ export const semanticFinalClassMember = (
       member.static !== isStatic
     )
       continue;
-    // Accessor definitions and private names are not public data selections.
-    if (t.isClassPrivateProperty(member)) {
-      if (
-        member.value != null &&
-        !readExactJavaScriptLiteral(member.value).found &&
-        !t.isFunctionExpression(member.value) &&
-        !t.isArrowFunctionExpression(member.value)
-      )
-        return undefined;
+    const name = semanticClassMemberKey(member, symbolKey);
+    if (name === null) return undefined;
+    if (t.isClassPrivateProperty(member) || t.isClassAccessorProperty(member))
       continue;
-    }
-    if (t.isClassAccessorProperty(member)) return undefined;
-    // Proven symbol slots cannot replace a string-named member. Their field
-    // initializers still need the same side-effect checks below.
-    const name =
-      member.computed && symbolKey?.(member.key)
-        ? undefined
-        : semanticStaticPropertyKey(member.key, member.computed);
-    if (
-      name === null ||
-      (member.decorators != null && member.decorators.length !== 0)
-    )
-      return undefined;
     if (t.isClassProperty(member)) {
-      if (
-        member.value != null &&
-        !readExactJavaScriptLiteral(member.value).found &&
-        !t.isFunctionExpression(member.value) &&
-        !t.isArrowFunctionExpression(member.value)
-      )
-        return undefined;
       if (name === key) field = member;
     } else if (name === key) {
       // Accessor definitions update only their own descriptor half.

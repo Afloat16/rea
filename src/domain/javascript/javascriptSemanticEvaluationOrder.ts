@@ -90,7 +90,9 @@ export const semanticInitializerPrecedesRead = ({
     initialization: SemanticExecutionFrame,
     activation: SemanticExecutionFrame,
   ): boolean =>
-    (initialization.point.end ?? Infinity) < (activation.point.start ?? -1);
+    // Babel ranges are half-open. Adjacent statements can share this boundary
+    // without the read occurring inside its initializer (for example `}C.apply`).
+    (initialization.point.end ?? Infinity) <= (activation.point.start ?? -1);
   if (
     after.every((activation) =>
       before.every((initialization) => precedes(initialization, activation)),

@@ -29,6 +29,7 @@ import {
   readExactJavaScriptNormalResult,
   semanticFinalObjectMember,
   semanticFinalClassMember,
+  semanticClassMemberKey,
   semanticStaticPropertyKey,
   javaScriptClassField,
   javaScriptFunctionCanConstruct,
@@ -502,134 +503,125 @@ const webSocketInvocationHelperIntact = (
   state: JavaScriptSemanticAnalysisState,
   parameters: ReadonlyMap<string, readonly t.Function[]> = noCallbackParameters,
   ownedFunction?: t.Function | t.Class,
-  seen: Set<t.Node> = new Set(),
 ): boolean => {
   state.memberMutationFactsPhase ??= "requested";
   // Discovery requests the index; final call facts are invalidated by its phase.
   if (state.memberMutationFactsPhase !== "indexed") return true;
-  const identity = semanticExactValueIdentity(receiver, state);
-  const value = identity?.node ?? receiver;
-  if (seen.has(value)) return false;
-  seen.add(value);
-  if (
-    identity?.aliases.some(({ read }) => {
-      const binding = resolveSemanticBindingState(state, read, read.name);
-      return (
-        binding === undefined ||
-        [...binding.memberWrites, ...binding.escapedPaths].some(
-          ({ path, node }) =>
-            semanticPrototypeLookupMayChange(path, method) &&
-            !webSocketHelperEffectFollowsRead(capture, node, state),
-        )
-      );
-    })
-  )
-    return false;
-  if (t.isClass(value)) {
-    // Class definitions own static slots even though they are not later writes.
-    // A dynamic/decorated definition or unresolved superclass is not proof of
-    // the native Function.prototype helper.
+  const pending = [{ receiver, method, capture, ownedFunction }];
+  const seen = new Set<t.Node>();
+  // Every superclass or bind target belongs to an indexed callable or call.
+  // Keep the lookup iterative and finite even when the source graph cycles.
+  let remaining = state.callableNodesById.size + state.callSites.length + 1;
+  while (pending.length > 0 && remaining-- > 0) {
+    const lookup = pending.pop()!;
+    const identity = semanticExactValueIdentity(lookup.receiver, state);
+    const value = identity?.node ?? lookup.receiver;
+    if (seen.has(value)) return false;
+    seen.add(value);
     if (
-      value.decorators?.length ||
-      value.body.body.some(
-        (member) =>
-          t.isStaticBlock(member) ||
-          ((t.isClassMethod(member) || javaScriptClassField(member)) &&
-            member.static &&
-            (member.decorators?.length ||
-              semanticStaticPropertyKey(
-                member.key,
-                "computed" in member ? member.computed : false,
-              ) === null ||
-              semanticStaticPropertyKey(
-                member.key,
-                "computed" in member ? member.computed : false,
-              ) === method)),
+      identity?.aliases.some(({ read }) => {
+        const binding = resolveSemanticBindingState(state, read, read.name);
+        return (
+          binding === undefined ||
+          [...binding.memberWrites, ...binding.escapedPaths].some(
+            ({ path, node }) =>
+              semanticPrototypeLookupMayChange(path, lookup.method) &&
+              !webSocketHelperEffectFollowsRead(lookup.capture, node, state),
+          )
+        );
+      })
+    )
+      return false;
+    if (t.isClass(value)) {
+      if (
+        value.decorators?.length ||
+        value.body.body.some((member) => {
+          if (t.isStaticBlock(member)) return true;
+          if (
+            (!t.isClassMethod(member) && !javaScriptClassField(member)) ||
+            !member.static
+          )
+            return false;
+          const key = semanticClassMemberKey(member, (node) =>
+            webSocketIntrinsicSymbolKey(node, state),
+          );
+          return key === null || key === lookup.method;
+        })
+      )
+        return false;
+      if (value.superClass != null) {
+        const base = semanticExactValueIdentity(value.superClass, state)?.node;
+        if (!t.isClass(base)) return false;
+        pending.push({
+          ...lookup,
+          receiver: value.superClass,
+          ownedFunction: undefined,
+        });
+      }
+    }
+    let freshBound = false;
+    if (t.isCallExpression(value) || t.isOptionalCallExpression(value)) {
+      const callee = unwrapJavaScriptExpression(value.callee).node;
+      if (
+        (t.isMemberExpression(callee) ||
+          t.isOptionalMemberExpression(callee)) &&
+        semanticStaticPropertyName(callee.property, callee.computed) === "bind"
+      ) {
+        pending.push({
+          receiver: callee.object,
+          method: "bind",
+          capture: value,
+          ownedFunction: lookup.ownedFunction,
+        });
+        // The bound allocation has its own helpers, not the target's own slots.
+        freshBound = true;
+      }
+    }
+    const binding = t.isIdentifier(value)
+      ? resolveSemanticBindingState(state, value, value.name)
+      : undefined;
+    const functions =
+      t.isFunction(value) || t.isClass(value)
+        ? [value]
+        : binding?.kind === "parameter"
+          ? (parameters.get(binding.bindingId) ?? [])
+          : lookup.ownedFunction === undefined
+            ? []
+            : [lookup.ownedFunction];
+    if (!freshBound && functions.length === 0) return false;
+    const selected = ["global", "Function", "prototype", lookup.method];
+    if (
+      state.ambientReferenceEffects.some(
+        ({ path, node }) =>
+          path.length <= selected.length &&
+          path.every((key, index) =>
+            semanticPropertyPathKeyMatches(key, selected[index] ?? ""),
+          ) &&
+          !webSocketHelperEffectFollowsRead(lookup.capture, node, state),
       )
     )
       return false;
-    if (value.superClass != null) {
-      const base = semanticExactValueIdentity(value.superClass, state)?.node;
-      if (
-        !t.isClass(base) ||
-        !webSocketInvocationHelperIntact(
-          base,
-          method,
-          capture,
-          state,
-          parameters,
-          undefined,
-          seen,
-        )
-      )
-        return false;
-    }
-  }
-  let freshBound = false;
-  if (t.isCallExpression(value) || t.isOptionalCallExpression(value)) {
-    const callee = unwrapJavaScriptExpression(value.callee).node;
     if (
-      (t.isMemberExpression(callee) || t.isOptionalMemberExpression(callee)) &&
-      semanticStaticPropertyName(callee.property, callee.computed) === "bind"
-    ) {
-      if (
-        !webSocketInvocationHelperIntact(
-          callee.object,
-          "bind",
-          value,
-          state,
-          parameters,
-          ownedFunction,
-          seen,
-        )
-      )
-        return false;
-      // The bound allocation has its own helpers, not the target's own slots.
-      freshBound = true;
-    }
-  }
-  const binding = t.isIdentifier(value)
-    ? resolveSemanticBindingState(state, value, value.name)
-    : undefined;
-  const functions =
-    t.isFunction(value) || t.isClass(value)
-      ? [value]
-      : binding?.kind === "parameter"
-        ? (parameters.get(binding.bindingId) ?? [])
-        : ownedFunction === undefined
-          ? []
-          : [ownedFunction];
-  if (!freshBound && functions.length === 0) return false;
-  const selected = ["global", "Function", "prototype", method];
-  if (
-    state.ambientReferenceEffects.some(
-      ({ path, node }) =>
-        path.length <= selected.length &&
-        path.every((key, index) =>
-          semanticPropertyPathKeyMatches(key, selected[index] ?? ""),
-        ) &&
-        !webSocketHelperEffectFollowsRead(capture, node, state),
-    )
-  )
-    return false;
-  return (
-    freshBound ||
-    functions.every(
-      (fn) =>
-        !(state.literalMemberEffects?.get(fn) ?? []).some(
+      !freshBound &&
+      functions.some((fn) =>
+        (state.literalMemberEffects?.get(fn) ?? []).some(
           ({ path, node, kind }) =>
             // Exact result exposure is the receiver itself, not an intervening mutator.
             !(
               identity?.node === fn &&
               kind === "escape" &&
               path.length === 0 &&
-              node === unwrapJavaScriptExpression(receiver).node
+              node === unwrapJavaScriptExpression(lookup.receiver).node
             ) &&
-            semanticPrototypeLookupMayChange(path, method) &&
-            !webSocketHelperEffectFollowsRead(capture, node, state),
+            semanticPrototypeLookupMayChange(path, lookup.method) &&
+            !webSocketHelperEffectFollowsRead(lookup.capture, node, state),
         ),
+      )
     )
-  );
+      return false;
+  }
+  // An unfinished or cyclic lookup does not establish a native helper.
+  return pending.length === 0;
 };
 
 /** Exact aliases identify a value; each read still needs its initialization event. */
