@@ -10,6 +10,46 @@ const inheritanceChain = Array.from(
 
 const cases = [
   [
+    "review removed index getter is independently called later",
+    'let saved;try{(()=>{}).apply(null,{get length(){saved=Object.getOwnPropertyDescriptor(this,"0").get;delete this[0];return 1},get 0(){new Socket("wss://example.test/saved-index")}})}catch{}const Socket=globalThis.WebSocket;saved();',
+    ["wss://example.test/saved-index"],
+  ],
+  [
+    "review earlier index removes later getter",
+    'let saved;try{(()=>{}).apply(null,{length:2,get 0(){saved=Object.getOwnPropertyDescriptor(this,"1").get;delete this[1];return 0},get 1(){new Socket("wss://example.test/saved-later-index")}})}catch{}const Socket=globalThis.WebSocket;saved();',
+    ["wss://example.test/saved-later-index"],
+  ],
+  [
+    "review class apply reads length before call failure",
+    'class Target{};try{Target.apply(null,{get length(){new Socket("wss://example.test/class-length");return 0}})}catch{}const Socket=globalThis.WebSocket;',
+    [],
+  ],
+  [
+    "review class apply reads index before call failure",
+    'class Target{};try{Target.apply(null,{length:1,get 0(){new Socket("wss://example.test/class-index")}})}catch{}const Socket=globalThis.WebSocket;',
+    [],
+  ],
+  [
+    "review initialized class apply getter",
+    'const Socket=globalThis.WebSocket;class Target{};try{Target.apply(null,{length:1,get 0(){new Socket("wss://example.test/class-ready")}})}catch{}',
+    ["wss://example.test/class-ready"],
+  ],
+  [
+    "review class body is not entered by apply",
+    'class Target{constructor(){new Socket("wss://example.test/class-body")}};try{Target.apply(null,{length:0})}catch{}const Socket=globalThis.WebSocket;',
+    ["wss://example.test/class-body"],
+  ],
+  [
+    "review replaced class helper leaves getter independent",
+    'class Target{};Target.apply=()=>{};let args;Target.apply(null,args={get length(){new Socket("wss://example.test/class-replaced");return 0}});const Socket=globalThis.WebSocket;args.length;',
+    ["wss://example.test/class-replaced"],
+  ],
+  [
+    "review implicit length does not modify unrelated getter",
+    'let args;(()=>{}).apply(null,args={get length(){this.other=0;return 1},get 0(){new Socket("wss://example.test/unrelated-index")}});const Socket=globalThis.WebSocket;args[0];',
+    [],
+  ],
+  [
     "review absent apply length permits later getter",
     'let args;(()=>{}).apply(null,args={get 0(){new Socket("wss://example.test/later")}});const Socket=globalThis.WebSocket;args[0];',
     ["wss://example.test/later"],
@@ -1747,3 +1787,53 @@ it("retains all independently stored generator consumers", () => {
     ),
   );
 });
+
+for (const count of [8, 3000]) {
+  for (const initialized of [false, true]) {
+    it(`bounds stored caller expansion across ${count} shallow declarations: initialized=${initialized}`, () => {
+      const declaration = "const Socket=globalThis.WebSocket;";
+      const chain = Array.from(
+        { length: count },
+        (_, index) => `function run${index + 1}(){run${index}();run${index}()}`,
+      ).join(";");
+      const source = `${initialized ? declaration : ""}function run0(){new Socket("wss://example.test/deep-callers")};${chain};run${count}();${initialized ? "" : declaration}new WebSocket("wss://example.test/independent");`;
+      const result = analyzeJavaScriptStaticSource(source);
+      expect(result.parse_status).not.toBe("failed");
+      expect(result.endpoints.map(({ value }) => value)).toEqual(
+        count === 8 && initialized
+          ? [
+              "wss://example.test/deep-callers",
+              "wss://example.test/independent",
+            ]
+          : ["wss://example.test/independent"],
+      );
+      if (count === 3000)
+        expect(
+          result.analysis_coverage.examination.semantic_resource_limits,
+        ).toContain("alias-selections");
+    }, 20000);
+  }
+}
+
+it("captured source preserves partial findings at the shared caller limit", () => {
+  const count = 3000;
+  const chain = Array.from(
+    { length: count },
+    (_, index) => `function run${index + 1}(){run${index}();run${index}()}`,
+  ).join(";");
+  const source = `function run0(){new Socket("wss://example.test/deep-callers")};${chain};run${count}();const Socket=globalThis.WebSocket;new WebSocket("wss://example.test/independent");`;
+  const captured = analyzeWebBundleFixture(
+    createWebPageInspection([
+      {
+        source,
+        scriptKey: `scr_${"1".repeat(64)}`,
+        url: "https://app.example.test/main.js",
+        origin: "https://app.example.test",
+        cdpHash: "hash",
+      },
+    ]),
+  );
+  expect(captured.observations.endpoints.map(({ value }) => value)).toEqual([
+    "wss://example.test/independent",
+  ]);
+}, 20000);

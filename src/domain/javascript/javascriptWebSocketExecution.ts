@@ -1,4 +1,6 @@
 import * as t from "@babel/types";
+import { semanticGetterPreservesReceiverSlot } from "./javascriptSemanticGetterResults.js";
+import { SEMANTIC_ALIAS_SELECTION_LIMIT } from "./javascriptSemanticResourceLimits.js";
 import { semanticReferenceRole } from "./javascriptSemanticProjection.js";
 import { semanticExpressionCannotThrow } from "./javascriptSemanticExpressionResults.js";
 import { semanticKnownArrayIterationAt } from "./javascriptSemanticReferenceSources.js";
@@ -317,20 +319,18 @@ const webSocketFreshMethodSelection = (
       !consumer.arguments.some((argument) => t.isSpreadElement(argument))
     ) {
       const callee = unwrapJavaScriptExpression(consumer.callee).node;
-      if (
+      const target =
         (t.isMemberExpression(callee) ||
           t.isOptionalMemberExpression(callee)) &&
-        semanticStaticPropertyName(callee.property, callee.computed) ===
-          "apply" &&
-        t.isFunction(
-          webSocketStoredCallTarget(
-            callee,
-            state,
-            consumer,
-            noCallbackParameters,
-          ),
-        )
-      ) {
+        semanticStaticPropertyName(callee.property, callee.computed) === "apply"
+          ? webSocketStoredCallTarget(
+              callee,
+              state,
+              consumer,
+              noCallbackParameters,
+            )
+          : undefined;
+      if (t.isFunction(target) || t.isClass(target)) {
         // Native apply reads length, then ascending indices, only after all
         // explicit arguments have completed. A getter is owned by that call,
         // rather than by creation of its array-like object.
@@ -339,6 +339,20 @@ const webSocketFreshMethodSelection = (
         if (String(index) !== key || !Number.isSafeInteger(index) || index < 0)
           return undefined;
         state.memberMutationFactsPhase ??= "requested";
+        // The selected index must still belong to this getter after preceding
+        // implicit reads. Length uncertainty does not preserve a deleted slot.
+        const selectedSlot = semanticLiteralProjectionSlot(
+          literal,
+          key!,
+          consumer,
+          state,
+          { ownedResultEscape: consumer },
+        );
+        if (
+          state.memberMutationFactsPhase === "indexed" &&
+          (selectedSlot.kind !== "accessor" || selectedSlot.node !== property)
+        )
+          return undefined;
         const lengthSlot = semanticLiteralProjectionSlot(
           literal,
           "length",
@@ -356,6 +370,11 @@ const webSocketFreshMethodSelection = (
           return consumer;
         const length =
           lengthSlot.kind === "accessor" ? lengthSlot.node : undefined;
+        if (
+          t.isObjectMethod(length) &&
+          !semanticGetterPreservesReceiverSlot(length, key!, state)
+        )
+          return undefined;
         const completion =
           length === undefined
             ? undefined
@@ -482,7 +501,7 @@ const webSocketInvocationHelperIntact = (
   capture: t.Node,
   state: JavaScriptSemanticAnalysisState,
   parameters: ReadonlyMap<string, readonly t.Function[]> = noCallbackParameters,
-  ownedFunction?: t.Function,
+  ownedFunction?: t.Function | t.Class,
   seen: Set<t.Node> = new Set(),
 ): boolean => {
   state.memberMutationFactsPhase ??= "requested";
@@ -532,13 +551,14 @@ const webSocketInvocationHelperIntact = (
   const binding = t.isIdentifier(value)
     ? resolveSemanticBindingState(state, value, value.name)
     : undefined;
-  const functions = t.isFunction(value)
-    ? [value]
-    : binding?.kind === "parameter"
-      ? (parameters.get(binding.bindingId) ?? [])
-      : ownedFunction === undefined
-        ? []
-        : [ownedFunction];
+  const functions =
+    t.isFunction(value) || t.isClass(value)
+      ? [value]
+      : binding?.kind === "parameter"
+        ? (parameters.get(binding.bindingId) ?? [])
+        : ownedFunction === undefined
+          ? []
+          : [ownedFunction];
   if (!freshBound && functions.length === 0) return false;
   const selected = ["global", "Function", "prototype", method];
   if (
@@ -2644,13 +2664,7 @@ export const webSocketExecutionContexts = (
   state: JavaScriptSemanticAnalysisState,
   directOnly = false,
 ): readonly SemanticExecutionFrame[] =>
-  webSocketExecutionContextsForCalls(
-    node,
-    state,
-    directOnly,
-    new Map(),
-    new Map(),
-  );
+  webSocketExecutionContextsForCalls(node, state, directOnly);
 
 interface WebSocketActivationPrefix {
   readonly current: t.Node;
@@ -2682,29 +2696,83 @@ const webSocketStoredCallContexts = (
   return selected;
 };
 
-/** Retain every visible activation rather than treating repetition as a TDZ. */
+interface WebSocketActivationWork extends WebSocketActivationPrefix {
+  readonly calls: ReadonlyMap<t.Function | t.Class, WebSocketCallSite>;
+  readonly contexts: readonly SemanticExecutionFrame[];
+  readonly activations: ReadonlySet<t.Function | t.Class>;
+}
+
+/** Retain alternatives in one bounded worklist; resume at the actual branch. */
 const webSocketExecutionContextsForCalls = (
   node: t.Node,
   state: JavaScriptSemanticAnalysisState,
   directOnly: boolean,
-  calls: ReadonlyMap<
-    t.Function | t.Class,
-    JavaScriptSemanticAnalysisState["callSites"][number]
-  >,
-  expanded: Map<t.Function | t.Class, WebSocketActivationPrefix[]>,
 ): readonly SemanticExecutionFrame[] => {
-  let selectedCalls = calls;
+  const pending: WebSocketActivationWork[] = [
+    {
+      current: node,
+      point: node,
+      suspendedOwner: undefined,
+      calls: new Map(),
+      contexts: [],
+      activations: new Set(),
+    },
+  ];
+  const expanded = new Map<t.Function | t.Class, WebSocketActivationPrefix[]>();
   const contexts: SemanticExecutionFrame[] = [];
-  let point = node;
-  let suspendedOwner: t.Node | undefined;
+  let alternatives = 0;
+  let limited = false;
+  const enqueue = (work: WebSocketActivationWork): boolean => {
+    // Each alternative retains the whole correlated selector history. Charge
+    // those additional states before keeping another map, not just its head.
+    alternatives += Math.max(1, work.calls.size);
+    if (alternatives > SEMANTIC_ALIAS_SELECTION_LIMIT) {
+      state.valueResourceLimits.add("alias-selections");
+      limited = true;
+      return false;
+    }
+    pending.push(work);
+    return true;
+  };
+  while (pending.length > 0) {
+    const work = pending.pop()!;
+    contexts.push(
+      ...webSocketExecutionContextWork(
+        work,
+        node,
+        state,
+        directOnly,
+        expanded,
+        enqueue,
+      ),
+    );
+    // Initialization is universal over compatible activations. A partial
+    // expansion cannot prove it; other independent findings remain available.
+    if (limited) return [];
+  }
+  return contexts;
+};
+
+const webSocketExecutionContextWork = (
+  work: WebSocketActivationWork,
+  node: t.Node,
+  state: JavaScriptSemanticAnalysisState,
+  directOnly: boolean,
+  expanded: Map<t.Function | t.Class, WebSocketActivationPrefix[]>,
+  enqueue: (work: WebSocketActivationWork) => boolean,
+): readonly SemanticExecutionFrame[] => {
+  let selectedCalls = work.calls;
+  const contexts = [...work.contexts];
+  let point = work.point;
+  let suspendedOwner = work.suspendedOwner;
   const suspendedAt = (suspension: WebSocketSuspension | undefined): void => {
     if (suspension !== undefined)
       suspendedOwner = webSocketSuspensionOwner(suspension, state);
   };
   const suspendedAfter = (evaluated: t.Node): void =>
     suspendedAt(webSocketCompletedSuspension(evaluated, state));
-  let current = node;
-  const activations = new Set<t.Function | t.Class>();
+  let current = work.current;
+  const activations = new Set(work.activations);
   for (;;) {
     const parent = state.parentsByNode.get(current);
     if (parent === undefined) return [...contexts, { owner: current, point }];
@@ -2751,22 +2819,32 @@ const webSocketExecutionContextsForCalls = (
           return [...contexts, { owner: activation, point }];
         prefixes.push({ current, point, suspendedOwner });
         expanded.set(activation, prefixes);
-        return stored.flatMap((candidate) => {
+        const resumed = new Set(activations);
+        resumed.delete(activation);
+        // LIFO preserves the previous alternative order without recursive stack
+        // growth or rewalking the already examined inner activation prefix.
+        for (const candidate of [...stored].reverse()) {
           const next = webSocketStoredCallContexts(
             candidate,
             activation,
             selectedCalls,
           );
-          return next === undefined
-            ? []
-            : webSocketExecutionContextsForCalls(
-                node,
-                state,
-                directOnly,
-                next,
-                expanded,
-              );
-        });
+          if (
+            next !== undefined &&
+            !enqueue({
+              current,
+              point,
+              suspendedOwner,
+              contexts,
+              calls: next,
+              activations: resumed,
+            })
+          ) {
+            // The query owner rejects partial activation proofs on exhaustion.
+            return [];
+          }
+        }
+        return [];
       }
       if (stored.length === 1 && !selectedCalls.has(activation)) {
         const only = stored[0];

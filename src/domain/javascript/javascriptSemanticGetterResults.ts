@@ -1,7 +1,16 @@
+import { childNodes } from "./javascriptSemanticTraversal.js";
+import { semanticCoercionOperands } from "./javascriptSemanticLanguageInvocations.js";
+import {
+  semanticPropertyReadSources,
+  type SemanticPropertyReadSource,
+} from "./javascriptSemanticIterationSources.js";
 import * as t from "@babel/types";
 import {
   unwrapJavaScriptExpression,
   semanticStaticPropertyKey,
+  semanticWriteSiteTarget,
+  semanticWriteSiteReadsFirst,
+  semanticWriteTargets,
 } from "./javascriptAstValues.js";
 import { semanticCallableResultExpressions } from "./javascriptSemanticCallableResults.js";
 import { semanticBindingAtRead } from "./javascriptSemanticMutationInitializers.js";
@@ -16,7 +25,10 @@ import {
   semanticArrayPropertyReferences,
   type JavaScriptSemanticObjectReference as Reference,
 } from "./javascriptSemanticObjectReferences.js";
-import type { JavaScriptSemanticPropertyPath as PropertyPath } from "./javascriptSemanticPropertyPaths.js";
+import {
+  semanticPropertyPathKeyMatches,
+  type JavaScriptSemanticPropertyPath as PropertyPath,
+} from "./javascriptSemanticPropertyPaths.js";
 import {
   SemanticGetterQuery,
   type GetterQueryJob,
@@ -453,3 +465,145 @@ export const semanticGetterReceiverReferences = (
   );
   return references.filter(({ node }) => node === getter || privateReceiver);
 };
+
+type AccessorEffectOperand =
+  | { readonly kind: "escape"; readonly node: t.Node }
+  | {
+      readonly kind: "write";
+      readonly node: t.Node;
+      readonly path: PropertyPath;
+    }
+  | {
+      readonly kind: "read";
+      readonly node: t.Node;
+      readonly path: PropertyPath;
+      readonly lookup: "prototype" | "own";
+      readonly guards?: SemanticPropertyReadSource;
+    }
+  | {
+      readonly kind: "invoke";
+      readonly node: t.Node;
+      readonly invocation?: t.CallExpression | t.OptionalCallExpression;
+    };
+
+const accessorOperands = new WeakMap<
+  t.Function,
+  readonly AccessorEffectOperand[]
+>();
+
+/** Collect invocation operands once; receiver interpretation belongs to the getter owner. */
+export const semanticAccessorEffectOperands = (
+  method: t.Function,
+): readonly AccessorEffectOperand[] => {
+  const cached = accessorOperands.get(method);
+  if (cached !== undefined) return cached;
+  const operands: AccessorEffectOperand[] = [];
+  const pending: { node: t.Node; parent: t.Node | null }[] = [
+    { node: method.body, parent: method },
+  ];
+  const writeOnly = new WeakSet<t.Node>();
+  while (pending.length > 0) {
+    const { node, parent } = pending.pop()!;
+    // Defining a nested callable does not invoke it.
+    if (t.isFunction(node) || t.isClass(node)) continue;
+    const write = semanticWriteSiteTarget(node);
+    if (write !== null) {
+      for (const target of semanticWriteTargets(write)) {
+        if (!semanticWriteSiteReadsFirst(node)) writeOnly.add(target);
+        if (!t.isIdentifier(target))
+          operands.push({
+            kind: "write",
+            node: target.object,
+            path: [semanticStaticPropertyKey(target.property, target.computed)],
+          });
+      }
+    }
+    if (
+      (t.isMemberExpression(node) || t.isOptionalMemberExpression(node)) &&
+      !writeOnly.has(node)
+    )
+      operands.push({
+        kind: "read",
+        node: node.object,
+        path: [semanticStaticPropertyKey(node.property, node.computed)],
+        lookup: "prototype",
+      });
+    if (
+      t.isCallExpression(node) ||
+      t.isOptionalCallExpression(node) ||
+      t.isNewExpression(node)
+    ) {
+      const callee = unwrapJavaScriptExpression(node.callee).node;
+      operands.push({
+        kind: "invoke",
+        node: node.callee,
+        ...(t.isNewExpression(node) ? {} : { invocation: node }),
+      });
+      if (
+        !t.isNewExpression(node) &&
+        (t.isMemberExpression(callee) || t.isOptionalMemberExpression(callee))
+      )
+        operands.push({ kind: "escape", node: callee.object });
+      for (const argument of node.arguments)
+        operands.push({
+          kind: "escape",
+          node: t.isSpreadElement(argument) ? argument.argument : argument,
+        });
+    } else if (t.isTaggedTemplateExpression(node)) {
+      operands.push({ kind: "invoke", node: node.tag });
+      const tag = unwrapJavaScriptExpression(node.tag).node;
+      if (t.isMemberExpression(tag) || t.isOptionalMemberExpression(tag))
+        operands.push({ kind: "escape", node: tag.object });
+      for (const expression of node.quasi.expressions)
+        operands.push({ kind: "escape", node: expression });
+    }
+    for (const operand of semanticCoercionOperands(node))
+      operands.push({ kind: "escape", node: operand });
+    if (t.isTemplateLiteral(node) && !t.isTaggedTemplateExpression(parent))
+      for (const expression of node.expressions)
+        operands.push({ kind: "escape", node: expression });
+    for (const source of semanticPropertyReadSources(node, parent))
+      operands.push({
+        kind: "read",
+        node: source.node,
+        path: source.projection,
+        lookup: source.lookup,
+        guards: source,
+      });
+    if (
+      t.isVariableDeclarator(node) &&
+      t.isVariableDeclaration(parent) &&
+      (parent.kind === "using" || parent.kind === "await using")
+    )
+      operands.push({ kind: "escape", node: node.init ?? node.id });
+    for (const child of childNodes(node).reverse())
+      pending.push({ node: child, parent: node });
+  }
+  accessorOperands.set(method, operands);
+  return operands;
+};
+
+/** Earlier implicit Gets cannot retain a receiver slot that they may expose. */
+export const semanticGetterPreservesReceiverSlot = (
+  getter: t.ObjectMethod,
+  key: string,
+  state: JavaScriptSemanticAnalysisState,
+): boolean =>
+  !semanticAccessorEffectOperands(getter).some(
+    (operand) =>
+      operand.kind !== "invoke" &&
+      semanticGetterReceiverReferences(getter, operand.node, state).some(
+        (reference) => {
+          if (reference.node !== getter) return false;
+          const path =
+            operand.kind === "write"
+              ? [...reference.path, ...operand.path]
+              : reference.path;
+          return (
+            path.length === 0 ||
+            semanticPropertyPathKeyMatches(path[0]!, key) ||
+            path[0] === "__proto__"
+          );
+        },
+      ),
+  );
