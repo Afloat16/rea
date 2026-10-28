@@ -16,8 +16,10 @@ export const artifactInventorySummaryProjectionIds = (
   const format = result.summary.manifest.root_format;
   if (
     format === "godot-pck" ||
+    format === "unityfs" ||
     format === "pyinstaller" ||
-    format === "node-sea"
+    format === "node-sea" ||
+    format === "esp-image"
   )
     return [current.evidence_id];
   const { view_digest: _digest, ...projection } = result;

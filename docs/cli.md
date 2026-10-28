@@ -51,6 +51,15 @@ module page. See
 [JavaScript application workflows](javascript-application-workflows.md) for
 views, feature traces and comparisons that take the same saved Evidence.
 
+Add `--timings` to a command to write one JSON timing record to stderr. For
+example, `rea inspect-elf-notes program --json --timings > result.json` keeps
+stdout as a parseable result and writes
+`{"rea_timings":{"version":1,"command_ms":42}}` to stderr. `command_ms`
+measures CLI command dispatch and result delivery; it is not provider-only or
+analysis-only time. The flag is off by default, and the record omits stages
+that REA did not measure. Root version reporting does not dispatch a command
+and has no command timing record.
+
 ## JSON Lines record output
 
 Use `--format jsonl` to consume row-oriented results one record per line:
@@ -156,6 +165,15 @@ into the current shell:
 eval "$(rea completions bash)"
 ```
 
+For zsh, initialize completion before loading the hook. If your shell already
+runs `compinit`, place the hook after that existing initialization:
+
+```zsh
+autoload -Uz compinit
+compinit
+eval "$(rea completions zsh)"
+```
+
 The Bash hook supports macOS system Bash 3.2. It uses optional completion
 features when the shell provides them and falls back to portable registration.
 Completion includes standard global options and the active command's options;
@@ -241,6 +259,28 @@ Formats 2, 3 and 4 retain header, directory and integrity facts. Compact deliver
 keeps complete Evidence in the requested bundle. See [Godot PCK](godot-pck.md)
 for embedded packs, batch queries and unknown encrypted coverage.
 
+Inspect a UnityFS AssetBundle without running Unity:
+
+```sh
+rea inspect-artifact content.bundle --detail summary --evidence_output evidence.json --json
+rea extract-artifact content.bundle --json
+```
+
+Format versions 6 through 8 retain header, block and directory facts with
+none/LZ4/LZ4HC block decompression. See [UnityFS](unityfs.md) for encryption
+and LZMA coverage boundaries.
+
+Inspect an ESP32-family app or bootloader image without esptool:
+
+```sh
+rea inspect-artifact firmware.bin --json
+rea extract-artifact firmware.bin --json
+```
+
+The inventory lists each segment with its ESP-IDF load classification, the
+checksum and SHA-256 results, the descriptor and any Secure Boot v2 signature
+blocks. See [ESP images](esp-image.md) for recognition, coverage and refusals.
+
 Inspect a Node.js SEA carrier without running it:
 
 ```sh
@@ -250,6 +290,26 @@ rea extract-artifact ./application --json
 
 See [Node.js SEA](node-sea.md) for supported layouts, script and asset paths,
 fuse observations, and the real-fixture verification lane.
+
+Inventory and extract Intel HEX or S-record regions:
+
+```sh
+rea inspect-artifact ./firmware.hex --json
+rea extract-artifact ./firmware.hex --json
+```
+
+See [Intel HEX and S-record images](hex-records.md) for recognition, region
+names, metadata and limits.
+
+Inspect and extract stored U-Boot legacy uImage payloads and components:
+
+```sh
+rea inspect-artifact ./firmware.bin --detail summary --evidence_output firmware.json --json
+rea extract-artifact ./firmware.bin --json
+```
+
+See [U-Boot uImage](uimage.md) for verified CRCs, physical component ranges,
+unknown names, resource limits and retained views. Compressed bytes stay stored.
 
 Inspect local model declarations without loading weights:
 
@@ -971,6 +1031,35 @@ use JSON inside their owning Markdown cells, retaining the field names and
 values instead of replacing them with an object label. Table widths are measured
 iteratively, so an admitted row page is not limited by the JavaScript function
 argument count.
+
+`--format csv` and `--format tsv` export one selected row collection. Select an
+exact array path with `--filter-output` and provide comma-separated direct
+scalar columns with `--columns`; column order is the output column order:
+
+```bash
+rea inspect-analysis-view request.json --format csv \
+  --filter-output normalized_result.rows --columns name,address
+```
+
+The first line is a REA metadata record,
+`# rea-delimited-v1 <JSON>`. It carries the selected path, view request, limitations and unknowns,
+coverage, source coverage and completeness, command, and duration. A metadata
+value of `null` means that the selected row collection did not provide that
+fact; it does not mean complete coverage. The following line is the header.
+CSV records use CRLF line endings; TSV records use LF. Cells containing the
+delimiter, quotes, or line breaks are quoted and embedded quotes are doubled.
+Values are emitted as UTF-8 without Unicode normalization. Missing and `null`
+cells are empty; booleans and finite numbers use their ordinary text forms.
+String cells and headers that begin with spreadsheet formula syntax are refused
+with a structured error; JSON retains those values unchanged.
+
+Delimited output does not flatten nested Evidence or nested field values.
+It returns a structured error and a nonzero status if the filter does not
+select exactly one row array, a row is not an object, or a selected cell is
+nested or formula-leading. JSON remains the complete canonical output; use it
+to retain fields outside the selected columns or preserve exact formula-leading
+text. Token counting and token windows are not
+available for CSV/TSV because slicing would corrupt records or metadata.
 
 `--filter-output` selects fields from successful command data. Classified failures
 retain their complete typed diagnostic projection even when the selector matches

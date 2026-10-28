@@ -14,12 +14,17 @@ interpreter: the npm launcher's `#!/usr/bin/env node` still searches `PATH` for
 Node. Running that command successfully in a terminal does not establish that
 the client can launch it.
 
-For direct JavaScript installations, setup registers the selected runtime
+For JavaScript installations, setup registers the selected runtime
 executable and REA script by absolute path. On POSIX, it prefers executable
 `node` or `bun` and REA aliases on setup's `PATH` only when they resolve to the
 same selected files. This preserves manager-owned aliases across version updates;
-otherwise setup uses the selected paths directly. Package-runner registrations keep
-their selected runner. Setup does not copy your ambient environment into client
+otherwise setup uses the selected paths directly. This also applies when setup
+runs through a package runner: retain the selected cache entry and runtime while
+the registration uses them. Clearing either makes startup fail without resolving
+another package from the client's project. Restore the same installation before
+repairing it; an unidentified registration remains untouched. See
+[installation and recovery](installation.md#package-runners-and-global-installation).
+Setup does not copy your ambient environment into client
 settings. To refresh an older registration, preview
 `rea setup --client <client-id> --skill=false --dry-run`, then run the same command
 without `--dry-run` and approve the displayed changes. Setup preserves unrelated
@@ -507,9 +512,9 @@ another definition later reuses the same anchor name.
 Hermes personal skills install under the active Hermes home's `skills` directory.
 Setup, doctor and uninstall share REA's sticky-profile resolver.
 A custom `HERMES_HOME` outside the platform default home
-reads its own `active_profile`. An existing override directory physically inside
-the default home uses that default home's sticky selection and profile root
-together.
+reads its own `active_profile`. An override physically inside the default home
+uses that default home's sticky selection and profile root together, including
+when the final override directory does not yet exist.
 
 For example, with `HERMES_HOME=~/.hermes/sub` and `~/.hermes/active_profile` set
 to `coder`, setup selects `~/.hermes/profiles/coder/config.yaml` and that
@@ -527,16 +532,15 @@ the profile Hermes actually uses and point `HERMES_HOME` directly at that
 `profiles/<name>` directory before setup. Compatibility is tracked in
 [#3939](https://github.com/morluto/rea/issues/3939).
 
-Before setup, create an override directory whose path includes a symlink,
-junction, or another prefix that resolves to a different spelling. When the
-override does not exist, REA falls back to its lexical spelling for containment.
-This can miss physical containment — for example, beneath a symlinked default
-home or `HOME`/`USERPROFILE`/`LOCALAPPDATA` ancestor — ignoring the outer selection
-and planning the override root's configuration. It can also falsely assume
-containment: if `~/.hermes/link` points outside the default home,
-`HERMES_HOME=~/.hermes/link/new` can select the default home's profile even though
-the override lies outside it. Once the override directory exists, REA checks its
-physical location. Inspect setup's previewed destinations before applying changes.
+REA resolves existing ancestor directories before checking physical containment,
+including symlinks and junctions, even when the override directory does not exist.
+An override beneath a symlinked default home therefore uses the default home's
+sticky selection. If `~/.hermes/link` points outside the default home,
+`HERMES_HOME=~/.hermes/link/new` instead uses that override root, whether or not
+`new` exists. Previewed destinations retain the configured path spelling.
+An unreadable path or dangling alias leaves the home unresolved; repair that path
+before configuring Hermes. Inspect setup's previewed destinations before applying
+changes.
 
 An explicit `HERMES_HOME` pointing to `profiles/<name>` selects that named
 profile directly, bypassing sticky selection. An invalid, missing or deleted
@@ -637,6 +641,12 @@ boundaries. FreeBuff MCP loading and skill discovery have not been verified
 with an installed native FreeBuff client/version; filesystem tests cover REA's
 editing, discovery, and ownership behavior only. Automatic applicability
 requires the FreeBuff profile directory even when the shared MCP file exists.
+When uninstall cannot establish FreeBuff or another shared-storage reader from
+product discovery, a malformed or unreadable shared MCP file is retained
+unchanged and does not stop other REA removals, including `--purge-data`. When
+FreeBuff or ZCode product applicability is established or unresolved, the same
+malformed shared file stops uninstall before removals. See
+[Diagnose, update, and remove](installation.md#diagnose-update-and-remove).
 
 FreeBuff setup support requires `rea-agents@6.8.0` or later. Older versions
 reject `rea setup --client freebuff` as an unsupported client. See the

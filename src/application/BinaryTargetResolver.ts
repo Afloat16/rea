@@ -75,6 +75,13 @@ import {
 } from "../domain/apple/appleArchiveFormat.js";
 import { hasDiskImageSignature } from "../domain/apple/diskImageFormat.js";
 import { hasGodotPckHeader } from "../domain/godotPckFormat.js";
+import { hasUImageMagic } from "../domain/uimageFormat.js";
+import { hasUnityFsHeader } from "../domain/unityfsFormat.js";
+import { detectHexRecordEncoding } from "../domain/firmware/hexRecords.js";
+import {
+  ESP8266_REFUSAL,
+  recognizeEspImage,
+} from "../domain/firmware/espImage.js";
 import {
   hasZipSignature,
   locateTrailingZipArchive,
@@ -665,6 +672,16 @@ const detectArtifactFormat = async (
     );
   if (hasZipSignature(magic)) return zipRootPackageFormat(lower);
   if (hasGodotPckHeader(magic)) return "godot-pck";
+  if (hasUnityFsHeader(magic)) return "unityfs";
+  if (hasUImageMagic(magic)) return "uimage";
+  const hexRecords = detectHexRecordEncoding(magic);
+  if (hexRecords !== undefined) return hexRecords;
+  const esp = recognizeEspImage(magic, initial.size);
+  if (esp === "esp8266")
+    throw new BinaryTargetError(path, ESP8266_REFUSAL, {
+      constraint: "file_format_rejected",
+    });
+  if (esp === "esp-image") return "esp-image";
   // Binary plists, including keyed archives, often use other extensions.
   if (hasBinaryPlistSignature(magic)) return "plist";
   const named = namedArtifactFormat(lower);
@@ -732,7 +749,17 @@ const isArchiveFormat = (
   >,
 ): format is Extract<BinaryTarget, { kind: "archive" }>["format"] =>
   isZipPackageFormat(format) ||
-  ["asar", "godot-pck", "dmg", "pkg"].includes(format);
+  [
+    "asar",
+    "godot-pck",
+    "unityfs",
+    "uimage",
+    "dmg",
+    "pkg",
+    "intel-hex",
+    "srec",
+    "esp-image",
+  ].includes(format);
 
 /** Whether the leading bytes begin any executable header family, valid or not. */
 const claimsLeadingExecutableHeader = async (

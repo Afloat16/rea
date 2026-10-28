@@ -41,6 +41,7 @@ import {
   type SemanticIterationSource,
 } from "./javascriptSemanticIterationSources.js";
 import { createSemanticReturnedReferences } from "./javascriptSemanticReturnedReferences.js";
+import { semanticRequireLoaderAt } from "./javascriptSemanticRequireOrigin.js";
 import {
   semanticCopiedReferencePath,
   semanticReferenceIterationUnknown,
@@ -913,19 +914,29 @@ export function* indexJavaScriptAmbientWritesSteps(
       retainSemanticAmbientEffect(state, "write", resolved, node);
     }
   }
-  // Explicit exposure is known before deciding which native receiver calls
-  // remain intact. Preserve the invocation capture when checking those calls.
+  // Collect explicit escapes first, then other receivers, and defer resolver
+  // receivers until all potentially replacing effects have been retained.
+  const resolverReceivers: typeof escapes = [];
   const orderedEscapes = [
     ...escapes.filter(({ receiver }) => receiver === undefined),
     ...escapes.filter(({ receiver }) => receiver !== undefined),
   ];
-  for (const {
-    node,
-    target,
-    browserReceiver,
-    projection,
-    receiver,
-  } of orderedEscapes) {
+  for (const effect of orderedEscapes) {
+    const { node, target, receiver } = effect;
+    const callee =
+      t.isCallExpression(node) || t.isOptionalCallExpression(node)
+        ? unwrapJavaScriptExpression(node.callee).node
+        : undefined;
+    if (
+      (t.isMemberExpression(callee) || t.isOptionalMemberExpression(callee)) &&
+      callee.object === target &&
+      t.isIdentifier(target, { name: "require" }) &&
+      isUnshadowedGlobal(target, state, "require") &&
+      semanticStaticPropertyKey(callee.property, callee.computed) === "resolve"
+    ) {
+      resolverReceivers.push(effect);
+      continue;
+    }
     if (receiver !== undefined) {
       const resolved = ambientReads(receiver);
       const [selected] = resolved.paths;
@@ -936,10 +947,44 @@ export function* indexJavaScriptAmbientWritesSteps(
           selected,
           createSemanticAmbientModificationQuery(state, receiver),
         )
-      )
+      ) {
+        retainBrowserReceiver(effect);
         continue;
+      }
     }
-    for (const path of ambientWrites(target, node, true, projection).paths)
+    retainEscapeEffect(effect);
+  }
+  for (const effect of resolverReceivers) {
+    const { node } = effect;
+    if (
+      (t.isCallExpression(node) || t.isOptionalCallExpression(node)) &&
+      !state.ambientWrites.covers(["global", "require", "resolve"]) &&
+      !state.ambientEscapes.covers(["global", "require", "resolve"]) &&
+      semanticRequireLoaderAt(node, state, new Set()) === "commonjs-loader"
+    )
+      continue;
+    retainEscapeEffect(effect);
+  }
+  function retainBrowserReceiver({
+    node,
+    target,
+    browserReceiver,
+    projection,
+  }: (typeof escapes)[number]): ReturnType<typeof ambientWrites> {
+    const resolved = ambientWrites(target, node, true, projection);
+    if (
+      browserReceiver &&
+      resolved.ownership === "ambient" &&
+      resolved.paths.length > 0 &&
+      resolved.paths.every((path) => path.length === 1 && path[0] === "global")
+    )
+      state.retainedGlobalCallReceivers.add(target);
+    return resolved;
+  }
+  function retainEscapeEffect(effect: (typeof escapes)[number]): void {
+    const { node, browserReceiver } = effect;
+    const resolved = retainBrowserReceiver(effect);
+    for (const path of resolved.paths)
       // Only proven browser APIs keep their global receiver from user code.
       if (!(browserReceiver && path.length === 1 && path[0] === "global")) {
         retainSemanticAmbientEffect(state, "escape", path, node);
