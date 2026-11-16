@@ -1,0 +1,238 @@
+name: Validate accepted upstream registration and progress fixtures
+
+on:
+  push:
+    branches:
+      - validation/rea-cli-progress-fixtures-20261116
+
+permissions:
+  contents: read
+
+jobs:
+  focused:
+    name: Upstream fixture compatibility (${{ matrix.label }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: pr-9084
+            candidate: c317bff2ebfc643bff5b0340411e896e6109bc2d
+            baseline: 930bea5d7078114858bbb7c94a3a57746261d771
+            fixed_cases: 60
+          - label: pr-9279
+            candidate: 1701362982bbc37bdb03c8ad8d8c3f0641bc32f6
+            baseline: eb7bb7679f5358d0f6d0d9d6b1b7b37e8b8df86d
+            fixed_cases: 29
+    env:
+      HUSKY: "0"
+      TURBO_TELEMETRY_DISABLED: "1"
+      TURBO_CACHE: "local:rw"
+      NO_COLOR: "1"
+      CANDIDATE_SHA: ${{ matrix.candidate }}
+      BASE_SHA: ${{ matrix.baseline }}
+      VALIDATION_LABEL: ${{ matrix.label }}
+      EXPECTED_FIXED_CASES: ${{ matrix.fixed_cases }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ matrix.candidate }}
+          fetch-depth: 3
+          persist-credentials: false
+      - name: Verify accepted ancestry and the exact two-fixture candidate
+        run: |
+          python3 - <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+          def git(*args):
+              return subprocess.check_output(["git", *args], text=True).strip()
+          candidate = os.environ["CANDIDATE_SHA"]
+          baseline = os.environ["BASE_SHA"]
+          accepted = "4c8e616029ed7b45adb5fdfcaf0148dd011a40e0"
+          assert git("rev-parse", "HEAD") == candidate
+          assert git("rev-parse", "HEAD^") == baseline
+          subprocess.run(["git", "merge-base", "--is-ancestor", accepted, candidate], check=True)
+          changed = git("diff", "--name-only", baseline, candidate).splitlines()
+          assert changed == [
+              "tests/boundary/cli/overnightBatch1CliSchemas.test.ts",
+              "tests/boundary/process/processCaptureProgress.test.ts",
+          ], changed
+          source_tree = git("rev-parse", candidate + ":src")
+          assert source_tree == git("rev-parse", baseline + ":src")
+          helper = "scripts/lib/reverse-tools-mutation-targets.mjs"
+          helper_blob = git("rev-parse", candidate + ":" + helper)
+          assert helper_blob == "941ebccbb9de7e52af8cb8c4761f30098abf2f35"
+          assert helper_blob == git("rev-parse", accepted + ":" + helper)
+          assert git("rev-parse", candidate + ":" + changed[0]) == "6d32a4142a12ed4810916fba8d36eb454abf1e0d"
+          assert git("rev-parse", candidate + ":" + changed[1]) == "2d6cd2d841c18852794d906f90b1bbb4278aeb62"
+          subprocess.run(["git", "diff", "--check", baseline, candidate], check=True)
+          output = Path(os.environ["RUNNER_TEMP"]) / "upstream-fixture-evidence"
+          output.mkdir(parents=True, exist_ok=True)
+          evidence = {
+              "candidate": candidate, "baseline": baseline, "files": changed,
+              "production_tree": source_tree, "accepted_commit": accepted,
+              "accepted_author": git("show", "-s", "--format=%an <%ae>", accepted),
+              "accepted_helper_blob": helper_blob,
+          }
+          (output / "candidate.json").write_text(json.dumps(evidence, indent=2) + "\n")
+          print(json.dumps(evidence, indent=2))
+          PY
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version-file: .nvmrc
+      - name: Use the repository package manager
+        run: npm install --global "$(node -p "JSON.parse(require('fs').readFileSync('package.json', 'utf8')).packageManager")"
+      - name: Record the toolchain and install locked dependencies
+        run: |
+          node --version | tee "$RUNNER_TEMP/upstream-fixture-evidence/node-version.txt"
+          npm --version | tee "$RUNNER_TEMP/upstream-fixture-evidence/npm-version.txt"
+          npm ci
+      - name: Reproduce both original fixtures on the accepted source
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, os, re, subprocess
+          from pathlib import Path
+          output = Path(os.environ["RUNNER_TEMP"]) / "upstream-fixture-evidence"
+          paths = [
+              Path("tests/boundary/cli/overnightBatch1CliSchemas.test.ts"),
+              Path("tests/boundary/process/processCaptureProgress.test.ts"),
+          ]
+          originals = {path: path.read_bytes() for path in paths}
+          original_hashes = {str(path): hashlib.sha256(data).hexdigest() for path, data in originals.items()}
+          try:
+              for path in paths:
+                  path.write_bytes(subprocess.check_output(["git", "show", os.environ["BASE_SHA"] + ":" + str(path)]))
+              result = subprocess.run(
+                  ["npm", "run", "test:focused", "--", *map(str, paths)],
+                  stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, check=False)
+              (output / "baseline.log").write_text(result.stdout)
+              print(result.stdout)
+              clean = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", result.stdout)
+              assert result.returncode == 1, result.returncode
+              summary = re.search(r"^\s*Tests\s+(.+)$", clean, re.MULTILINE)
+              assert summary is not None, "No baseline test summary"
+              assert re.fullmatch(r"19 failed\s*\|\s*5 passed\s+\(24\)\s*", summary.group(1)), summary.group(1)
+              assert "CLI command decompile-all is registered twice" in clean
+              assert "expected 'capture_process_scenario: completed' to contain 'cleanup:'" in clean
+              assert "expected 'capture_process_scenario: completed' to contain 'disposition=timeout'" in clean
+          finally:
+              for path, data in originals.items():
+                  path.write_bytes(data)
+                  assert hashlib.sha256(path.read_bytes()).hexdigest() == original_hashes[str(path)]
+              (output / "baseline-restoration.json").write_text(json.dumps(original_hashes, indent=2) + "\n")
+          PY
+      - name: Verify both repaired fixtures and the existing Stryker consumers
+        run: |
+          tests=(
+            tests/boundary/cli/overnightBatch1CliSchemas.test.ts
+            tests/boundary/process/processCaptureProgress.test.ts
+            tests/boundary/filesystem/reverseToolsMutationConfig.test.ts
+            tests/boundary/filesystem/mutationWorkflow.test.ts
+          )
+          if [[ "$VALIDATION_LABEL" == "pr-9084" ]]; then
+            tests+=(tests/boundary/cli/analysisViewCli.test.ts)
+          fi
+          npm run test:focused -- "${tests[@]}" \
+            2>&1 | tee "$RUNNER_TEMP/upstream-fixture-evidence/candidate.log"
+          python3 - <<'PY'
+          import os, re
+          from pathlib import Path
+          log = (Path(os.environ["RUNNER_TEMP"]) / "upstream-fixture-evidence/candidate.log").read_text()
+          clean = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", log)
+          summary = re.search(r"^\s*Tests\s+(.+)$", clean, re.MULTILINE)
+          assert summary is not None, "No candidate test summary"
+          expected = int(os.environ["EXPECTED_FIXED_CASES"])
+          assert re.fullmatch(rf"{expected} passed\s+\({expected}\)\s*", summary.group(1)), summary.group(1)
+          PY
+      - name: Prove generic completion cannot hide a missing capture cleanup notification
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, os, subprocess
+          from pathlib import Path
+          output = Path(os.environ["RUNNER_TEMP"]) / "upstream-fixture-evidence"
+          owner = Path("src/server/mcpProgress.ts")
+          original = owner.read_bytes()
+          original_hash = hashlib.sha256(original).hexdigest()
+          source = original.decode()
+          anchor = "    report: (update) =>\n      reporter.report({ ...update, completed: 0, total: null }),"
+          replacement = "    report: (update) =>\n      update.phase === \"cleanup\"\n        ? Promise.resolve()\n        : reporter.report({ ...update, completed: 0, total: null }),"
+          assert source.count(anchor) == 1, "Expected one MCP observer boundary"
+          titles = {
+              "forwards live capture progress only when the MCP client supplies a token",
+              "reports timeout and cancellation cleanup through MCP progress",
+          }
+          pattern = "|".join(sorted(titles))
+          def run(label, status):
+              report_path = output / (label + ".json")
+              result = subprocess.run([
+                  "node", "node_modules/vitest/vitest.mjs", "run",
+                  "tests/boundary/process/processCaptureProgress.test.ts",
+                  "--project=process-boundary", "--testNamePattern=" + pattern,
+                  "--reporter=default", "--reporter=json", "--outputFile=" + str(report_path),
+              ], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, check=False)
+              (output / (label + ".log")).write_text(result.stdout)
+              print(result.stdout)
+              report = json.loads(report_path.read_text())
+              active = [
+                  case for suite in report["testResults"] for case in suite["assertionResults"]
+                  if case["status"] not in ("pending", "skipped", "todo")
+              ]
+              assert len(active) == 2 and {case["title"] for case in active} == titles, active
+              assert all(case["status"] == status for case in active), active
+              assert result.returncode == (1 if status == "failed" else 0), result.returncode
+              if status == "failed":
+                  for case in active:
+                      message = "\n".join(case.get("failureMessages", []))
+                      assert "AssertionError" in message and "cleanup:" in message, message
+                      assert "expected" in message and "to contain" in message, message
+                      assert "timed out" not in message.lower(), message
+          try:
+              # Drop only the observer notification. Capture cleanup and its
+              # returned Evidence still execute; the enclosing completed event remains.
+              owner.write_text(source.replace(anchor, replacement, 1))
+              run("suppressed-cleanup-notification", "failed")
+          finally:
+              owner.write_bytes(original)
+              assert hashlib.sha256(owner.read_bytes()).hexdigest() == original_hash
+          run("restored-progress", "passed")
+          (output / "progress-restoration.json").write_text(json.dumps({
+              "owner": str(owner), "sha256_before": original_hash,
+              "sha256_restored": hashlib.sha256(owner.read_bytes()).hexdigest(),
+          }, indent=2) + "\n")
+          PY
+      - name: Prepare both canonical Stryker preflights
+        if: matrix.label == 'pr-9084'
+        run: |
+          npm run test:prepare
+          node scripts/prepare-reverse-tools-mutation.mjs
+      - name: Preflight the main reverse tools configuration
+        if: matrix.label == 'pr-9084'
+        run: |
+          npx --no-install stryker run stryker.config.mjs --dryRunOnly \
+            2>&1 | tee "$RUNNER_TEMP/upstream-fixture-evidence/stryker-main-dry-run.log"
+      - name: Preflight the exhaustive semantics configuration
+        if: matrix.label == 'pr-9084'
+        run: |
+          npx --no-install stryker run stryker.semantics.config.mjs --dryRunOnly \
+            2>&1 | tee "$RUNNER_TEMP/upstream-fixture-evidence/stryker-semantics-dry-run.log"
+      - name: Check types and lint
+        run: npm run check:fast
+      - name: Check touched-fixture formatting
+        run: node node_modules/oxfmt/bin/oxfmt --check tests/boundary/cli/overnightBatch1CliSchemas.test.ts tests/boundary/process/processCaptureProgress.test.ts
+      - name: Verify exact tracked-source restoration
+        if: always()
+        run: |
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          git diff --exit-code "$CANDIDATE_SHA"
+          test "$(git rev-parse HEAD:src)" = "$(git rev-parse "$BASE_SHA:src")"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: upstream-fixtures-${{ matrix.label }}
+          path: ${{ runner.temp }}/upstream-fixture-evidence/
+          if-no-files-found: error
+          retention-days: 7
