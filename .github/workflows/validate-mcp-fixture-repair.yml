@@ -1,0 +1,72 @@
+name: Validate MCP fixture contract repair
+
+on:
+  push:
+    branches:
+      - validation/rea-mcp-fixtures-20261116
+
+permissions:
+  contents: read
+
+jobs:
+  focused:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      HUSKY: "0"
+      TURBO_TELEMETRY_DISABLED: "1"
+      TURBO_CACHE: "local:rw"
+      NO_COLOR: "1"
+      SOURCE_SHA: "907fc2c046f31173b6c09652a81980c0adbced82"
+      UPSTREAM_BASE: "9ecfb109e8c40ac64ca637b381ba25eec7d08ec9"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify the isolated source
+        run: |
+          test "$(git rev-parse HEAD^)" = "$SOURCE_SHA"
+          test "$(git diff --name-only "$SOURCE_SHA" HEAD)" = ".github/workflows/validate-mcp-fixture-repair.yml"
+          git diff --check "$UPSTREAM_BASE" "$SOURCE_SHA"
+          test "$(git diff --name-only "$UPSTREAM_BASE" "$SOURCE_SHA" | wc -l)" = "2"
+          git show -s --format='%H %T %P' "$SOURCE_SHA"
+          git checkout --detach "$SOURCE_SHA"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version-file: .nvmrc
+      - name: Use the repository package manager
+        run: npm install --global npm@11.16.0
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Reproduce both failures on the exact upstream baseline
+        run: |
+          git checkout --detach "$UPSTREAM_BASE"
+          trap 'git checkout --detach "$SOURCE_SHA"' EXIT
+          if npm run test:focused -- tests/boundary/mcp/decompileAllCaveats.test.ts tests/process-global/processSnapshotCleanupMcp.test.ts > "$RUNNER_TEMP/baseline.log" 2>&1; then
+            cat "$RUNNER_TEMP/baseline.log"
+            exit 1
+          fi
+          cat "$RUNNER_TEMP/baseline.log"
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          const log = readFileSync(process.env.RUNNER_TEMP + '/baseline.log', 'utf8').replace(/\x1b\[[0-9;]*m/g, '');
+          for (const pattern of [/Tests\s+2 failed\b/, /decompileAllCaveats\.test\.ts/, /processSnapshotCleanupMcp\.test\.ts/, /to have a length of 11 but got 10/, /expected undefined to be false/]) {
+            if (!pattern.test(log)) throw new Error('Expected baseline regression was not reproduced: ' + pattern);
+          }
+          NODE
+      - name: Check types and lint
+        run: npm run check:fast
+      - name: Check repaired test formatting
+        run: node node_modules/oxfmt/bin/oxfmt --check tests/boundary/mcp/decompileAllCaveats.test.ts tests/process-global/processSnapshotCleanupMcp.test.ts
+      - name: Verify the repaired boundaries and neighboring cleanup contracts
+        run: >-
+          npm run test:focused --
+          tests/boundary/mcp/decompileAllCaveats.test.ts tests/process-global/processSnapshotCleanupMcp.test.ts
+          tests/boundary/mcp/processCleanupRetryMcp.test.ts
+          tests/boundary/mcp/kunaCloseRetryMcp.test.ts
+      - name: Verify source remains unchanged
+        if: always()
+        run: |
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          git diff --exit-code "$SOURCE_SHA"
