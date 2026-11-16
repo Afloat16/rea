@@ -1,0 +1,73 @@
+name: Validate PR 9084 shared CI repair
+
+on:
+  push:
+    branches:
+      - validation/rea9084-ci-final-20261116
+
+permissions:
+  contents: read
+
+jobs:
+  focused:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      HUSKY: "0"
+      TURBO_TELEMETRY_DISABLED: "1"
+      TURBO_CACHE: "local:rw"
+      NO_COLOR: "1"
+      SOURCE_SHA: "1e9e70d81f95de8769f970c53cdb0d55fce00187"
+      OLD_HEAD: "604905ac3d8d2ea3b52d24e5a105f38c70c4b37d"
+      OLD_BASE: "836ac2fea6c79975a3544c1ca2d259a4f9368455"
+      UPSTREAM_FIX: "9ecfb109e8c40ac64ca637b381ba25eec7d08ec9"
+      SHARED_REPAIR: "e2315ffafb39ec4a1191d276604762f240fefe9a"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify the exact candidate and unchanged functional patch
+        run: |
+          test "$(git rev-parse HEAD^)" = "$SOURCE_SHA"
+          test "$(git diff --name-only "$SOURCE_SHA" HEAD)" = ".github/workflows/validate-shared-ci-repair.yml"
+          git diff --binary "$OLD_BASE" "$OLD_HEAD" > "$RUNNER_TEMP/original.patch"
+          git diff --binary "$UPSTREAM_FIX" "$SOURCE_SHA" -- . ':(exclude)scripts/verify-web-network-captures.mjs' ':(exclude)tests/boundary/filesystem/clientConfigurationEnvironment.test.ts' ':(exclude)tests/boundary/mcp/decompileAllCaveats.test.ts' ':(exclude)tests/boundary/mcp/environmentServeMcp.test.ts' ':(exclude)tests/boundary/process/releaseArtifactCanary.test.ts' ':(exclude)tests/process-global/processSnapshotCleanupMcp.test.ts' > "$RUNNER_TEMP/functional.patch"
+          cmp "$RUNNER_TEMP/original.patch" "$RUNNER_TEMP/functional.patch"
+          git diff --exit-code "$SHARED_REPAIR" "$SOURCE_SHA" -- 'scripts/verify-web-network-captures.mjs' 'tests/boundary/filesystem/clientConfigurationEnvironment.test.ts' 'tests/boundary/mcp/decompileAllCaveats.test.ts' 'tests/boundary/mcp/environmentServeMcp.test.ts' 'tests/boundary/process/releaseArtifactCanary.test.ts' 'tests/process-global/processSnapshotCleanupMcp.test.ts'
+          git diff --check "$UPSTREAM_FIX" "$SOURCE_SHA"
+          git show -s --format='%H %T %P' "$SOURCE_SHA"
+          git checkout --detach "$SOURCE_SHA"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version-file: .nvmrc
+      - name: Use the repository package manager
+        run: npm install --global npm@11.16.0
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Check types, lint and architecture
+        run: npm run check:fast
+      - name: Check all changed file formatting
+        run: git diff --name-only -z "$UPSTREAM_FIX" "$SOURCE_SHA" | xargs -0 node node_modules/oxfmt/bin/oxfmt --check
+      - name: Verify the repaired and original PR boundaries
+        run: >-
+          npm run test:focused --
+          src/application/binaryDiagnostics/KernelBuildConfigService.test.ts
+          src/domain/evidenceSubject.test.ts
+          tests/boundary/filesystem/clientConfigurationEnvironment.test.ts
+          tests/boundary/mcp/decompileAllCaveats.test.ts
+          tests/boundary/mcp/environmentServeMcp.test.ts
+          tests/boundary/process/releaseArtifactCanary.test.ts
+          tests/process-global/processSnapshotCleanupMcp.test.ts
+          src/domain/evidenceRecordSummary.test.ts
+          tests/boundary/cli/analysisViewCli.test.ts
+          tests/boundary/mcp/evidenceRecordSelectionMcp.test.ts
+          tests/boundary/mcp/evidenceLinkInspectionMcp.test.ts
+          tests/boundary/mcp/largeToolResult.test.ts
+          tests/boundary/mcp/toolResult.test.ts
+          tests/boundary/mcp/serverUnknownsMcp.test.ts
+      - name: Verify source remains unchanged
+        if: always()
+        run: |
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          git diff --exit-code "$SOURCE_SHA"
