@@ -1,0 +1,87 @@
+name: Validate PR 9084 subject repair
+
+on:
+  push:
+    branches:
+      - validation/rea9084-subject-20261116
+
+permissions:
+  contents: read
+
+jobs:
+  focused:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      HUSKY: "0"
+      TURBO_TELEMETRY_DISABLED: "1"
+      TURBO_CACHE: "local:rw"
+      NO_COLOR: "1"
+      SOURCE_SHA: "267d8a44c7a2be3dd0a0aeef0edacdbeaf37818e"
+      OLD_HEAD: "604905ac3d8d2ea3b52d24e5a105f38c70c4b37d"
+      OLD_BASE: "836ac2fea6c79975a3544c1ca2d259a4f9368455"
+      UPSTREAM_FIX: "9ecfb109e8c40ac64ca637b381ba25eec7d08ec9"
+      FAILED_CHECKOUT: "a5494815e9f811d1b71123f75221a03218d6250e"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify the exact candidate and unchanged PR patch
+        run: |
+          test "$(git rev-parse HEAD^)" = "$SOURCE_SHA"
+          test "$(git diff --name-only "$SOURCE_SHA" HEAD)" = ".github/workflows/validate-subject-repair.yml"
+          git diff --binary "$OLD_BASE" "$OLD_HEAD" > "$RUNNER_TEMP/original.patch"
+          git diff --binary "$UPSTREAM_FIX" "$SOURCE_SHA" > "$RUNNER_TEMP/candidate.patch"
+          cmp "$RUNNER_TEMP/original.patch" "$RUNNER_TEMP/candidate.patch"
+          git diff --check "$UPSTREAM_FIX" "$SOURCE_SHA"
+          git show -s --format='%H %T %P' "$SOURCE_SHA"
+          git checkout --detach "$SOURCE_SHA"
+          git fetch --no-tags https://github.com/morluto/rea.git "$FAILED_CHECKOUT"
+          test "$(git rev-parse "$FAILED_CHECKOUT:package-lock.json")" = "$(git rev-parse "$SOURCE_SHA:package-lock.json")"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version-file: .nvmrc
+      - name: Use the repository package manager
+        run: npm install --global npm@11.16.0
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Reproduce the nine failures at the actual failed CI checkout
+        run: |
+          git checkout --detach "$FAILED_CHECKOUT"
+          trap 'git checkout --detach "$SOURCE_SHA"' EXIT
+          if npm run test:local -- src/application/binaryDiagnostics/KernelBuildConfigService.test.ts src/domain/evidenceSubject.test.ts > "$RUNNER_TEMP/baseline.log" 2>&1; then
+            cat "$RUNNER_TEMP/baseline.log"
+            exit 1
+          fi
+          cat "$RUNNER_TEMP/baseline.log"
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          const log = readFileSync(process.env.RUNNER_TEMP + '/baseline.log', 'utf8').replace(/\x1b\[[0-9;]*m/g, '');
+          for (const pattern of [/Tests\s+9 failed\b/, /KernelBuildConfigService\.test\.ts/, /evidenceSubject\.test\.ts/, /"format":"hopper","architecture":"x86"/]) {
+            if (!pattern.test(log)) throw new Error('The expected baseline regression was not reproduced: ' + pattern);
+          }
+          NODE
+      - name: Verify the upstream repair removes those failures
+        run: npm run test:local -- src/application/binaryDiagnostics/KernelBuildConfigService.test.ts src/domain/evidenceSubject.test.ts
+      - name: Check types and lint
+        run: npm run check:fast
+      - name: Check PR and repaired test formatting
+        run: |
+          git diff --name-only -z "$UPSTREAM_FIX" "$SOURCE_SHA" | xargs -0 node node_modules/oxfmt/bin/oxfmt --check
+          node node_modules/oxfmt/bin/oxfmt --check src/application/binaryDiagnostics/KernelBuildConfigService.test.ts src/domain/evidenceSubject.test.ts
+      - name: Recheck the original PR boundaries
+        run: >-
+          npm run test:focused --
+          src/domain/evidenceRecordSummary.test.ts
+          tests/boundary/cli/analysisViewCli.test.ts
+          tests/boundary/mcp/evidenceRecordSelectionMcp.test.ts
+          tests/boundary/mcp/evidenceLinkInspectionMcp.test.ts
+          tests/boundary/mcp/largeToolResult.test.ts
+          tests/boundary/mcp/toolResult.test.ts
+          tests/boundary/mcp/serverUnknownsMcp.test.ts
+      - name: Verify source remains unchanged
+        if: always()
+        run: |
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          git diff --exit-code "$SOURCE_SHA"
