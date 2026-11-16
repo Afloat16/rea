@@ -1,0 +1,157 @@
+name: Validate Kuna close retry observation
+
+on:
+  push:
+    branches:
+      - validation/rea-kuna-close-20261116
+
+permissions:
+  contents: read
+
+jobs:
+  focused:
+    name: Kuna close retry (${{ matrix.label }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: original-head
+            candidate: a23b4a866f62eef0bc14469c8d2e14c1df13b0b1
+            baseline: 369d08664d394fbc49da7aacb2702d698741bcc4
+            baseline_result: pass
+          - label: actual-merge
+            candidate: e073e37eb017965fe55359c9beebfa995ff9d0f6
+            baseline: 24380d9d92e4120fc281d97a95ba47e9489d1073
+            baseline_result: fail
+    env:
+      HUSKY: "0"
+      TURBO_TELEMETRY_DISABLED: "1"
+      TURBO_CACHE: "local:rw"
+      NO_COLOR: "1"
+      CANDIDATE_SHA: ${{ matrix.candidate }}
+      BASE_SHA: ${{ matrix.baseline }}
+      BASE_RESULT: ${{ matrix.baseline_result }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ matrix.candidate }}
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Verify the exact one-file candidate
+        run: |
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          test "$(git rev-parse HEAD^)" = "$BASE_SHA"
+          test "$(git diff --name-only "$BASE_SHA" HEAD)" = "tests/boundary/mcp/kunaCloseRetryMcp.test.ts"
+          git diff --check "$BASE_SHA" HEAD
+          git show -s --format='%H %T %P'
+          mkdir -p "$RUNNER_TEMP/kuna-close-evidence"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version-file: .nvmrc
+      - name: Use the repository package manager
+        run: npm install --global "$(node -p "JSON.parse(require('fs').readFileSync('package.json', 'utf8')).packageManager")"
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Establish the old observation on each executed source baseline
+        run: |
+          git show "$BASE_SHA:tests/boundary/mcp/kunaCloseRetryMcp.test.ts" > tests/boundary/mcp/kunaCloseRetryMcp.test.ts
+          trap 'git checkout -- tests/boundary/mcp/kunaCloseRetryMcp.test.ts' EXIT
+          if npm run test:focused -- tests/boundary/mcp/kunaCloseRetryMcp.test.ts > "$RUNNER_TEMP/kuna-close-evidence/baseline.log" 2>&1; then
+            code=0
+          else
+            code=$?
+          fi
+          cat "$RUNNER_TEMP/kuna-close-evidence/baseline.log"
+          export BASE_EXIT="$code"
+          python3 - <<'PY'
+          import os, re
+          from pathlib import Path
+          log = (Path(os.environ["RUNNER_TEMP"]) / "kuna-close-evidence/baseline.log").read_text()
+          log = re.sub(r"\x1b\[[0-9;]*m", "", log)
+          if os.environ["BASE_RESULT"] == "fail":
+              assert os.environ["BASE_EXIT"] == "1", "Expected the original failing merge"
+              assert re.search(r"Tests\s+1 failed\b", log), "Expected exactly one failed test"
+              assert "Expected the typed close failure at delivery" in log, "Wrong baseline failure"
+          else:
+              assert os.environ["BASE_EXIT"] == "0", "Original head baseline should pass"
+              assert re.search(r"Tests\s+1 passed\b", log), "Original head test did not run"
+          PY
+      - name: Verify the repaired test and neighboring cleanup boundaries
+        run: |
+          npm run test:focused -- \
+            tests/boundary/mcp/kunaCloseRetryMcp.test.ts \
+            tests/boundary/mcp/processCleanupRetryMcp.test.ts \
+            tests/boundary/mcp/sessionFixtureCleanup.test.ts \
+            tests/boundary/mcp/cleanupPrimaryProjection.test.ts \
+            tests/boundary/process/pluginMcpLauncher.test.ts \
+            2>&1 | tee "$RUNNER_TEMP/kuna-close-evidence/candidate.log"
+      - name: Prove the existing retry assertions still reject a lost retry offer
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, os, subprocess
+          from pathlib import Path
+          root = Path.cwd()
+          output = Path(os.environ["RUNNER_TEMP"]) / "kuna-close-evidence"
+          anchor = "session.close({ progress, cleanupRetry: CLOSE_RETRY })"
+          owners = [
+              root / "src/server/registerCloseLifecycleTool.ts",
+              root / "src/server/serviceToolBindings.ts",
+          ]
+          owners = [p for p in owners if p.is_file() and anchor in p.read_text()]
+          assert len(owners) == 1, "Expected exactly one close request owner"
+          owner = owners[0]
+          original = owner.read_bytes()
+          original_hash = hashlib.sha256(original).hexdigest()
+          source = original.decode()
+          assert source.count(anchor) == 1, "Expected exactly one ordinary close call"
+          title = "names the same-connection close_binary retry for an unproven Kuna export stop"
+          def run(label, expected_status):
+              report_path = output / (label + ".json")
+              result = subprocess.run([
+                  "node", "node_modules/vitest/vitest.mjs", "run",
+                  "tests/boundary/mcp/kunaCloseRetryMcp.test.ts",
+                  "--project=mcp-boundary", "--reporter=default", "--reporter=json",
+                  "--outputFile=" + str(report_path),
+              ], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, check=False)
+              (output / (label + ".log")).write_text(result.stdout)
+              print(result.stdout)
+              report = json.loads(report_path.read_text())
+              active = [case for suite in report["testResults"] for case in suite["assertionResults"]
+                        if case["status"] not in ("pending", "skipped", "todo")]
+              assert len(active) == 1 and active[0]["title"] == title, active
+              assert active[0]["status"] == expected_status, active
+              assert result.returncode == (1 if expected_status == "failed" else 0), result.returncode
+              if expected_status == "failed":
+                  message = "\n".join(active[0].get("failureMessages", []))
+                  assert "AssertionError" in message and "recovery" in message, message
+          try:
+              owner.write_text(source.replace(anchor, "session.close({ progress })", 1))
+              run("missing-cleanup-retry", "failed")
+          finally:
+              owner.write_bytes(original)
+              assert hashlib.sha256(owner.read_bytes()).hexdigest() == original_hash
+          run("restored-candidate", "passed")
+          (output / "restoration.json").write_text(json.dumps({
+              "owner": str(owner.relative_to(root)),
+              "original_sha256": original_hash,
+              "restored_sha256": hashlib.sha256(owner.read_bytes()).hexdigest(),
+          }, indent=2) + "\n")
+          PY
+      - name: Check types and lint
+        run: npm run check:fast
+      - name: Check touched test formatting
+        run: node node_modules/oxfmt/bin/oxfmt --check tests/boundary/mcp/kunaCloseRetryMcp.test.ts
+      - name: Verify exact source restoration
+        if: always()
+        run: |
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          git diff --exit-code "$CANDIDATE_SHA"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: kuna-close-${{ matrix.label }}
+          path: ${{ runner.temp }}/kuna-close-evidence/
+          if-no-files-found: error
+          retention-days: 7
