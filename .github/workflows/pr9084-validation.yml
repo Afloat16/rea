@@ -1,0 +1,57 @@
+name: Validate PR 9084 integration
+
+on:
+  push:
+    branches:
+      - validation/rea-summary-20261116
+
+permissions:
+  contents: read
+
+jobs:
+  focused:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      HUSKY: "0"
+      TURBO_TELEMETRY_DISABLED: "1"
+      TURBO_CACHE: "local:rw"
+      BASE_SHA: "836ac2fea6c79975a3544c1ca2d259a4f9368455"
+      SOURCE_SHA: "604905ac3d8d2ea3b52d24e5a105f38c70c4b37d"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify the candidate source
+        run: |
+          test "$(git rev-parse HEAD^)" = "$SOURCE_SHA"
+          test "$(git diff --name-only "$SOURCE_SHA" HEAD)" = ".github/workflows/pr9084-validation.yml"
+          git diff --exit-code "$SOURCE_SHA" HEAD -- . ':!.github/workflows/pr9084-validation.yml'
+          git show -s --format='%H %T %P' "$SOURCE_SHA"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version-file: .nvmrc
+      - name: Use the repository package manager
+        run: npm install --global npm@11.16.0
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Check types and lint
+        run: npm run check:fast
+      - name: Check candidate formatting
+        run: |
+          git diff --name-only -z "$BASE_SHA" "$SOURCE_SHA" | xargs -0 node node_modules/oxfmt/bin/oxfmt --check
+          git diff --check "$BASE_SHA" "$SOURCE_SHA"
+      - name: Test domain, compiled CLI and MCP boundaries
+        run: >-
+          npm run test:focused --
+          src/domain/evidenceRecordSummary.test.ts
+          tests/boundary/cli/analysisViewCli.test.ts
+          tests/boundary/mcp/evidenceRecordSelectionMcp.test.ts
+          tests/boundary/mcp/evidenceLinkInspectionMcp.test.ts
+          tests/boundary/mcp/largeToolResult.test.ts
+          tests/boundary/mcp/toolResult.test.ts
+          tests/boundary/mcp/serverUnknownsMcp.test.ts
+      - name: Verify source remains unchanged
+        if: always()
+        run: git diff --exit-code "$SOURCE_SHA" -- . ':!.github/workflows/pr9084-validation.yml'
