@@ -76,18 +76,27 @@ try {
   assert.deepEqual(parseMcpInputSchemaProfile("compact"), { ok: true, value: "compact" });
   receipt.profilePolicy = { full: removed.error.message, compact: "accepted" };
 
-  await writeFile(testPath, baselineTest);
-  const oldFailure = await targeted("original-fixture", 1, "failed");
-  assert.match(oldFailure.diagnosticOutput, /"status": "configured"/);
-  assert.match(oldFailure.diagnosticOutput, /"status": "failed"/);
-
-  await writeFile(testPath, fixedTest);
-  run("corrected-family", [
-    "scripts/run-development-tests.mjs",
-    "focused",
-    testPath,
+  receipt.priorWindowsEvidence = {
+    run: 43794117585,
+    originalFixture: "1 failed, 74 filtered out",
+    correctedEnvironmentFile: "75 passed",
+    expandedKimiFile: "28 passed, 1 existing POSIX-path expectation failed on Windows",
+  };
+  const profileReport = reportDirectory + "/kimi-input-profiles.json";
+  run("kimi-input-profiles", [
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "--coverage.enabled=false",
+    "--reporter=default",
+    "--reporter=json",
+    "--outputFile=" + profileReport,
     "tests/boundary/filesystem/kimiClientConfiguration.test.ts",
+    "-t",
+    "Kimi Code input-schema profile selection",
   ]);
+  const profiles = JSON.parse(await readFile(profileReport, "utf8"));
+  assert.equal(profiles.numPassedTests, 4);
+  assert.equal(profiles.numFailedTests, 0);
   run("format", ["node_modules/oxfmt/bin/oxfmt", "--check", testPath]);
   run("lint", ["node_modules/oxlint/bin/oxlint", testPath]);
 
