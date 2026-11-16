@@ -1,4 +1,4 @@
-name: Validate Kuna close retry observation
+name: Validate MCP cleanup and snapshot fixture compatibility
 
 on:
   push:
@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   focused:
-    name: Kuna close retry (${{ matrix.label }})
+    name: MCP fixture compatibility (${{ matrix.label }})
     runs-on: ubuntu-latest
     timeout-minutes: 35
     strategy:
@@ -18,13 +18,13 @@ jobs:
       matrix:
         include:
           - label: original-head
-            candidate: a23b4a866f62eef0bc14469c8d2e14c1df13b0b1
+            candidate: e129b96ec74306c7bbb517eb66306f5bbf7612d9
             baseline: 369d08664d394fbc49da7aacb2702d698741bcc4
-            baseline_result: pass
+            kuna_baseline_result: pass
           - label: actual-merge
-            candidate: e073e37eb017965fe55359c9beebfa995ff9d0f6
+            candidate: 01faf16ff623056eff9f1f9fcd4c473f96c0fc5f
             baseline: 24380d9d92e4120fc281d97a95ba47e9489d1073
-            baseline_result: fail
+            kuna_baseline_result: fail
     env:
       HUSKY: "0"
       TURBO_TELEMETRY_DISABLED: "1"
@@ -32,18 +32,18 @@ jobs:
       NO_COLOR: "1"
       CANDIDATE_SHA: ${{ matrix.candidate }}
       BASE_SHA: ${{ matrix.baseline }}
-      BASE_RESULT: ${{ matrix.baseline_result }}
+      KUNA_BASE_RESULT: ${{ matrix.kuna_baseline_result }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           ref: ${{ matrix.candidate }}
-          fetch-depth: 2
+          fetch-depth: 3
           persist-credentials: false
-      - name: Verify the exact one-file candidate
+      - name: Verify the exact two-file candidate
         run: |
           test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
-          test "$(git rev-parse HEAD^)" = "$BASE_SHA"
-          test "$(git diff --name-only "$BASE_SHA" HEAD)" = "tests/boundary/mcp/kunaCloseRetryMcp.test.ts"
+          test "$(git rev-parse HEAD^^)" = "$BASE_SHA"
+          test "$(git diff --name-only "$BASE_SHA" HEAD)" = "$(printf '%s\n' tests/boundary/mcp/gamecubeDolSessionMcp.test.ts tests/boundary/mcp/kunaCloseRetryMcp.test.ts)"
           git diff --check "$BASE_SHA" HEAD
           git show -s --format='%H %T %P'
           mkdir -p "$RUNNER_TEMP/kuna-close-evidence"
@@ -54,11 +54,12 @@ jobs:
         run: npm install --global "$(node -p "JSON.parse(require('fs').readFileSync('package.json', 'utf8')).packageManager")"
       - name: Install locked dependencies
         run: npm ci
-      - name: Establish the old observation on each executed source baseline
+      - name: Reproduce both stale observations on each source baseline
         run: |
           git show "$BASE_SHA:tests/boundary/mcp/kunaCloseRetryMcp.test.ts" > tests/boundary/mcp/kunaCloseRetryMcp.test.ts
-          trap 'git checkout -- tests/boundary/mcp/kunaCloseRetryMcp.test.ts' EXIT
-          if npm run test:focused -- tests/boundary/mcp/kunaCloseRetryMcp.test.ts > "$RUNNER_TEMP/kuna-close-evidence/baseline.log" 2>&1; then
+          git show "$BASE_SHA:tests/boundary/mcp/gamecubeDolSessionMcp.test.ts" > tests/boundary/mcp/gamecubeDolSessionMcp.test.ts
+          trap 'git checkout -- tests/boundary/mcp/kunaCloseRetryMcp.test.ts tests/boundary/mcp/gamecubeDolSessionMcp.test.ts' EXIT
+          if npm run test:focused -- tests/boundary/mcp/kunaCloseRetryMcp.test.ts tests/boundary/mcp/gamecubeDolSessionMcp.test.ts > "$RUNNER_TEMP/kuna-close-evidence/baseline.log" 2>&1; then
             code=0
           else
             code=$?
@@ -70,18 +71,21 @@ jobs:
           from pathlib import Path
           log = (Path(os.environ["RUNNER_TEMP"]) / "kuna-close-evidence/baseline.log").read_text()
           log = re.sub(r"\x1b\[[0-9;]*m", "", log)
-          if os.environ["BASE_RESULT"] == "fail":
-              assert os.environ["BASE_EXIT"] == "1", "Expected the original failing merge"
-              assert re.search(r"Tests\s+1 failed\b", log), "Expected exactly one failed test"
+          assert os.environ["BASE_EXIT"] == "1", "Expected the stale snapshot assertion to fail"
+          assert "saves a GameCube DOL snapshot and replays it after reopening" in log
+          assert "AssertionError" in log and "gamecube-dol" in log
+          if os.environ["KUNA_BASE_RESULT"] == "fail":
+              assert re.search(r"Tests\s+2 failed\b.*\b1 passed\b", log), "Expected both stale observations to fail"
               assert "Expected the typed close failure at delivery" in log, "Wrong baseline failure"
           else:
-              assert os.environ["BASE_EXIT"] == "0", "Original head baseline should pass"
-              assert re.search(r"Tests\s+1 passed\b", log), "Original head test did not run"
+              assert re.search(r"Tests\s+1 failed\b.*\b2 passed\b", log), "Expected only the old DOL assertion to fail"
+              assert "Expected the typed close failure at delivery" not in log
           PY
       - name: Verify the repaired test and neighboring cleanup boundaries
         run: |
           npm run test:focused -- \
             tests/boundary/mcp/kunaCloseRetryMcp.test.ts \
+            tests/boundary/mcp/gamecubeDolSessionMcp.test.ts \
             tests/boundary/mcp/processCleanupRetryMcp.test.ts \
             tests/boundary/mcp/sessionFixtureCleanup.test.ts \
             tests/boundary/mcp/cleanupPrimaryProjection.test.ts \
@@ -142,7 +146,7 @@ jobs:
       - name: Check types and lint
         run: npm run check:fast
       - name: Check touched test formatting
-        run: node node_modules/oxfmt/bin/oxfmt --check tests/boundary/mcp/kunaCloseRetryMcp.test.ts
+        run: node node_modules/oxfmt/bin/oxfmt --check tests/boundary/mcp/kunaCloseRetryMcp.test.ts tests/boundary/mcp/gamecubeDolSessionMcp.test.ts
       - name: Verify exact source restoration
         if: always()
         run: |
