@@ -1,0 +1,82 @@
+name: Validate real capture issue paths
+
+on:
+  push:
+    branches:
+      - validation/rea-network-issue-paths-20261116
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      HUSKY: "0"
+      TURBO_TELEMETRY_DISABLED: "1"
+      TURBO_CACHE: "local:rw"
+      NODE_OPTIONS: "--max-old-space-size=768"
+      NO_COLOR: "1"
+      SOURCE_SHA: "067cb5dd71251859dc6caec18ae927089635b154"
+      UPSTREAM_BASE: "9ecfb109e8c40ac64ca637b381ba25eec7d08ec9"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify the isolated source
+        run: |
+          test "$(git rev-parse HEAD^)" = "$SOURCE_SHA"
+          test "$(git diff --name-only "$SOURCE_SHA" HEAD)" = ".github/workflows/validate-network-issue-paths.yml"
+          test "$(git diff --name-only "$UPSTREAM_BASE" "$SOURCE_SHA")" = "scripts/verify-web-network-captures.mjs"
+          git diff --check "$UPSTREAM_BASE" "$SOURCE_SHA"
+          git checkout --detach "$SOURCE_SHA"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version-file: .nvmrc
+      - name: Use the repository package manager
+        run: npm install --global npm@11.16.0
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Build the actual runtime
+        run: npm run build:cached
+      - name: Acquire the checksum-pinned real mitmproxy producer
+        shell: bash
+        run: |
+          capture_tool_root="${RUNNER_TEMP}/rea-mitmproxy-12.2.3"
+          mkdir -p "${capture_tool_root}"
+          curl --fail --location --retry 3 --retry-all-errors --max-time 180 \
+            https://downloads.mitmproxy.org/12.2.3/mitmproxy-12.2.3-linux-x86_64.tar.gz \
+            --output "${capture_tool_root}/mitmproxy.tar.gz"
+          echo '2e95286b618fa6fd33e5e62a78c2e5112571d85f42ec2bac29b97ee242bdb5c5  mitmproxy.tar.gz' \
+            | (cd "${capture_tool_root}" && sha256sum --check --strict)
+          tar -xzf "${capture_tool_root}/mitmproxy.tar.gz" -C "${capture_tool_root}"
+          echo "REA_MITMDUMP_COMMAND=${capture_tool_root}/mitmdump" >> "${GITHUB_ENV}"
+      - name: Reproduce the original verifier failure on the same runtime
+        run: |
+          git checkout "$UPSTREAM_BASE" -- scripts/verify-web-network-captures.mjs
+          trap 'git restore --source="$SOURCE_SHA" --staged --worktree scripts/verify-web-network-captures.mjs' EXIT
+          if node scripts/verify-web-network-captures.mjs > "$RUNNER_TEMP/network-baseline.log" 2>&1; then
+            cat "$RUNNER_TEMP/network-baseline.log"
+            exit 1
+          fi
+          cat "$RUNNER_TEMP/network-baseline.log"
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          const log = readFileSync(process.env.RUNNER_TEMP + '/network-baseline.log', 'utf8');
+          for (const pattern of [/"status": "failed"/, /"public_cases": 122/, /actual: \[ 'capturePath' \]/, /expected: \[ 'capture_path' \]/]) {
+            if (!pattern.test(log)) throw new Error('Expected verifier regression was not reproduced: ' + pattern);
+          }
+          NODE
+      - name: Verify the complete public CLI and MCP capture matrix
+        run: npm run verify:web:network-captures
+      - name: Check changed verifier lint and formatting
+        run: |
+          node node_modules/oxlint/bin/oxlint scripts/verify-web-network-captures.mjs
+          node node_modules/oxfmt/bin/oxfmt --check scripts/verify-web-network-captures.mjs
+      - name: Verify source remains unchanged
+        if: always()
+        run: |
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          git diff --exit-code "$SOURCE_SHA"
