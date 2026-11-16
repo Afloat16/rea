@@ -1,0 +1,41 @@
+name: PR 9083 Windows Kimi fixture proof
+on:
+  push:
+    branches: [validate/pr9083-windows-kimi-20261116]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  windows-kimi:
+    name: Windows Kimi baseline, correction, and regression oracle
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 3
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version-file: .nvmrc
+      - name: Use the repository's pinned npm
+        run: npm.cmd install --global npm@11.16.0
+      - run: npm.cmd ci
+      - name: Restore native controls from the exact failed upstream run
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          repository: morluto/rea
+          run-id: 43786166227
+          name: windows-native-controls
+          path: native/windows/build/
+          github-token: ${{ github.token }}
+      - run: npm.cmd run verify:windows-native:artifact
+      - run: npm.cmd run build:cached
+      - name: Prove the failure, correction, and duplicate-key detection
+        run: node scripts/validate-pr9083-windows-kimi.mjs
+      - name: Upload scoped evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pr9083-windows-kimi-evidence
+          path: pr9083-windows-kimi-evidence/
+          if-no-files-found: error
