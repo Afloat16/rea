@@ -1,0 +1,81 @@
+name: Validate PR 9279 subject repair
+
+on:
+  push:
+    branches:
+      - validation/rea9279-subject-20261116
+
+permissions:
+  contents: read
+
+jobs:
+  focused:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      HUSKY: "0"
+      TURBO_TELEMETRY_DISABLED: "1"
+      TURBO_CACHE: "local:rw"
+      NO_COLOR: "1"
+      SOURCE_SHA: "9e23ea92fc5a41009982ad7e734bd847c9c5d084"
+      OLD_HEAD: "21518690575d157d278caaa4af4d4a0bacc28574"
+      OLD_BASE: "680c83f88cf78cd4490bbefcef265c5b92ddbb85"
+      UPSTREAM_FIX: "9ecfb109e8c40ac64ca637b381ba25eec7d08ec9"
+      FAILED_CHECKOUT: "e8dee0973bd1cae59d5c6e31cae285b6d00609e9"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify the exact candidate and unchanged PR patch
+        run: |
+          test "$(git rev-parse HEAD^)" = "$SOURCE_SHA"
+          test "$(git diff --name-only "$SOURCE_SHA" HEAD)" = ".github/workflows/validate-subject-repair.yml"
+          git diff --binary "$OLD_BASE" "$OLD_HEAD" > "$RUNNER_TEMP/original.patch"
+          git diff --binary "$UPSTREAM_FIX" "$SOURCE_SHA" > "$RUNNER_TEMP/candidate.patch"
+          cmp "$RUNNER_TEMP/original.patch" "$RUNNER_TEMP/candidate.patch"
+          git diff --check "$UPSTREAM_FIX" "$SOURCE_SHA"
+          git show -s --format='%H %T %P' "$SOURCE_SHA"
+          git checkout --detach "$SOURCE_SHA"
+          git fetch --no-tags https://github.com/morluto/rea.git "$FAILED_CHECKOUT"
+          test "$(git rev-parse "$FAILED_CHECKOUT:package-lock.json")" = "$(git rev-parse "$SOURCE_SHA:package-lock.json")"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version-file: .nvmrc
+      - name: Use the repository package manager
+        run: npm install --global npm@11.16.0
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Reproduce the nine failures at the actual failed CI checkout
+        run: |
+          git checkout --detach "$FAILED_CHECKOUT"
+          trap 'git checkout --detach "$SOURCE_SHA"' EXIT
+          if npm run test:local -- src/application/binaryDiagnostics/KernelBuildConfigService.test.ts src/domain/evidenceSubject.test.ts > "$RUNNER_TEMP/baseline.log" 2>&1; then
+            cat "$RUNNER_TEMP/baseline.log"
+            exit 1
+          fi
+          cat "$RUNNER_TEMP/baseline.log"
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          const log = readFileSync(process.env.RUNNER_TEMP + '/baseline.log', 'utf8').replace(/\x1b\[[0-9;]*m/g, '');
+          for (const pattern of [/Tests\s+9 failed\b/, /KernelBuildConfigService\.test\.ts/, /evidenceSubject\.test\.ts/, /"format":"hopper","architecture":"x86"/]) {
+            if (!pattern.test(log)) throw new Error('The expected baseline regression was not reproduced: ' + pattern);
+          }
+          NODE
+      - name: Verify the upstream repair removes those failures
+        run: npm run test:local -- src/application/binaryDiagnostics/KernelBuildConfigService.test.ts src/domain/evidenceSubject.test.ts
+      - name: Check types and lint
+        run: npm run check:fast
+      - name: Check PR and repaired test formatting
+        run: |
+          git diff --name-only -z "$UPSTREAM_FIX" "$SOURCE_SHA" | xargs -0 node node_modules/oxfmt/bin/oxfmt --check
+          node node_modules/oxfmt/bin/oxfmt --check src/application/binaryDiagnostics/KernelBuildConfigService.test.ts src/domain/evidenceSubject.test.ts
+      - name: Recheck the original PR boundaries
+        run: >-
+          npm run test:focused --
+          tests/boundary/process/pluginMcpLauncher.test.ts
+      - name: Verify source remains unchanged
+        if: always()
+        run: |
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          git diff --exit-code "$SOURCE_SHA"
