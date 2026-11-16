@@ -23,11 +23,7 @@ jobs:
           - label: pr-9084
             candidate: c317bff2ebfc643bff5b0340411e896e6109bc2d
             baseline: 930bea5d7078114858bbb7c94a3a57746261d771
-            fixed_cases: 60
-          - label: pr-9279
-            candidate: 1701362982bbc37bdb03c8ad8d8c3f0641bc32f6
-            baseline: eb7bb7679f5358d0f6d0d9d6b1b7b37e8b8df86d
-            fixed_cases: 29
+            fixed_cases: 61
     env:
       HUSKY: "0"
       TURBO_TELEMETRY_DISABLED: "1"
