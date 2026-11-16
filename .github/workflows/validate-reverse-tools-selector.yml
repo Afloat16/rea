@@ -1,0 +1,202 @@
+name: Validate reverse tools selector compatibility
+
+on:
+  push:
+    branches:
+      - validation/rea-reverse-selector-20261116
+
+permissions:
+  contents: read
+
+jobs:
+  selector:
+    name: Reverse tools selector (${{ matrix.label }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: original-head
+            candidate: 317bc916029fbe20447e6f0fd7ee37892f801206
+            baseline: 0d134c24c0e7a2621e357e8ee6e6d2cc80f08e65
+            baseline_main: pass
+          - label: actual-merge
+            candidate: b475f57c461fcd59d0c96bb616dee118637a1e97
+            baseline: 74f09ae63ac7502b5261951a7bc45f6906b80f94
+            baseline_main: fail
+    env:
+      HUSKY: "0"
+      TURBO_TELEMETRY_DISABLED: "1"
+      TURBO_CACHE: "local:rw"
+      NO_COLOR: "1"
+      CANDIDATE_SHA: ${{ matrix.candidate }}
+      BASE_SHA: ${{ matrix.baseline }}
+      BASELINE_MAIN: ${{ matrix.baseline_main }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ matrix.candidate }}
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Verify the exact selector and regression candidate
+        run: |
+          python3 - <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+          def git(*args):
+              return subprocess.check_output(["git", *args], text=True).strip()
+          candidate = os.environ["CANDIDATE_SHA"]
+          baseline = os.environ["BASE_SHA"]
+          assert git("rev-parse", "HEAD") == candidate
+          assert git("rev-parse", "HEAD^") == baseline
+          changed = git("diff", "--name-only", baseline, candidate).splitlines()
+          assert changed == [
+              "scripts/lib/reverse-tools-mutation-targets.mjs",
+              "tests/boundary/filesystem/reverseToolsMutationConfig.test.ts",
+          ], changed
+          assert git("rev-parse", baseline + ":src") == git("rev-parse", candidate + ":src")
+          subprocess.run(["git", "diff", "--check", baseline, candidate], check=True)
+          output = Path(os.environ["RUNNER_TEMP"]) / "reverse-selector-evidence"
+          output.mkdir(parents=True, exist_ok=True)
+          evidence = {
+              "candidate": candidate, "baseline": baseline, "files": changed,
+              "production_tree": git("rev-parse", candidate + ":src"),
+              "helper_blob": git("rev-parse", candidate + ":scripts/lib/reverse-tools-mutation-targets.mjs"),
+              "test_blob": git("rev-parse", candidate + ":tests/boundary/filesystem/reverseToolsMutationConfig.test.ts"),
+          }
+          assert evidence["helper_blob"] == "ee9f611529dee4a88fcc52f14e04a1d8bb939a33"
+          assert evidence["test_blob"] == "1df79c88e3cd339e0e707226a994cf091aa16969"
+          (output / "candidate.json").write_text(json.dumps(evidence, indent=2) + "\n")
+          print(json.dumps(evidence, indent=2))
+          PY
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version-file: .nvmrc
+      - name: Use the repository package manager
+        run: npm install --global "$(node -p "JSON.parse(require('fs').readFileSync('package.json', 'utf8')).packageManager")"
+      - name: Record the toolchain and install locked dependencies
+        run: |
+          node --version | tee "$RUNNER_TEMP/reverse-selector-evidence/node-version.txt"
+          npm --version | tee "$RUNNER_TEMP/reverse-selector-evidence/npm-version.txt"
+          npm ci
+      - name: Reproduce the baseline and compare repaired configuration targets
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, os, subprocess
+          from pathlib import Path
+          output = Path(os.environ["RUNNER_TEMP"]) / "reverse-selector-evidence"
+          helper = Path("scripts/lib/reverse-tools-mutation-targets.mjs")
+          candidate = helper.read_bytes()
+          before_hash = hashlib.sha256(candidate).hexdigest()
+          baseline = subprocess.check_output(["git", "show", os.environ["BASE_SHA"] + ":" + str(helper)])
+          profiles = ["stryker.config.mjs", "stryker.semantics.config.mjs"]
+          probe = """
+          import { resolve } from "node:path";
+          import { pathToFileURL } from "node:url";
+          const config = (await import(pathToFileURL(resolve(process.argv[1])).href)).default;
+          if (!Array.isArray(config.mutate) || config.mutate.length === 0)
+            throw new Error("Expected nonempty canonical mutation targets");
+          if (config.dryRunOnly === true)
+            throw new Error("The canonical configuration must retain its complete mutation mode");
+          process.stdout.write(JSON.stringify(config));
+          """
+          def observe(phase, profile):
+              result = subprocess.run(
+                  ["node", "--input-type=module", "-e", probe, profile],
+                  stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, check=False)
+              stem = phase + "-" + profile.removesuffix(".mjs")
+              (output / (stem + ".log")).write_text(result.stdout)
+              record = {"phase": phase, "profile": profile, "exit": result.returncode}
+              if result.returncode == 0:
+                  record["config"] = json.loads(result.stdout)
+                  (output / (stem + ".json")).write_text(json.dumps(record["config"], indent=2) + "\n")
+              else:
+                  print(result.stdout)
+              print(json.dumps({key: value for key, value in record.items() if key != "config"}))
+              return record, result.stdout
+          observations = []
+          originals = {}
+          try:
+              helper.write_bytes(baseline)
+              for profile in profiles:
+                  record, log = observe("baseline", profile)
+                  observations.append(record)
+                  expected_failure = os.environ["BASELINE_MAIN"] == "fail" and profile == profiles[0]
+                  if expected_failure:
+                      expected = 'Expected one mutation target in src/cli/reverseEngineeringCommands.ts: {"kind":"command-handler","command":"debugWithGdb"}; found 0'
+                      assert record["exit"] == 1 and expected in log, log
+                  else:
+                      assert record["exit"] == 0, log
+                      originals[profile] = record["config"]
+          finally:
+              helper.write_bytes(candidate)
+              assert hashlib.sha256(helper.read_bytes()).hexdigest() == before_hash
+          fixed = {}
+          for profile in profiles:
+              record, log = observe("candidate", profile)
+              observations.append(record)
+              assert record["exit"] == 0, log
+              fixed[profile] = record["config"]
+              if profile in originals:
+                  assert fixed[profile] == originals[profile], "Existing targets or configuration changed: " + profile
+          destinations = [
+              config[reporter]["fileName"]
+              for config in fixed.values()
+              for reporter in ["jsonReporter", "htmlReporter"]
+          ]
+          assert len(set(destinations)) == 4, destinations
+          (output / "configuration-comparison.json").write_text(json.dumps({
+              "observations": observations,
+              "unchanged_profiles": list(originals),
+              "helper_sha256_before": before_hash,
+              "helper_sha256_restored": hashlib.sha256(helper.read_bytes()).hexdigest(),
+          }, indent=2) + "\n")
+          PY
+      - name: Run all fourteen owned-selector regression cases
+        run: |
+          npm run test:focused -- tests/boundary/filesystem/reverseToolsMutationConfig.test.ts \
+            2>&1 | tee "$RUNNER_TEMP/reverse-selector-evidence/regression.log"
+          python3 - <<'PY'
+          import os, re
+          from pathlib import Path
+          log = (Path(os.environ["RUNNER_TEMP"]) / "reverse-selector-evidence/regression.log").read_text()
+          log = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", log)
+          summary = re.search(r"^\s*Tests\s+(.+)$", log, re.MULTILINE)
+          assert summary is not None, "No test-result summary"
+          assert re.fullmatch(r"14 passed\s+\(14\)\s*", summary.group(1)), summary.group(1)
+          PY
+      - name: Prepare the actual merged source for canonical Stryker preflights
+        if: matrix.label == 'actual-merge'
+        run: |
+          npm run test:prepare
+          node scripts/prepare-reverse-tools-mutation.mjs
+      - name: Preflight the main reverse tools configuration
+        if: matrix.label == 'actual-merge'
+        run: |
+          npx --no-install stryker run stryker.config.mjs --dryRunOnly \
+            2>&1 | tee "$RUNNER_TEMP/reverse-selector-evidence/stryker-main-dry-run.log"
+      - name: Preflight the exhaustive semantics configuration
+        if: matrix.label == 'actual-merge'
+        run: |
+          npx --no-install stryker run stryker.semantics.config.mjs --dryRunOnly \
+            2>&1 | tee "$RUNNER_TEMP/reverse-selector-evidence/stryker-semantics-dry-run.log"
+      - name: Check types and lint
+        run: npm run check:fast
+      - name: Check touched-file formatting
+        run: node node_modules/oxfmt/bin/oxfmt --check scripts/lib/reverse-tools-mutation-targets.mjs tests/boundary/filesystem/reverseToolsMutationConfig.test.ts
+      - name: Verify exact tracked-source restoration
+        if: always()
+        run: |
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          git diff --exit-code "$CANDIDATE_SHA"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: reverse-selector-${{ matrix.label }}
+          path: ${{ runner.temp }}/reverse-selector-evidence/
+          if-no-files-found: error
+          retention-days: 7
