@@ -128,7 +128,7 @@ jobs:
               assert active[0]["status"] == expected_status, active
               assert result.returncode == (1 if expected_status == "failed" else 0), result.returncode
               if expected_status == "failed":
-                  message = "\n".join(active[0].get("failureMessages", []))
+                  message = "\n".join(active[0].get("failureMessages", [])) + "\n" + result.stdout
                   assert "AssertionError" in message and "recovery" in message, message
           try:
               owner.write_text(source.replace(anchor, "session.close({ progress })", 1))
