@@ -1,0 +1,67 @@
+{
+  "schema": 1,
+  "task": "open-pr-audit REA continuation",
+  "upstream": "morluto/rea",
+  "account": "Afloat16",
+  "baseline": "d5a942177fad030d3caf0f8d39856c116e3e5cda",
+  "baseline_tree": "277bf1ce921b9af5c986ea7aa0c9c07f8ecfd1a6",
+  "qualification": {
+    "stars": 464053,
+    "own_open": 6,
+    "own_merged": 6,
+    "own_closed_unmerged": 2,
+    "first_place": false,
+    "numeric_open_cap_found": false
+  },
+  "published": [],
+  "prepared": [],
+  "research_only": [],
+  "author_readiness": {
+    "draft_allowed": true,
+    "source": "https://github.com/morluto/rea/blob/d5a942177fad030d3caf0f8d39856c116e3e5cda/CONTRIBUTING.md#pull-request-ownership-and-readiness",
+    "human_owner": "Afloat16",
+    "checkboxes": [
+      "I reviewed the final diff and relevant existing code, understand the change and its edge cases, and take responsibility for the complete PR, including AI-assisted work.",
+      "I checked the evidence above, confirmed it supports the current change, and recorded meaningful validation gaps.",
+      "I declare this PR ready for initial maintainer review."
+    ],
+    "status": "Leave human declarations for owner; verified code may be submitted as Draft with fields unchecked. No assertion contradicting user's statement that existing contributions were reviewed."
+  },
+  "history": {
+    "upstream_all_pr_fetch": {
+      "session": 49990,
+      "completion_exit_code": 0,
+      "logs_local": "audit/rea-upstream-pr-fetch.log",
+      "ref_count_not_read_before_environment_failure": true
+    },
+    "fork_branch_inventory_count": 38,
+    "fork_tag_refs": [],
+    "fork_intermediate_history_audit": "pending",
+    "positive_novelty_claim": false
+  },
+  "environment": {
+    "node": "24.22.1",
+    "npm": "11.16.0 private toolchain",
+    "npm_ci": {
+      "session": 78352,
+      "completion_exit_code": 0,
+      "raw_log_local": "audit/rea-npm-ci.log"
+    },
+    "git_status_read": {
+      "session": 54471,
+      "outcome": "unknown after exec-server transport disconnect"
+    },
+    "execution": "unavailable",
+    "no_rejected_operations_retried": true
+  },
+  "excluded": [
+    {
+      "key": "zip64-extensible-end-record",
+      "reason": "Existing equivalent upstream proposals #9173 and #10618 handle the exact fixed-56-byte record assumption.",
+      "status": "excluded_historical_equivalent",
+      "native_reproduction": false,
+      "production_change": false
+    }
+  ],
+  "findings_limit": "No new candidate currently verified. Source-derived reading is not runtime evidence."
+}
