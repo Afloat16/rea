@@ -44,7 +44,7 @@ const run = (label, args, expectedExit = 0) => {
 };
 const targeted = async (label, expectedExit, expectedStatus) => {
   const report = reportDirectory + "/" + label + ".json";
-  run(label, [
+  const result = run(label, [
     "node_modules/vitest/vitest.mjs",
     "run",
     "--coverage.enabled=false",
@@ -63,7 +63,10 @@ const targeted = async (label, expectedExit, expectedStatus) => {
   assert.equal(data.numFailedTests, expectedExit === 0 ? 0 : 1);
   assert.equal(data.numPassedTests, expectedExit === 0 ? 1 : 0);
   receipt.checks.at(-1).selected = selected;
-  return selected[0];
+  return {
+    ...selected[0],
+    diagnosticOutput: (result.stdout + result.stderr).replace(/\u001b\[[0-9;]*m/g, ""),
+  };
 };
 try {
   const { parseMcpInputSchemaProfile } = await import("../dist/config/mcpInputSchemaProfile.js");
@@ -75,8 +78,8 @@ try {
 
   await writeFile(testPath, baselineTest);
   const oldFailure = await targeted("original-fixture", 1, "failed");
-  assert.match(oldFailure.failureMessages.join("\n"), /configured/);
-  assert.match(oldFailure.failureMessages.join("\n"), /failed/);
+  assert.match(oldFailure.diagnosticOutput, /"status": "configured"/);
+  assert.match(oldFailure.diagnosticOutput, /"status": "failed"/);
 
   await writeFile(testPath, fixedTest);
   run("corrected-family", [
@@ -103,7 +106,7 @@ try {
   ].join("\n");
   await writeFile(sourcePath, cleanSource.replace(anchor, mutation));
   const mutationFailure = await targeted("duplicate-key-mutation", 1, "failed");
-  assert.match(mutationFailure.failureMessages.join("\n"), /REA_MCP_INPUT_SCHEMA_PROFILE/);
+  assert.match(mutationFailure.diagnosticOutput, /REA_MCP_INPUT_SCHEMA_PROFILE/);
 
   await writeFile(sourcePath, cleanSource);
   await targeted("restored-candidate", 0, "passed");
