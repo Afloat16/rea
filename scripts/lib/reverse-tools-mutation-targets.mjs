@@ -55,16 +55,30 @@ const isCommandHandler = (node, command) => {
     property.name.text !== "run"
   )
     return false;
-  const call = property.parent.parent;
+  const definition = property.parent;
+  if (!ts.isObjectLiteralExpression(definition)) return false;
+  const call = definition.parent;
+  if (!ts.isCallExpression(call)) return false;
+  let selected;
   if (
-    !ts.isCallExpression(call) ||
-    !ts.isPropertyAccessExpression(call.expression) ||
-    !ts.isIdentifier(call.expression.expression) ||
-    call.expression.expression.text !== "cli" ||
-    call.expression.name.text !== "command"
-  )
+    ts.isPropertyAccessExpression(call.expression) &&
+    ts.isIdentifier(call.expression.expression) &&
+    call.expression.expression.text === "cli" &&
+    call.expression.name.text === "command" &&
+    call.arguments[1] === definition
+  ) {
+    selected = call.arguments[0];
+  } else if (
+    ts.isIdentifier(call.expression) &&
+    call.expression.text === "registerCliCommand" &&
+    call.arguments[2] === definition &&
+    ts.isIdentifier(call.arguments[0]) &&
+    call.arguments[0].text === "cli"
+  ) {
+    selected = call.arguments[1];
+  } else {
     return false;
-  const selected = call.arguments[0];
+  }
   return (
     selected !== undefined &&
     ts.isPropertyAccessExpression(selected) &&
