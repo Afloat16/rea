@@ -619,7 +619,7 @@ describe("response-budget recovery routes", () => {
       "get_evidence_bundle",
       { kind: "evidence-bundle-summary" },
       {},
-      "export_evidence_bundle",
+      "get_evidence_bundle",
     ],
     [
       "bundle records",
