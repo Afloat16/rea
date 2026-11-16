@@ -1,0 +1,86 @@
+name: Validate REA canary controller imports
+
+on:
+  push:
+    branches:
+      - validation/rea-canary-imports-20261116
+
+permissions:
+  contents: read
+
+jobs:
+  focused:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      HUSKY: "0"
+      TURBO_TELEMETRY_DISABLED: "1"
+      TURBO_CACHE: "local:rw"
+      NO_COLOR: "1"
+      SOURCE_SHA: "47c57ab76d79ed27ee819c17fa59becc3432b1e4"
+      BASE_SHA: "9ecfb109e8c40ac64ca637b381ba25eec7d08ec9"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify exact candidate and isolated validation workflow
+        run: |
+          test "$(git rev-parse HEAD^)" = "$SOURCE_SHA"
+          test "$(git diff --name-only "$SOURCE_SHA" HEAD)" = ".github/workflows/validate-canary-imports.yml"
+          test "$(git diff --name-only "$BASE_SHA" "$SOURCE_SHA")" = "tests/boundary/process/releaseArtifactCanary.test.ts"
+          git diff --check "$BASE_SHA" "$SOURCE_SHA"
+          git show -s --format='%H %T %P' "$SOURCE_SHA"
+          git checkout --detach "$SOURCE_SHA"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version-file: .nvmrc
+      - name: Use the repository package manager
+        run: npm install --global npm@11.16.0
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Reproduce both baseline boundary failures and capture the replay card
+        run: |
+          git show "$BASE_SHA:tests/boundary/process/releaseArtifactCanary.test.ts" > tests/boundary/process/releaseArtifactCanary.test.ts
+          node --input-type=module <<'NODE'
+          import { readFileSync, writeFileSync } from 'node:fs';
+          const path = 'tests/boundary/mcp/environmentServeMcp.test.ts';
+          const source = readFileSync(path, 'utf8');
+          const marker = 'const text = await card.text();';
+          if (source.split(marker).length !== 2) throw new Error('Card capture point changed');
+          writeFileSync(path, source.replace(marker, marker + '\n      console.log("REPLAY_CARD_JSON=" + text);'));
+          NODE
+          trap 'git checkout -- tests/boundary/process/releaseArtifactCanary.test.ts tests/boundary/mcp/environmentServeMcp.test.ts' EXIT
+          if npm run test:focused -- tests/boundary/process/releaseArtifactCanary.test.ts tests/boundary/mcp/environmentServeMcp.test.ts > "$RUNNER_TEMP/boundary-baseline.log" 2>&1; then
+            cat "$RUNNER_TEMP/boundary-baseline.log"
+            exit 1
+          fi
+          cat "$RUNNER_TEMP/boundary-baseline.log"
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          import { createHash } from 'node:crypto';
+          const log = readFileSync(process.env.RUNNER_TEMP + '/boundary-baseline.log', 'utf8').replace(/\x1b\[[0-9;]*m/g, '');
+          for (const pattern of [/Tests\s+2 failed\b/, /ERR_PACKAGE_IMPORT_NOT_DEFINED/, /#dist\/domain\/evidenceBundle\.js/, /c303f523221a59d0cd8396468fb13e91dd2aec5dc4cb645e633919e499cb3d00/]) {
+            if (!pattern.test(log)) throw new Error('Expected boundary failure absent: ' + pattern);
+          }
+          const line = log.split('\n').find((line) => line.includes('REPLAY_CARD_JSON='));
+          if (line === undefined) throw new Error('Missing served card');
+          const card = line.slice(line.indexOf('REPLAY_CARD_JSON=') + 'REPLAY_CARD_JSON='.length);
+          JSON.parse(card);
+          if (Buffer.byteLength(card) !== 14421 || createHash('sha256').update(card).digest('hex') !== 'c303f523221a59d0cd8396468fb13e91dd2aec5dc4cb645e633919e499cb3d00') throw new Error('Unexpected card identity');
+          NODE
+      - name: Verify repaired canary and neighboring runtime controllers
+        run: >-
+          npm run test:focused --
+          tests/boundary/process/releaseArtifactCanary.test.ts
+          tests/boundary/process/runtimeBundle.test.ts
+          tests/boundary/process/publishedPackageNpmSelection.test.ts
+      - name: Check types and lint
+        run: npm run check:fast
+      - name: Check touched test formatting
+        run: node node_modules/oxfmt/bin/oxfmt --check tests/boundary/process/releaseArtifactCanary.test.ts
+      - name: Verify candidate source remains unchanged
+        if: always()
+        run: |
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          git diff --exit-code "$SOURCE_SHA"
