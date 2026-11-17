@@ -1,0 +1,281 @@
+{
+  "schema": 1,
+  "baseline": "d5a942177fad030d3caf0f8d39856c116e3e5cda",
+  "run": 44032525389,
+  "run_url": "https://github.com/Afloat16/rea/actions/runs/44032525389",
+  "head": "ab45dc35c753145493033faf6411a74e7b62438a",
+  "job": 133867593018,
+  "conclusion": "success",
+  "tests": {
+    "before_source": 24,
+    "after_source": 24,
+    "before_cli_mcp": 7,
+    "after_cli_mcp": 7,
+    "required_check": "exit0; typed lint reports existing advisory warnings",
+    "diff": "production payload 2 files only"
+  },
+  "measurements": [
+    {
+      "scenario": "empty",
+      "mode": "decoder",
+      "records": 6,
+      "outputHashUnique": [
+        "063dec529d4b166810d3f5e8b119941a2da0faef4bfc36db7840c768d003aba8"
+      ],
+      "outputBytes": [
+        379
+      ],
+      "before": {
+        "parse_elapsed_ms": 0.8224440000000186,
+        "elapsed_ms": 0.9193089999999984,
+        "parse_peak_rss_kib": 123532,
+        "max_rss_kib": 123532
+      },
+      "after": {
+        "parse_elapsed_ms": 0.8803359999999998,
+        "elapsed_ms": 1.0099579999999833,
+        "parse_peak_rss_kib": 123440,
+        "max_rss_kib": 123440
+      }
+    },
+    {
+      "scenario": "empty",
+      "mode": "reader",
+      "records": 6,
+      "outputHashUnique": [
+        "80b95c7302f41cc989e20cdb830958aba52258e6b2f9bd185b30738f541b7f7c"
+      ],
+      "outputBytes": [
+        501
+      ],
+      "before": {
+        "parse_elapsed_ms": 4.3281729999999925,
+        "elapsed_ms": 4.422446999999977,
+        "parse_peak_rss_kib": 123168,
+        "max_rss_kib": 123168
+      },
+      "after": {
+        "parse_elapsed_ms": 4.332183999999984,
+        "elapsed_ms": 4.434370999999999,
+        "parse_peak_rss_kib": 122360,
+        "max_rss_kib": 122360
+      }
+    },
+    {
+      "scenario": "small",
+      "mode": "decoder",
+      "records": 6,
+      "outputHashUnique": [
+        "62bd10420e773932a7e148dc20b3e9c71622df8309d0b72b00922ff0080d82a7"
+      ],
+      "outputBytes": [
+        2173
+      ],
+      "before": {
+        "parse_elapsed_ms": 2.049636000000021,
+        "elapsed_ms": 2.1577250000000276,
+        "parse_peak_rss_kib": 121528,
+        "max_rss_kib": 121528
+      },
+      "after": {
+        "parse_elapsed_ms": 2.011903000000018,
+        "elapsed_ms": 2.1446040000000153,
+        "parse_peak_rss_kib": 122204,
+        "max_rss_kib": 122204
+      }
+    },
+    {
+      "scenario": "small",
+      "mode": "reader",
+      "records": 6,
+      "outputHashUnique": [
+        "31ed1faa22cc821089eab848a96d6ead0aeb0146252b346138a30a807201fe0b"
+      ],
+      "outputBytes": [
+        4631
+      ],
+      "before": {
+        "parse_elapsed_ms": 7.753826000000004,
+        "elapsed_ms": 7.862355999999977,
+        "parse_peak_rss_kib": 123348,
+        "max_rss_kib": 123348
+      },
+      "after": {
+        "parse_elapsed_ms": 7.8627140000000395,
+        "elapsed_ms": 7.971144000000038,
+        "parse_peak_rss_kib": 122272,
+        "max_rss_kib": 122272
+      }
+    },
+    {
+      "scenario": "separate",
+      "mode": "decoder",
+      "records": 6,
+      "outputHashUnique": [
+        "d4bd8393f2d27087d21f2a1d86065c890dd455c954a1dcbafb026c5058c8e42b"
+      ],
+      "outputBytes": [
+        19177
+      ],
+      "before": {
+        "parse_elapsed_ms": 2.40360400000003,
+        "elapsed_ms": 2.538566000000003,
+        "parse_peak_rss_kib": 123280,
+        "max_rss_kib": 123280
+      },
+      "after": {
+        "parse_elapsed_ms": 2.5084620000000086,
+        "elapsed_ms": 2.6420200000000023,
+        "parse_peak_rss_kib": 121816,
+        "max_rss_kib": 121816
+      }
+    },
+    {
+      "scenario": "separate",
+      "mode": "reader",
+      "records": 6,
+      "outputHashUnique": [
+        "05ebdd3c13a45e311d7cfbe6f6d8204562eb413d07cf5fc776180f36a9f169c3"
+      ],
+      "outputBytes": [
+        56821
+      ],
+      "before": {
+        "parse_elapsed_ms": 17.798549999999977,
+        "elapsed_ms": 18.016772000000003,
+        "parse_peak_rss_kib": 122536,
+        "max_rss_kib": 122536
+      },
+      "after": {
+        "parse_elapsed_ms": 17.377863999999988,
+        "elapsed_ms": 17.63789700000001,
+        "parse_peak_rss_kib": 122232,
+        "max_rss_kib": 122232
+      }
+    },
+    {
+      "scenario": "dense",
+      "mode": "decoder",
+      "records": 6,
+      "outputHashUnique": [
+        "92cb467e5b2fe198d6129956c868633dc5cc96c31b3e3f2adc327ff69536894b"
+      ],
+      "outputBytes": [
+        10082517
+      ],
+      "before": {
+        "parse_elapsed_ms": 152.411859,
+        "elapsed_ms": 180.48362200000003,
+        "parse_peak_rss_kib": 318060,
+        "max_rss_kib": 344904
+      },
+      "after": {
+        "parse_elapsed_ms": 83.575356,
+        "elapsed_ms": 113.712467,
+        "parse_peak_rss_kib": 206176,
+        "max_rss_kib": 231876
+      }
+    },
+    {
+      "scenario": "dense",
+      "mode": "reader",
+      "records": 6,
+      "outputHashUnique": [
+        "657399a71806f05af25b05a56417b3ede142159225eb2ab8538f9ea6857f3240"
+      ],
+      "outputBytes": [
+        29515333
+      ],
+      "before": {
+        "parse_elapsed_ms": 316.2491350000001,
+        "elapsed_ms": 389.543351,
+        "parse_peak_rss_kib": 333532,
+        "max_rss_kib": 397800
+      },
+      "after": {
+        "parse_elapsed_ms": 260.53456700000004,
+        "elapsed_ms": 338.098478,
+        "parse_peak_rss_kib": 292812,
+        "max_rss_kib": 360460
+      }
+    }
+  ],
+  "history": {
+    "schema": 1,
+    "baseline": "d5a942177fad030d3caf0f8d39856c116e3e5cda",
+    "executed_checkout": "ab45dc35c753145493033faf6411a74e7b62438a",
+    "ref_count": 7585,
+    "commit_count": 38065,
+    "candidate_paths": [
+      "src/artifacts/DfuSeArtifactReader.test.ts",
+      "src/artifacts/DfuSeArtifactReader.ts",
+      "src/domain/firmware/dfuse.fixture.ts",
+      "src/domain/firmware/dfuse.test.ts",
+      "src/domain/firmware/dfuse.ts"
+    ],
+    "related_blob_count": 19,
+    "overlap_variant_count": 11,
+    "complete_git_fetch": true,
+    "history_scope": "All reachable upstream heads/tags/PR heads and fork heads/tags; intermediate/reverted commits and merge parents; rename closure. Manual semantic review still required."
+  },
+  "history_manual_review": {
+    "sources": [
+      {
+        "blob": "3a0f01dfb3b6e0d2b4787ed632ec97ff45eab436",
+        "paths": [
+          "src/domain/firmware/dfuse.ts"
+        ],
+        "overlap_owner": "const overlappingElements = (elements: readonly DfuSeElement[]): string[] => {\n  const ordered = [...elements].sort(\n    (left, right) =>\n      left.alternateSetting - right.alternateSetting ||\n      left.address - right.address,\n  );\n  const overlaps: string[] = [];\n  let reach: DfuSeElement | undefined;\n  for (const element of ordered) {\n    if (\n      reach !== undefined &&\n      reach.alternateSetting === element.alternateSetting &&\n      element.address < reach.address + reach.bytes.length\n    )\n      overlaps.push(\n        `${elementText(element)} overlaps ${elementText(reach)} in alternate setting ${String(element.alternateSetting)}`,\n      );\n    if (\n      reach === undefined ||\n      reach.alternateSetting !== element.alternateSetting ||\n      element.address + element.bytes.length >\n        reach.address + reach.bytes.length\n    )\n      reach = element;\n  }\n  return overlaps;\n};\n",
+        "related_lines": "const NAMED_ELEMENTS = 4;\n/** At most NAMED_ELEMENTS descriptions, then a count of the rest of `total`. */\nconst named = (items: readonly string[], total = items.length): string =>\n  `${items.slice(0, NAMED_ELEMENTS).join(\"; \")}${total > NAMED_ELEMENTS ? `; and ${String(total - NAMED_ELEMENTS)} more` : \"\"}`;\n  const overlaps = overlappingElements(elements);\n      overlapping_element_count: overlaps.length,\n      ...(overlaps.length === 0\n            `${String(overlaps.length)} DfuSe element(s) overlap an earlier element of the same alternate setting; each stays a separate entry and no bytes were merged: ${named(overlaps)}.`,\n   * The first NAMED_ELEMENTS empty elements and element-less targets, which no\n    if (this.unlisted.length < NAMED_ELEMENTS) this.unlisted.push(describe());\n/** Elements that overlap an earlier one in address order within one alternate setting. */\nconst overlappingElements = (elements: readonly DfuSeElement[]): string[] => {\n  const overlaps: string[] = [];\n      overlaps.push(\n        `${elementText(element)} overlaps ${elementText(reach)} in alternate setting ${String(element.alternateSetting)}`,\n  return overlaps;"
+      },
+      {
+        "blob": "85915ecba967e9976904454f2efe0aaa49f3ec03",
+        "paths": [
+          "src/domain/firmware/dfuse.ts"
+        ],
+        "overlap_owner": "const overlappingElements = (elements: readonly DfuSeElement[]): string[] => {\n  const ordered = [...elements].sort(\n    (left, right) =>\n      left.alternateSetting - right.alternateSetting ||\n      left.address - right.address,\n  );\n  const overlaps: string[] = [];\n  let reach: DfuSeElement | undefined;\n  for (const element of ordered) {\n    if (\n      reach !== undefined &&\n      reach.alternateSetting === element.alternateSetting &&\n      element.address < reach.address + reach.bytes.length\n    )\n      overlaps.push(\n        `${elementText(element)} overlaps ${elementText(reach)} in alternate setting ${String(element.alternateSetting)}`,\n      );\n    if (\n      reach === undefined ||\n      reach.alternateSetting !== element.alternateSetting ||\n      element.address + element.bytes.length >\n        reach.address + reach.bytes.length\n    )\n      reach = element;\n  }\n  return overlaps;\n};\n",
+        "related_lines": "const NAMED_ELEMENTS = 4;\n/** At most NAMED_ELEMENTS descriptions, then a count of the rest. */\nconst named = (items: readonly string[]): string =>\n  `${items.slice(0, NAMED_ELEMENTS).join(\"; \")}${items.length > NAMED_ELEMENTS ? `; and ${String(items.length - NAMED_ELEMENTS)} more` : \"\"}`;\n  const overlaps = overlappingElements(elements);\n      overlapping_element_count: overlaps.length,\n      ...(overlaps.length === 0\n            `${String(overlaps.length)} DfuSe element(s) overlap an earlier element of the same alternate setting; each stays a separate entry and no bytes were merged: ${named(overlaps)}.`,\n/** Elements that overlap an earlier one in address order within one alternate setting. */\nconst overlappingElements = (elements: readonly DfuSeElement[]): string[] => {\n  const overlaps: string[] = [];\n      overlaps.push(\n        `${elementText(element)} overlaps ${elementText(reach)} in alternate setting ${String(element.alternateSetting)}`,\n  return overlaps;"
+      },
+      {
+        "blob": "dd68f4f819da4ffe756ccbf429b3386246b6f757",
+        "paths": [
+          "src/domain/firmware/dfuse.ts"
+        ],
+        "overlap_owner": "const overlappingElements = (elements: readonly DfuSeElement[]): string[] => {\n  const ordered = [...elements].sort(\n    (left, right) =>\n      left.alternateSetting - right.alternateSetting ||\n      left.address - right.address,\n  );\n  const overlaps: string[] = [];\n  let reach: DfuSeElement | undefined;\n  for (const element of ordered) {\n    if (\n      reach !== undefined &&\n      reach.alternateSetting === element.alternateSetting &&\n      element.address < reach.address + reach.bytes.length\n    )\n      overlaps.push(\n        `${elementText(element)} overlaps ${elementText(reach)} in alternate setting ${String(element.alternateSetting)}`,\n      );\n    if (\n      reach === undefined ||\n      reach.alternateSetting !== element.alternateSetting ||\n      element.address + element.bytes.length >\n        reach.address + reach.bytes.length\n    )\n      reach = element;\n  }\n  return overlaps;\n};\n",
+        "related_lines": "const NAMED_ELEMENTS = 4;\n/** At most NAMED_ELEMENTS descriptions, then a count of the rest of `total`. */\nconst named = (items: readonly string[], total = items.length): string =>\n    boundedList(items, NAMED_ELEMENTS, total - items.length),\n  const overlaps = overlappingElements(elements);\n      overlapping_element_count: overlaps.length,\n      ...(overlaps.length === 0\n            `${String(overlaps.length)} DfuSe element(s) overlap an element earlier in address order within the same alternate setting; each stays a separate entry and no bytes were merged: ${named(overlaps)}.`,\n   * The first NAMED_ELEMENTS empty elements and element-less targets, which no\n    if (this.unlisted.length < NAMED_ELEMENTS) this.unlisted.push(describe());\n/** Elements that overlap an earlier one in address order within one alternate setting. */\nconst overlappingElements = (elements: readonly DfuSeElement[]): string[] => {\n  const overlaps: string[] = [];\n      overlaps.push(\n        `${elementText(element)} overlaps ${elementText(reach)} in alternate setting ${String(element.alternateSetting)}`,\n  return overlaps;"
+      },
+      {
+        "blob": "df9e8d38170dd8508138ca369445c6b5ba517001",
+        "paths": [
+          "src/domain/firmware/dfuse.ts"
+        ],
+        "overlap_owner": "const overlappingElements = (elements: readonly DfuSeElement[]): string[] => {\n  const ordered = [...elements].sort(\n    (left, right) =>\n      left.alternateSetting - right.alternateSetting ||\n      left.address - right.address,\n  );\n  const overlaps: string[] = [];\n  let reach: DfuSeElement | undefined;\n  for (const element of ordered) {\n    if (\n      reach !== undefined &&\n      reach.alternateSetting === element.alternateSetting &&\n      element.address < reach.address + reach.bytes.length\n    )\n      overlaps.push(\n        `${elementText(element)} overlaps ${elementText(reach)} in alternate setting ${String(element.alternateSetting)}`,\n      );\n    if (\n      reach === undefined ||\n      reach.alternateSetting !== element.alternateSetting ||\n      element.address + element.bytes.length >\n        reach.address + reach.bytes.length\n    )\n      reach = element;\n  }\n  return overlaps;\n};\n",
+        "related_lines": "const NAMED_ELEMENTS = 4;\n/** At most NAMED_ELEMENTS descriptions, then a count of the rest of `total`. */\nconst named = (items: readonly string[], total = items.length): string =>\n  `${items.slice(0, NAMED_ELEMENTS).join(\"; \")}${total > NAMED_ELEMENTS ? `; and ${String(total - NAMED_ELEMENTS)} more` : \"\"}`;\n  const overlaps = overlappingElements(elements);\n      overlapping_element_count: overlaps.length,\n      ...(overlaps.length === 0\n            `${String(overlaps.length)} DfuSe element(s) overlap an element earlier in address order within the same alternate setting; each stays a separate entry and no bytes were merged: ${named(overlaps)}.`,\n   * The first NAMED_ELEMENTS empty elements and element-less targets, which no\n    if (this.unlisted.length < NAMED_ELEMENTS) this.unlisted.push(describe());\n/** Elements that overlap an earlier one in address order within one alternate setting. */\nconst overlappingElements = (elements: readonly DfuSeElement[]): string[] => {\n  const overlaps: string[] = [];\n      overlaps.push(\n        `${elementText(element)} overlaps ${elementText(reach)} in alternate setting ${String(element.alternateSetting)}`,\n  return overlaps;"
+      },
+      {
+        "blob": "e98dee439be9abf48b583d80ec73cc38c4a32af9",
+        "paths": [
+          "src/domain/firmware/dfuse.ts"
+        ],
+        "overlap_owner": "const overlappingElements = (elements: readonly DfuSeElement[]): string[] => {\n  const ordered = [...elements].sort(\n    (left, right) =>\n      left.alternateSetting - right.alternateSetting ||\n      left.address - right.address,\n  );\n  const overlaps: string[] = [];\n  let reach: DfuSeElement | undefined;\n  for (const element of ordered) {\n    if (\n      reach !== undefined &&\n      reach.alternateSetting === element.alternateSetting &&\n      element.address < reach.address + reach.bytes.length\n    )\n      overlaps.push(\n        `${elementText(element)} overlaps ${elementText(reach)} in alternate setting ${String(element.alternateSetting)}`,\n      );\n    if (\n      reach === undefined ||\n      reach.alternateSetting !== element.alternateSetting ||\n      element.address + element.bytes.length >\n        reach.address + reach.bytes.length\n    )\n      reach = element;\n  }\n  return overlaps;\n};\n",
+        "related_lines": "/** Overlaps named in one limitation before the rest are counted. */\nconst NAMED_OVERLAPS = 4;\n  const overlaps = overlappingElements(elements);\n      overlapping_element_count: overlaps.length,\n      overlaps.length === 0\n            `${String(overlaps.length)} DfuSe element(s) overlap an earlier element of the same alternate setting; each stays a separate entry and no bytes were merged: ${overlaps.slice(0, NAMED_OVERLAPS).join(\"; \")}${overlaps.length > NAMED_OVERLAPS ? `; and ${String(overlaps.length - NAMED_OVERLAPS)} more` : \"\"}.`,\n/** Elements that overlap an earlier one in address order within one alternate setting. */\nconst overlappingElements = (elements: readonly DfuSeElement[]): string[] => {\n  const overlaps: string[] = [];\n      overlaps.push(\n        `${elementText(element)} overlaps ${elementText(reach)} in alternate setting ${String(element.alternateSetting)}`,\n  return overlaps;"
+      },
+      {
+        "blob": "f35d55a5bda0cf71638afb4777db58afc84afeef",
+        "paths": [
+          "src/domain/firmware/dfuse.ts"
+        ],
+        "overlap_owner": "const overlappingElements = (elements: readonly DfuSeElement[]): string[] => {\n  const ordered = [...elements].sort(\n    (left, right) =>\n      left.alternateSetting - right.alternateSetting ||\n      left.address - right.address,\n  );\n  const overlaps: string[] = [];\n  let reach: DfuSeElement | undefined;\n  for (const element of ordered) {\n    if (\n      reach !== undefined &&\n      reach.alternateSetting === element.alternateSetting &&\n      element.address < reach.address + reach.bytes.length\n    )\n      overlaps.push(\n        `${elementText(element)} overlaps ${elementText(reach)} in alternate setting ${String(element.alternateSetting)}`,\n      );\n    if (\n      reach === undefined ||\n      reach.alternateSetting !== element.alternateSetting ||\n      element.address + element.bytes.length >\n        reach.address + reach.bytes.length\n    )\n      reach = element;\n  }\n  return overlaps;\n};\n",
+        "related_lines": "/** Overlaps named in one limitation before the rest are counted. */\nconst NAMED_OVERLAPS = 4;\n  const overlaps = overlappingElements(elements);\n      overlapping_element_count: overlaps.length,\n      overlaps.length === 0\n            `${String(overlaps.length)} DfuSe element(s) overlap an earlier element of the same alternate setting; each stays a separate entry and no bytes were merged: ${overlaps.slice(0, NAMED_OVERLAPS).join(\"; \")}${overlaps.length > NAMED_OVERLAPS ? `; and ${String(overlaps.length - NAMED_OVERLAPS)} more` : \"\"}.`,\n/** Elements that overlap an earlier one in address order within one alternate setting. */\nconst overlappingElements = (elements: readonly DfuSeElement[]): string[] => {\n  const overlaps: string[] = [];\n      overlaps.push(\n        `${elementText(element)} overlaps ${elementText(reach)} in alternate setting ${String(element.alternateSetting)}`,\n  return overlaps;"
+      }
+    ],
+    "owner_identical": true,
+    "equivalent_found": false
+  },
+  "artifact": {
+    "id": 14306421014,
+    "sha256": "c37014458169d388a0f6eef39854c83c10f55ba21938152111387bd87a9d8b4a",
+    "zip_bytes": 10080635
+  },
+  "note": "Archive audit bundle preserves exact full ref manifest, source variants, test/check logs and measurements; outputs were compared byte-for-byte on runner, not merely by digest. Empty/small cases do not show meaningful memory improvements."
+}

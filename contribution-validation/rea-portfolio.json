@@ -17,13 +17,14 @@
   "prepared": [],
   "research_only": [
     {
-      "key": "dfuse-overlap-retention",
-      "status": "validation_run_failed_pending_diagnostics",
+      "key": "firmware-bounded-diagnostics",
+      "status": "combined_native_validation_in_progress",
       "branch": "validation/rea-dfuse-overlap-20261116",
-      "head": "a6eb85e50061dbd03e267a28760b230bc2a6a815",
-      "tree": "a443b872934feff48a352540dd065c362ac87924",
-      "run": 44032348654,
-      "notes": "Production source remains unchanged on validation branch; isolated proposed source/test payload and normal read-only Git/native Actions. No runtime result or novelty established yet."
+      "head": "7bf54f334db2c13fbabf195d9ad541dd100a37c5",
+      "tree": "0b04ae790018ea0363d7b10d429112fb2a6a626b",
+      "scope": "One producer-level diagnostic string allocation improvement covering DfuSe overlap and UF2 numbering reports; all facts/payload retained.",
+      "production_pr": null,
+      "notes": "DfuSe full native/public validation success; UF2 local native evidence success; combined UF2 full history/public reader and required check pending."
     }
   ],
   "author_readiness": {
@@ -38,16 +39,38 @@
     "status": "Leave human declarations for owner; verified code may be submitted as Draft with fields unchecked. No assertion contradicting user's statement that existing contributions were reviewed."
   },
   "history": {
-    "upstream_all_pr_fetch": {
-      "session": 49990,
-      "completion_exit_code": 0,
-      "logs_local": "audit/rea-upstream-pr-fetch.log",
-      "ref_count_not_read_before_environment_failure": true
+    "upstream_and_fork_all_refs": {
+      "run": 44032525389,
+      "refs": 7585,
+      "upstream_refs": 7545,
+      "fork_refs": 40,
+      "commits": 38065,
+      "complete_git_fetch": true,
+      "source_paths": [
+        "src/artifacts/DfuSeArtifactReader.test.ts",
+        "src/artifacts/DfuSeArtifactReader.ts",
+        "src/domain/firmware/dfuse.fixture.ts",
+        "src/domain/firmware/dfuse.test.ts",
+        "src/domain/firmware/dfuse.ts"
+      ],
+      "intermediate_reverted_merge_rename_coverage": true,
+      "ref_manifest_sha256": "1fa39ee39fff95671349f2a5d22df0da560b9341c6e779af2c06d3f7b889cf4a"
     },
-    "fork_branch_inventory_count": 38,
-    "fork_tag_refs": [],
-    "fork_intermediate_history_audit": "pending",
-    "positive_novelty_claim": false
+    "dfuse_manual_semantic_review": {
+      "source_variant_count": 6,
+      "owner_identical": true,
+      "equivalent_historical_fix_found": false,
+      "source_blobs": [
+        "3a0f01dfb3b6e0d2b4787ed632ec97ff45eab436",
+        "85915ecba967e9976904454f2efe0aaa49f3ec03",
+        "dd68f4f819da4ffe756ccbf429b3386246b6f757",
+        "df9e8d38170dd8508138ca369445c6b5ba517001",
+        "e98dee439be9abf48b583d80ec73cc38c4a32af9",
+        "f35d55a5bda0cf71638afb4777db58afc84afeef"
+      ]
+    },
+    "uf2_manual_semantic_review": "pending current combined full-ref run",
+    "positive_novelty_claim": "DfuSe source complete; overall combined proposal awaits UF2"
   },
   "environment": {
     "node": "24.22.1",
@@ -74,6 +97,6 @@
       "production_change": false
     }
   ],
-  "findings_limit": "No new candidate currently verified. Source-derived reading is not runtime evidence.",
-  "updated_at": "2026-11-17T06:35:57.536Z"
+  "findings_limit": "DfuSe measurement completed through native decoder and public ArtifactReader; synthetic fixed-layout fixtures. No general CPU/token claim. No production branch/PR or new contribution counted.",
+  "updated_at": "2026-11-17T06:50:57.029Z"
 }
