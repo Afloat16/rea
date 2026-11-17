@@ -1,0 +1,52 @@
+name: Validate DfuSe overlap retention
+
+on:
+  push:
+    branches: [validation/rea-dfuse-overlap-20261116]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validate-dfuse-overlap-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  history-and-native:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    env:
+      HUSKY: "0"
+      REA_SOURCE_ROOT: ${{ runner.temp }}/rea-dfuse-source
+      REA_VALIDATION_OUTPUT: ${{ runner.temp }}/rea-dfuse-results
+      REA_NPM_CLI: ${{ runner.temp }}/rea-dfuse-toolchain/node_modules/npm/bin/npm-cli.js
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version-file: .nvmrc
+      - name: Audit all upstream and fork source histories
+        run: python3 contribution-validation/dfuse-overlap/history.py
+      - name: Prepare the isolated pinned source and toolchain
+        run: |
+          git worktree add --detach "$REA_SOURCE_ROOT" d5a942177fad030d3caf0f8d39856c116e3e5cda
+          npm install --prefix "$RUNNER_TEMP/rea-dfuse-toolchain" --no-audit --no-fund npm@11.16.0
+          echo "$RUNNER_TEMP/rea-dfuse-toolchain/node_modules/.bin" >> "$GITHUB_PATH"
+          node "$REA_NPM_CLI" --version
+      - name: Install locked source dependencies
+        working-directory: ${{ runner.temp }}/rea-dfuse-source
+        run: node "$REA_NPM_CLI" ci --no-audit --no-fund
+      - name: Compare native output and memory and run required verification
+        run: python3 contribution-validation/dfuse-overlap/measure.py
+      - name: Retain history, exact outputs and native logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: dfuse-overlap-validation
+          path: |
+            contribution-validation/dfuse-overlap/results/
+            ${{ runner.temp }}/rea-dfuse-results/
+          retention-days: 7
