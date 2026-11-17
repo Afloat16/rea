@@ -15,7 +15,17 @@
   },
   "published": [],
   "prepared": [],
-  "research_only": [],
+  "research_only": [
+    {
+      "key": "dfuse-overlap-retention",
+      "status": "validation_run_failed_pending_diagnostics",
+      "branch": "validation/rea-dfuse-overlap-20261116",
+      "head": "a6eb85e50061dbd03e267a28760b230bc2a6a815",
+      "tree": "a443b872934feff48a352540dd065c362ac87924",
+      "run": 44032348654,
+      "notes": "Production source remains unchanged on validation branch; isolated proposed source/test payload and normal read-only Git/native Actions. No runtime result or novelty established yet."
+    }
+  ],
   "author_readiness": {
     "draft_allowed": true,
     "source": "https://github.com/morluto/rea/blob/d5a942177fad030d3caf0f8d39856c116e3e5cda/CONTRIBUTING.md#pull-request-ownership-and-readiness",
@@ -51,8 +61,9 @@
       "session": 54471,
       "outcome": "unknown after exec-server transport disconnect"
     },
-    "execution": "unavailable",
-    "no_rejected_operations_retried": true
+    "execution": "restored on 2026-11-17; old scratch checkout/dependencies absent; 657731584 bytes free observed, no new large local install",
+    "no_rejected_operations_retried": true,
+    "previous_execution": "unavailable"
   },
   "excluded": [
     {
@@ -63,5 +74,6 @@
       "production_change": false
     }
   ],
-  "findings_limit": "No new candidate currently verified. Source-derived reading is not runtime evidence."
+  "findings_limit": "No new candidate currently verified. Source-derived reading is not runtime evidence.",
+  "updated_at": "2026-11-17T06:35:57.536Z"
 }
