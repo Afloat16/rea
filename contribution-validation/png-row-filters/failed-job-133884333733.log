@@ -1,0 +1,298 @@
+﻿2026-11-17T07:18:21.1265501Z Current runner version: '2.338.2'
+2026-11-17T07:18:21.1292433Z ##[group]Runner Image Provisioner
+2026-11-17T07:18:21.1293367Z Hosted Compute Agent
+2026-11-17T07:18:21.1294121Z Version: 20261103.629
+2026-11-17T07:18:21.1294827Z Commit: 15dbd9ccb5dbf34fae002b6ed1a2670f52df37bc
+2026-11-17T07:18:21.1295658Z Build Date: 2026-11-03T17:26:59Z
+2026-11-17T07:18:21.1296545Z Worker ID: {9df81aab-ad47-4c17-a791-19bdc9406ebf}
+2026-11-17T07:18:21.1297331Z Region: westcentralus
+2026-11-17T07:18:21.1298018Z Cloud: Azure
+2026-11-17T07:18:21.1299048Z ##[endgroup]
+2026-11-17T07:18:21.1300530Z ##[group]Operating System
+2026-11-17T07:18:21.1301325Z Ubuntu
+2026-11-17T07:18:21.1301919Z 24.04.5
+2026-11-17T07:18:21.1302532Z LTS
+2026-11-17T07:18:21.1303145Z ##[endgroup]
+2026-11-17T07:18:21.1303815Z ##[group]Runner Image
+2026-11-17T07:18:21.1304577Z Image: ubuntu-24.04
+2026-11-17T07:18:21.1305213Z Version: 20261111.370.1
+2026-11-17T07:18:21.1306620Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20261111.370/images/ubuntu/Ubuntu2404-Readme.md
+2026-11-17T07:18:21.1308534Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20261111.370
+2026-11-17T07:18:21.1309743Z ##[endgroup]
+2026-11-17T07:18:21.1310942Z ##[group]GITHUB_TOKEN Permissions
+2026-11-17T07:18:21.1313284Z Contents: read
+2026-11-17T07:18:21.1313996Z Metadata: read
+2026-11-17T07:18:21.1314686Z ##[endgroup]
+2026-11-17T07:18:21.1316889Z Secret source: Actions
+2026-11-17T07:18:21.1317995Z Cache mode: write
+2026-11-17T07:18:21.1319505Z Prepare workflow directory
+2026-11-17T07:18:21.1726160Z Prepare all required actions
+2026-11-17T07:18:21.1774053Z Getting action download info
+2026-11-17T07:18:21.5122121Z Download action repository 'actions/checkout@11d5960a326750d5838078e36cf38b85af677262' (SHA:11d5960a326750d5838078e36cf38b85af677262)
+2026-11-17T07:18:21.6089860Z Download action repository 'actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020' (SHA:49933ea5288caeca8642d1e84afbd3f7d6820020)
+2026-11-17T07:18:21.7025789Z Download action repository 'actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02' (SHA:ea165f8d65b6e75b540449e92b4886f43607fa02)
+2026-11-17T07:18:21.9206752Z Complete job name: native
+2026-11-17T07:18:22.0092495Z ##[group]Run actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+2026-11-17T07:18:22.0093554Z with:
+2026-11-17T07:18:22.0094006Z   fetch-depth: 0
+2026-11-17T07:18:22.0094547Z   persist-credentials: false
+2026-11-17T07:18:22.0095084Z   repository: Afloat16/rea
+2026-11-17T07:18:22.0099033Z   token: ***
+2026-11-17T07:18:22.0099502Z   ssh-strict: true
+2026-11-17T07:18:22.0099955Z   ssh-user: git
+2026-11-17T07:18:22.0100390Z   clean: true
+2026-11-17T07:18:22.0100842Z   sparse-checkout-cone-mode: true
+2026-11-17T07:18:22.0101383Z   fetch-tags: false
+2026-11-17T07:18:22.0101844Z   show-progress: true
+2026-11-17T07:18:22.0102294Z   lfs: false
+2026-11-17T07:18:22.0102720Z   submodules: false
+2026-11-17T07:18:22.0103181Z   set-safe-directory: true
+2026-11-17T07:18:22.0103703Z   allow-unsafe-pr-checkout: false
+2026-11-17T07:18:22.0104504Z env:
+2026-11-17T07:18:22.0104910Z   HUSKY: 0
+2026-11-17T07:18:22.0105328Z ##[endgroup]
+2026-11-17T07:18:22.2761512Z Syncing repository: Afloat16/rea
+2026-11-17T07:18:22.2764306Z ##[group]Getting Git version info
+2026-11-17T07:18:22.2765438Z Working directory is '/home/runner/work/rea/rea'
+2026-11-17T07:18:22.2766967Z [command]/usr/bin/git version
+2026-11-17T07:18:22.2832772Z git version 2.56.1
+2026-11-17T07:18:22.2855006Z ##[endgroup]
+2026-11-17T07:18:22.2872269Z Temporarily overriding HOME='/home/runner/work/_temp/3113c730-104f-4e9f-9e29-d2a6d19765be' before making global git config changes
+2026-11-17T07:18:22.2874658Z Adding repository directory to the temporary git global config as a safe directory
+2026-11-17T07:18:22.2879133Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/rea/rea
+2026-11-17T07:18:22.2937661Z Deleting the contents of '/home/runner/work/rea/rea'
+2026-11-17T07:18:22.2942440Z ##[group]Initializing the repository
+2026-11-17T07:18:22.2947371Z [command]/usr/bin/git init /home/runner/work/rea/rea
+2026-11-17T07:18:22.3029839Z hint: Using 'master' as the name for the initial branch. This default branch name
+2026-11-17T07:18:22.3031722Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+2026-11-17T07:18:22.3033397Z hint: to use in all of your new repositories, which will suppress this warning,
+2026-11-17T07:18:22.3034684Z hint: call:
+2026-11-17T07:18:22.3035460Z hint:
+2026-11-17T07:18:22.3036435Z hint: 	git config --global init.defaultBranch <name>
+2026-11-17T07:18:22.3037564Z hint:
+2026-11-17T07:18:22.3038787Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2026-11-17T07:18:22.3040419Z hint: 'development'. The just-created branch can be renamed via this command:
+2026-11-17T07:18:22.3042018Z hint:
+2026-11-17T07:18:22.3042825Z hint: 	git branch -m <name>
+2026-11-17T07:18:22.3043719Z hint:
+2026-11-17T07:18:22.3044851Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2026-11-17T07:18:22.3046546Z Initialized empty Git repository in /home/runner/work/rea/rea/.git/
+2026-11-17T07:18:22.3066910Z [command]/usr/bin/git remote add origin https://github.com/Afloat16/rea
+2026-11-17T07:18:22.3104207Z ##[endgroup]
+2026-11-17T07:18:22.3105381Z ##[group]Disabling automatic garbage collection
+2026-11-17T07:18:22.3109543Z [command]/usr/bin/git config --local gc.auto 0
+2026-11-17T07:18:22.3149031Z ##[endgroup]
+2026-11-17T07:18:22.3150244Z ##[group]Setting up auth
+2026-11-17T07:18:22.3156577Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-17T07:18:22.3198859Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-11-17T07:18:22.3628785Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-17T07:18:22.3680006Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-11-17T07:18:22.3963408Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-17T07:18:22.4016439Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-17T07:18:22.4301722Z [command]/usr/bin/git config --local http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2026-11-17T07:18:22.4354430Z ##[endgroup]
+2026-11-17T07:18:22.4355391Z ##[group]Fetching the repository
+2026-11-17T07:18:22.4367235Z [command]/usr/bin/git -c protocol.version=2 fetch --prune --no-recurse-submodules origin +refs/heads/*:refs/remotes/origin/* +refs/tags/*:refs/tags/*
+2026-11-17T07:18:32.5366535Z From https://github.com/Afloat16/rea
+2026-11-17T07:18:32.5368151Z  * [new branch]          feat/elf-sectionless-exports -> origin/feat/elf-sectionless-exports
+2026-11-17T07:18:32.5371001Z  * [new branch]          feat/evidence-summary-pagination -> origin/feat/evidence-summary-pagination
+2026-11-17T07:18:32.5372847Z  * [new branch]          feat/sqlite-format-metadata -> origin/feat/sqlite-format-metadata
+2026-11-17T07:18:32.5374505Z  * [new branch]          fix/bounded-file-read-cancellation -> origin/fix/bounded-file-read-cancellation
+2026-11-17T07:18:32.5376397Z  * [new branch]          fix/cdp-discovery-utf8 -> origin/fix/cdp-discovery-utf8
+2026-11-17T07:18:32.5378562Z  * [new branch]          fix/cli-token-window-integers -> origin/fix/cli-token-window-integers
+2026-11-17T07:18:32.5380897Z  * [new branch]          fix/config-printer-cli-validation -> origin/fix/config-printer-cli-validation
+2026-11-17T07:18:32.5383431Z  * [new branch]          fix/evidence-file-offset-order -> origin/fix/evidence-file-offset-order
+2026-11-17T07:18:32.5385576Z  * [new branch]          fix/html-external-script-kinds -> origin/fix/html-external-script-kinds
+2026-11-17T07:18:32.5388248Z  * [new branch]          fix/native-addon-extension-case -> origin/fix/native-addon-extension-case
+2026-11-17T07:18:32.5391171Z  * [new branch]          fix/native-export-parse-cancellation -> origin/fix/native-export-parse-cancellation
+2026-11-17T07:18:32.5394402Z  * [new branch]          fix/partial-evidence-errors -> origin/fix/partial-evidence-errors
+2026-11-17T07:18:32.5397328Z  * [new branch]          fix/qualified-websocket-endpoints -> origin/fix/qualified-websocket-endpoints
+2026-11-17T07:18:32.5400809Z  * [new branch]          fix/resume-buffered-ndjson-lines -> origin/fix/resume-buffered-ndjson-lines
+2026-11-17T07:18:32.5403681Z  * [new branch]          fix/rust-snapshot-ownership -> origin/fix/rust-snapshot-ownership
+2026-11-17T07:18:32.5406324Z  * [new branch]          fix/schema-reference-siblings -> origin/fix/schema-reference-siblings
+2026-11-17T07:18:32.5409153Z  * [new branch]          fix/setup-client-identity -> origin/fix/setup-client-identity
+2026-11-17T07:18:32.5411810Z  * [new branch]          fix/snapshot-read-cancellation -> origin/fix/snapshot-read-cancellation
+2026-11-17T07:18:32.5414599Z  * [new branch]          fix/updater-process-ownership -> origin/fix/updater-process-ownership
+2026-11-17T07:18:32.5417520Z  * [new branch]          fix/utf8-output-excerpt-boundaries -> origin/fix/utf8-output-excerpt-boundaries
+2026-11-17T07:18:32.5420761Z  * [new branch]          fix/website-release-link-audit -> origin/fix/website-release-link-audit
+2026-11-17T07:18:32.5423592Z  * [new branch]          fix/zip-complete-short-reads -> origin/fix/zip-complete-short-reads
+2026-11-17T07:18:32.5425856Z  * [new branch]          main                   -> origin/main
+2026-11-17T07:18:32.5428766Z  * [new branch]          perf/bounded-desktop-text-lines-20261112 -> origin/perf/bounded-desktop-text-lines-20261112
+2026-11-17T07:18:32.5433842Z  * [new branch]          perf/firmware-bounded-diagnostics-20261117 -> origin/perf/firmware-bounded-diagnostics-20261117
+2026-11-17T07:18:32.5439145Z  * [new branch]          validate/pr9083-windows-kimi-20261116 -> origin/validate/pr9083-windows-kimi-20261116
+2026-11-17T07:18:32.5443609Z  * [new branch]          validation/rea-canary-imports-20261116 -> origin/validation/rea-canary-imports-20261116
+2026-11-17T07:18:32.5447590Z  * [new branch]          validation/rea-cli-progress-fixtures-20261116 -> origin/validation/rea-cli-progress-fixtures-20261116
+2026-11-17T07:18:32.5451677Z  * [new branch]          validation/rea-dfuse-overlap-20261116 -> origin/validation/rea-dfuse-overlap-20261116
+2026-11-17T07:18:32.5454916Z  * [new branch]          validation/rea-kuna-close-20261116 -> origin/validation/rea-kuna-close-20261116
+2026-11-17T07:18:32.5458569Z  * [new branch]          validation/rea-kuna-close-head-20261116 -> origin/validation/rea-kuna-close-head-20261116
+2026-11-17T07:18:32.5462185Z  * [new branch]          validation/rea-kuna-close-merge-20261116 -> origin/validation/rea-kuna-close-merge-20261116
+2026-11-17T07:18:32.5465662Z  * [new branch]          validation/rea-mcp-fixtures-20261116 -> origin/validation/rea-mcp-fixtures-20261116
+2026-11-17T07:18:32.5469424Z  * [new branch]          validation/rea-network-issue-paths-20261116 -> origin/validation/rea-network-issue-paths-20261116
+2026-11-17T07:18:32.5473699Z  * [new branch]          validation/rea-png-row-filters-20261117 -> origin/validation/rea-png-row-filters-20261117
+2026-11-17T07:18:32.5479144Z  * [new branch]          validation/rea-reverse-selector-20261116 -> origin/validation/rea-reverse-selector-20261116
+2026-11-17T07:18:32.5483022Z  * [new branch]          validation/rea-summary-20261116 -> origin/validation/rea-summary-20261116
+2026-11-17T07:18:32.5486141Z  * [new branch]          validation/rea-task-progress-20261116 -> origin/validation/rea-task-progress-20261116
+2026-11-17T07:18:32.5489631Z  * [new branch]          validation/rea9084-ci-final-20261116 -> origin/validation/rea9084-ci-final-20261116
+2026-11-17T07:18:32.5492883Z  * [new branch]          validation/rea9084-subject-20261116 -> origin/validation/rea9084-subject-20261116
+2026-11-17T07:18:32.5496477Z  * [new branch]          validation/rea9279-ci-final-20261116 -> origin/validation/rea9279-ci-final-20261116
+2026-11-17T07:18:32.5499980Z  * [new branch]          validation/rea9279-subject-20261116 -> origin/validation/rea9279-subject-20261116
+2026-11-17T07:18:32.5504674Z [command]/usr/bin/git branch --list --remote origin/validation/rea-png-row-filters-20261117
+2026-11-17T07:18:32.5507365Z   origin/validation/rea-png-row-filters-20261117
+2026-11-17T07:18:32.5512127Z [command]/usr/bin/git rev-parse refs/remotes/origin/validation/rea-png-row-filters-20261117
+2026-11-17T07:18:32.5514964Z dc4a1904482988edd6af2cb7f5502be66addf7e3
+2026-11-17T07:18:32.5519088Z ##[endgroup]
+2026-11-17T07:18:32.5521406Z ##[group]Determining the checkout info
+2026-11-17T07:18:32.5524017Z ##[endgroup]
+2026-11-17T07:18:32.5525486Z [command]/usr/bin/git sparse-checkout disable
+2026-11-17T07:18:32.5582524Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+2026-11-17T07:18:32.5626094Z ##[group]Checking out the ref
+2026-11-17T07:18:32.5631050Z [command]/usr/bin/git checkout --progress --force -B validation/rea-png-row-filters-20261117 refs/remotes/origin/validation/rea-png-row-filters-20261117
+2026-11-17T07:18:33.3961641Z Switched to a new branch 'validation/rea-png-row-filters-20261117'
+2026-11-17T07:18:33.3967161Z branch 'validation/rea-png-row-filters-20261117' set up to track 'origin/validation/rea-png-row-filters-20261117'.
+2026-11-17T07:18:33.4032886Z ##[endgroup]
+2026-11-17T07:18:33.4091208Z [command]/usr/bin/git log -1 --format=%H
+2026-11-17T07:18:33.4129425Z dc4a1904482988edd6af2cb7f5502be66addf7e3
+2026-11-17T07:18:33.4139510Z ##[group]Removing auth
+2026-11-17T07:18:33.4143867Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-17T07:18:33.4186375Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-11-17T07:18:33.4457970Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-17T07:18:33.4496455Z http.https://github.com/.extraheader
+2026-11-17T07:18:33.4503107Z [command]/usr/bin/git config --local --unset-all http.https://github.com/.extraheader
+2026-11-17T07:18:33.4548606Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-11-17T07:18:33.4913429Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-17T07:18:33.4916364Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-17T07:18:33.5139344Z ##[endgroup]
+2026-11-17T07:18:33.5420687Z ##[group]Run actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+2026-11-17T07:18:33.5421190Z with:
+2026-11-17T07:18:33.5421479Z   node-version-file: .nvmrc
+2026-11-17T07:18:33.5421799Z   always-auth: false
+2026-11-17T07:18:33.5422125Z   check-latest: false
+2026-11-17T07:18:33.5424533Z   token: ***
+2026-11-17T07:18:33.5424853Z env:
+2026-11-17T07:18:33.5425100Z   HUSKY: 0
+2026-11-17T07:18:33.5425355Z ##[endgroup]
+2026-11-17T07:18:33.6887322Z Node version file is not JSON file
+2026-11-17T07:18:33.6888689Z Resolved .nvmrc as 24.22.1
+2026-11-17T07:18:33.6904985Z Attempting to download 24.22.1...
+2026-11-17T07:18:33.7046188Z (node:2499) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+2026-11-17T07:18:33.7047739Z (Use `node --trace-deprecation ...` to show where the warning was created)
+2026-11-17T07:18:34.6644491Z Acquiring 24.22.1 - x64 from https://github.com/actions/node-versions/releases/download/24.22.1-39619001896/node-24.22.1-linux-x64.tar.gz
+2026-11-17T07:18:35.2594452Z Extracting ...
+2026-11-17T07:18:35.2736339Z [command]/usr/bin/tar xz --strip 1 --warning=no-unknown-keyword --overwrite -C /home/runner/work/_temp/182266df-c4ee-46fc-9973-5dc1fc2927aa -f /home/runner/work/_temp/7befe5f1-5d53-4675-9dfd-e708eb6d149b
+2026-11-17T07:18:36.6245034Z Adding to the cache ...
+2026-11-17T07:18:38.1636014Z ##[group]Environment details
+2026-11-17T07:18:38.4353102Z node: v24.22.1
+2026-11-17T07:18:38.4353490Z npm: 11.19.1
+2026-11-17T07:18:38.4353778Z yarn: 1.22.22
+2026-11-17T07:18:38.4354459Z ##[endgroup]
+2026-11-17T07:18:38.4588482Z ##[group]Run echo "REA_SOURCE_ROOT=$RUNNER_TEMP/rea-png-source" >> "$GITHUB_ENV"
+2026-11-17T07:18:38.4589187Z [36;1mecho "REA_SOURCE_ROOT=$RUNNER_TEMP/rea-png-source" >> "$GITHUB_ENV"[0m
+2026-11-17T07:18:38.4589737Z [36;1mecho "REA_VALIDATION_OUTPUT=$RUNNER_TEMP/rea-png-results" >> "$GITHUB_ENV"[0m
+2026-11-17T07:18:38.4590390Z [36;1mecho "REA_NPM_CLI=$RUNNER_TEMP/rea-png-toolchain/node_modules/npm/bin/npm-cli.js" >> "$GITHUB_ENV"[0m
+2026-11-17T07:18:38.4591024Z [36;1mecho "REA_PNG_PYTHON=$RUNNER_TEMP/rea-png-producer/bin/python" >> "$GITHUB_ENV"[0m
+2026-11-17T07:18:38.4591718Z [36;1mgit worktree add --detach "$RUNNER_TEMP/rea-png-source" af062e7a2d290fec4307fb9444298a13c2fea630[0m
+2026-11-17T07:18:38.4592391Z [36;1mnpm install --prefix "$RUNNER_TEMP/rea-png-toolchain" --no-audit --no-fund npm@11.16.0[0m
+2026-11-17T07:18:38.4592944Z [36;1mecho "$RUNNER_TEMP/rea-png-toolchain/node_modules/.bin" >> "$GITHUB_PATH"[0m
+2026-11-17T07:18:38.4593436Z [36;1mpython3 -m venv "$RUNNER_TEMP/rea-png-producer"[0m
+2026-11-17T07:18:38.4593882Z [36;1m"$RUNNER_TEMP/rea-png-producer/bin/python" -m pip install Pillow==13.0.0[0m
+2026-11-17T07:18:38.4622180Z shell: /usr/bin/bash -e {0}
+2026-11-17T07:18:38.4622449Z env:
+2026-11-17T07:18:38.4622646Z   HUSKY: 0
+2026-11-17T07:18:38.4622845Z ##[endgroup]
+2026-11-17T07:18:38.4722107Z Preparing worktree (detached HEAD af062e7a2)
+2026-11-17T07:18:39.3101348Z HEAD is now at af062e7a2 refactor(kernel): eliminate remaining record predicate copies and compose cleanup dependencies through shared owner (#11799)
+2026-11-17T07:18:42.4147997Z 
+2026-11-17T07:18:42.4148994Z added 1 package in 3s
+2026-11-17T07:18:46.1562248Z Collecting Pillow==13.0.0
+2026-11-17T07:18:46.2323405Z   Downloading pillow-13.0.0-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl.metadata (9.1 kB)
+2026-11-17T07:18:46.2688879Z Downloading pillow-13.0.0-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl (7.1 MB)
+2026-11-17T07:18:46.4052743Z    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 7.1/7.1 MB 53.7 MB/s eta 0:00:00
+2026-11-17T07:18:46.4330952Z Installing collected packages: Pillow
+2026-11-17T07:18:46.7595590Z Successfully installed Pillow-13.0.0
+2026-11-17T07:18:46.8524625Z ##[group]Run node "$REA_NPM_CLI" ci --no-audit --no-fund
+2026-11-17T07:18:46.8525055Z [36;1mnode "$REA_NPM_CLI" ci --no-audit --no-fund[0m
+2026-11-17T07:18:46.8548242Z shell: /usr/bin/bash -e {0}
+2026-11-17T07:18:46.8548735Z env:
+2026-11-17T07:18:46.8548933Z   HUSKY: 0
+2026-11-17T07:18:46.8549203Z   REA_SOURCE_ROOT: /home/runner/work/_temp/rea-png-source
+2026-11-17T07:18:46.8549657Z   REA_VALIDATION_OUTPUT: /home/runner/work/_temp/rea-png-results
+2026-11-17T07:18:46.8550164Z   REA_NPM_CLI: /home/runner/work/_temp/rea-png-toolchain/node_modules/npm/bin/npm-cli.js
+2026-11-17T07:18:46.8550676Z   REA_PNG_PYTHON: /home/runner/work/_temp/rea-png-producer/bin/python
+2026-11-17T07:18:46.8551034Z ##[endgroup]
+2026-11-17T07:18:49.5701722Z npm warn deprecated prebuild-install@7.1.3: No longer maintained. Please contact the author of the relevant native addon; alternatives are available.
+2026-11-17T07:18:49.9209788Z npm warn deprecated inflight@1.0.6: This module is not supported, and leaks memory. Do not use it. Check out lru-cache if you want a good and tested way to coalesce async requests by a key value, which is much more comprehensive and powerful.
+2026-11-17T07:18:52.0285857Z npm warn deprecated glob@7.2.3: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+2026-11-17T07:19:00.6800154Z 
+2026-11-17T07:19:00.6800917Z > rea-agents@6.9.0 prepare
+2026-11-17T07:19:00.6801394Z > node scripts/prepare.mjs
+2026-11-17T07:19:00.6801640Z 
+2026-11-17T07:19:01.0056293Z 
+2026-11-17T07:19:01.0056901Z added 738 packages in 14s
+2026-11-17T07:19:01.0068438Z npm warn allow-scripts 2 packages have install scripts not yet covered by allowScripts:
+2026-11-17T07:19:01.0069554Z npm warn allow-scripts   esbuild@0.28.2 (postinstall: node install.js)
+2026-11-17T07:19:01.0070524Z npm warn allow-scripts   esbuild@0.25.12 (postinstall: node install.js)
+2026-11-17T07:19:01.0071193Z npm warn allow-scripts
+2026-11-17T07:19:01.0072485Z npm warn allow-scripts Run `npm approve-scripts --allow-scripts-pending` to review, or `npm approve-scripts <pkg>` to allow.
+2026-11-17T07:19:01.1019292Z ##[group]Run python3 contribution-validation/png-row-filters/measure.py
+2026-11-17T07:19:01.1019877Z [36;1mpython3 contribution-validation/png-row-filters/measure.py[0m
+2026-11-17T07:19:01.1051076Z shell: /usr/bin/bash -e {0}
+2026-11-17T07:19:01.1051343Z env:
+2026-11-17T07:19:01.1051539Z   HUSKY: 0
+2026-11-17T07:19:01.1051808Z   REA_SOURCE_ROOT: /home/runner/work/_temp/rea-png-source
+2026-11-17T07:19:01.1052233Z   REA_VALIDATION_OUTPUT: /home/runner/work/_temp/rea-png-results
+2026-11-17T07:19:01.1052742Z   REA_NPM_CLI: /home/runner/work/_temp/rea-png-toolchain/node_modules/npm/bin/npm-cli.js
+2026-11-17T07:19:01.1053241Z   REA_PNG_PYTHON: /home/runner/work/_temp/rea-png-producer/bin/python
+2026-11-17T07:19:01.1053596Z ##[endgroup]
+2026-11-17T07:19:01.2101343Z REA_PNG_COMMAND {"name": "format", "exit_code": 0, "seconds": 0.06405448913574219}
+2026-11-17T07:19:01.3759989Z REA_PNG_COMMAND {"name": "before-source-tests", "exit_code": 1, "seconds": 0.16515254974365234}
+2026-11-17T07:19:01.3760889Z 
+2026-11-17T07:19:01.3761335Z > rea-agents@6.9.0 test:local
+2026-11-17T07:19:01.3762730Z > node scripts/run-development-tests.mjs local src/domain/pngVisualDiff.test.ts src/domain/pngHeader.test.ts tests/boundary/browser/browserToolContractExamples.test.ts
+2026-11-17T07:19:01.3763877Z 
+2026-11-17T07:19:01.3766829Z Use test:focused for built test projects: tests/boundary/browser/browserToolContractExamples.test.ts
+2026-11-17T07:19:01.3767622Z 
+2026-11-17T07:19:01.3843743Z ##[error]Process completed with exit code 1.
+2026-11-17T07:19:01.3927810Z ##[group]Run actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+2026-11-17T07:19:01.3928221Z with:
+2026-11-17T07:19:01.3928872Z   name: png-row-filter-validation
+2026-11-17T07:19:01.3929184Z   path: /home/runner/work/_temp/rea-png-results/
+2026-11-17T07:19:01.3929489Z   retention-days: 7
+2026-11-17T07:19:01.3929720Z   if-no-files-found: warn
+2026-11-17T07:19:01.3929957Z   compression-level: 6
+2026-11-17T07:19:01.3930180Z   overwrite: false
+2026-11-17T07:19:01.3930398Z   include-hidden-files: false
+2026-11-17T07:19:01.3930639Z env:
+2026-11-17T07:19:01.3930855Z   HUSKY: 0
+2026-11-17T07:19:01.3931118Z   REA_SOURCE_ROOT: /home/runner/work/_temp/rea-png-source
+2026-11-17T07:19:01.3931521Z   REA_VALIDATION_OUTPUT: /home/runner/work/_temp/rea-png-results
+2026-11-17T07:19:01.3932003Z   REA_NPM_CLI: /home/runner/work/_temp/rea-png-toolchain/node_modules/npm/bin/npm-cli.js
+2026-11-17T07:19:01.3932507Z   REA_PNG_PYTHON: /home/runner/work/_temp/rea-png-producer/bin/python
+2026-11-17T07:19:01.3932899Z ##[endgroup]
+2026-11-17T07:19:01.5695758Z (node:2718) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+2026-11-17T07:19:01.5696648Z (Use `node --trace-deprecation ...` to show where the warning was created)
+2026-11-17T07:19:01.5774040Z With the provided path, there will be 2 files uploaded
+2026-11-17T07:19:01.5779571Z Artifact name is valid!
+2026-11-17T07:19:01.5780361Z Root directory input is valid!
+2026-11-17T07:19:01.8734596Z Beginning upload of artifact content to blob storage
+2026-11-17T07:19:01.8918752Z (node:2718) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+2026-11-17T07:19:02.1257657Z Uploaded bytes 489
+2026-11-17T07:19:02.1860748Z Finished uploading artifact content to blob storage!
+2026-11-17T07:19:02.1861830Z SHA256 digest of uploaded artifact zip is 6930398b9f52b61f30a103982dc16a7b456e1a57fcc21c65dd4c85f92f7c153e
+2026-11-17T07:19:02.1862655Z Finalizing artifact upload
+2026-11-17T07:19:02.5742757Z Artifact png-row-filter-validation.zip successfully finalized. Artifact ID 14307329518
+2026-11-17T07:19:02.5744227Z Artifact png-row-filter-validation has been successfully uploaded! Final size is 489 bytes. Artifact ID is 14307329518
+2026-11-17T07:19:02.5749821Z Artifact download URL: https://github.com/Afloat16/rea/actions/runs/44037659072/artifacts/14307329518
+2026-11-17T07:19:02.6155033Z Post job cleanup.
+2026-11-17T07:19:02.7071726Z [command]/usr/bin/git version
+2026-11-17T07:19:02.7122795Z git version 2.56.1
+2026-11-17T07:19:02.7167398Z Temporarily overriding HOME='/home/runner/work/_temp/f9e82397-490e-435e-b3a4-bedd7a73cd89' before making global git config changes
+2026-11-17T07:19:02.7168858Z Adding repository directory to the temporary git global config as a safe directory
+2026-11-17T07:19:02.7173926Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/rea/rea
+2026-11-17T07:19:02.7221854Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-17T07:19:02.7266712Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-11-17T07:19:02.7628935Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-17T07:19:02.7684856Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-11-17T07:19:02.7989845Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-17T07:19:02.8033964Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-17T07:19:02.8508193Z Cleaning up orphan processes
+2026-11-17T07:19:02.8903179Z ##[warning]Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@11d5960a326750d5838078e36cf38b85af677262, actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020, actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/

@@ -1,0 +1,352 @@
+{
+  "schema": 1,
+  "status": "native_validated_history_in_progress",
+  "baseline": "af062e7a2d290fec4307fb9444298a13c2fea630",
+  "validation_head": "021aa6a0a550ed7dd50df7c4ca98bedbd97a63fc",
+  "validation_url": "https://github.com/Afloat16/rea/actions/runs/44037879806",
+  "validation": {
+    "baseline": "af062e7a2d290fec4307fb9444298a13c2fea630",
+    "source_hashes": {
+      "src/domain/pngVisualDiff.ts": "6e86546397041c129cef51705241bc5998fd4a523039c898f18b73fd22f2a8bc",
+      "src/domain/pngVisualDiff.test.ts": "f9d050f84d20357e4c8803cb4b3ec26b67188491ecded25bacf255fd57197145"
+    },
+    "cases": 6,
+    "processes": 36,
+    "success": true,
+    "timing_note": "Cold first and warmed subsequent calls reported separately; no system-wide or browser-capture throughput claim."
+  },
+  "commands": [
+    {
+      "name": "format",
+      "exit_code": 0,
+      "seconds": 0.0638740062713623
+    },
+    {
+      "name": "before-source-tests",
+      "exit_code": 0,
+      "seconds": 1.1661655902862549
+    },
+    {
+      "name": "independent-producer",
+      "exit_code": 0,
+      "seconds": 0.6151249408721924
+    },
+    {
+      "name": "before-0-RGB-640x360-identical",
+      "exit_code": 0,
+      "seconds": 0.5187637805938721
+    },
+    {
+      "name": "before-0-RGB-640x360-changed",
+      "exit_code": 0,
+      "seconds": 0.46640825271606445
+    },
+    {
+      "name": "before-0-RGB-1920x1080-identical",
+      "exit_code": 0,
+      "seconds": 1.4683804512023926
+    },
+    {
+      "name": "before-0-RGB-1920x1080-changed",
+      "exit_code": 0,
+      "seconds": 1.5206785202026367
+    },
+    {
+      "name": "before-0-RGBA-1920x1080-identical",
+      "exit_code": 0,
+      "seconds": 1.469780445098877
+    },
+    {
+      "name": "before-0-RGBA-1920x1080-changed",
+      "exit_code": 0,
+      "seconds": 1.4714646339416504
+    },
+    {
+      "name": "after-0-RGB-640x360-identical",
+      "exit_code": 0,
+      "seconds": 0.4155607223510742
+    },
+    {
+      "name": "after-0-RGB-640x360-changed",
+      "exit_code": 0,
+      "seconds": 0.41473937034606934
+    },
+    {
+      "name": "after-0-RGB-1920x1080-identical",
+      "exit_code": 0,
+      "seconds": 1.1675102710723877
+    },
+    {
+      "name": "after-0-RGB-1920x1080-changed",
+      "exit_code": 0,
+      "seconds": 1.1685192584991455
+    },
+    {
+      "name": "after-0-RGBA-1920x1080-identical",
+      "exit_code": 0,
+      "seconds": 0.9165630340576172
+    },
+    {
+      "name": "after-0-RGBA-1920x1080-changed",
+      "exit_code": 0,
+      "seconds": 1.0193569660186768
+    },
+    {
+      "name": "after-1-RGB-640x360-identical",
+      "exit_code": 0,
+      "seconds": 0.41774868965148926
+    },
+    {
+      "name": "after-1-RGB-640x360-changed",
+      "exit_code": 0,
+      "seconds": 0.4152820110321045
+    },
+    {
+      "name": "after-1-RGB-1920x1080-identical",
+      "exit_code": 0,
+      "seconds": 1.1182215213775635
+    },
+    {
+      "name": "after-1-RGB-1920x1080-changed",
+      "exit_code": 0,
+      "seconds": 1.1674220561981201
+    },
+    {
+      "name": "after-1-RGBA-1920x1080-identical",
+      "exit_code": 0,
+      "seconds": 0.9175629615783691
+    },
+    {
+      "name": "after-1-RGBA-1920x1080-changed",
+      "exit_code": 0,
+      "seconds": 0.9210169315338135
+    },
+    {
+      "name": "before-1-RGB-640x360-identical",
+      "exit_code": 0,
+      "seconds": 0.4700288772583008
+    },
+    {
+      "name": "before-1-RGB-640x360-changed",
+      "exit_code": 0,
+      "seconds": 0.46509552001953125
+    },
+    {
+      "name": "before-1-RGB-1920x1080-identical",
+      "exit_code": 0,
+      "seconds": 1.468956470489502
+    },
+    {
+      "name": "before-1-RGB-1920x1080-changed",
+      "exit_code": 0,
+      "seconds": 1.5673606395721436
+    },
+    {
+      "name": "before-1-RGBA-1920x1080-identical",
+      "exit_code": 0,
+      "seconds": 1.4731860160827637
+    },
+    {
+      "name": "before-1-RGBA-1920x1080-changed",
+      "exit_code": 0,
+      "seconds": 1.568373203277588
+    },
+    {
+      "name": "before-2-RGB-640x360-identical",
+      "exit_code": 0,
+      "seconds": 0.465667724609375
+    },
+    {
+      "name": "before-2-RGB-640x360-changed",
+      "exit_code": 0,
+      "seconds": 0.4670708179473877
+    },
+    {
+      "name": "before-2-RGB-1920x1080-identical",
+      "exit_code": 0,
+      "seconds": 1.5197529792785645
+    },
+    {
+      "name": "before-2-RGB-1920x1080-changed",
+      "exit_code": 0,
+      "seconds": 1.4746661186218262
+    },
+    {
+      "name": "before-2-RGBA-1920x1080-identical",
+      "exit_code": 0,
+      "seconds": 1.5700337886810303
+    },
+    {
+      "name": "before-2-RGBA-1920x1080-changed",
+      "exit_code": 0,
+      "seconds": 1.4695279598236084
+    },
+    {
+      "name": "after-2-RGB-640x360-identical",
+      "exit_code": 0,
+      "seconds": 0.4155557155609131
+    },
+    {
+      "name": "after-2-RGB-640x360-changed",
+      "exit_code": 0,
+      "seconds": 0.4152095317840576
+    },
+    {
+      "name": "after-2-RGB-1920x1080-identical",
+      "exit_code": 0,
+      "seconds": 1.1666178703308105
+    },
+    {
+      "name": "after-2-RGB-1920x1080-changed",
+      "exit_code": 0,
+      "seconds": 1.1194369792938232
+    },
+    {
+      "name": "after-2-RGBA-1920x1080-identical",
+      "exit_code": 0,
+      "seconds": 0.9179098606109619
+    },
+    {
+      "name": "after-2-RGBA-1920x1080-changed",
+      "exit_code": 0,
+      "seconds": 0.9161946773529053
+    },
+    {
+      "name": "after-source-tests",
+      "exit_code": 0,
+      "seconds": 1.1689057350158691
+    },
+    {
+      "name": "after-public-cli",
+      "exit_code": 0,
+      "seconds": 19.435807943344116
+    },
+    {
+      "name": "after-required-check",
+      "exit_code": 0,
+      "seconds": 249.37147855758667
+    },
+    {
+      "name": "diff-check",
+      "exit_code": 0,
+      "seconds": 0.8179779052734375
+    }
+  ],
+  "performance": [
+    {
+      "case": "RGB-640x360-identical",
+      "phases": {
+        "before": {
+          "cold_ms": 32.479799000000014,
+          "warm_ms": 23.978598999999974,
+          "warm_cpu_us": 35204,
+          "peak_rss_kib": 124524
+        },
+        "after": {
+          "cold_ms": 23.46875,
+          "warm_ms": 14.27147500000001,
+          "warm_cpu_us": 20965,
+          "peak_rss_kib": 116984
+        }
+      }
+    },
+    {
+      "case": "RGB-640x360-changed",
+      "phases": {
+        "before": {
+          "cold_ms": 33.236355,
+          "warm_ms": 23.719066999999995,
+          "warm_cpu_us": 34941,
+          "peak_rss_kib": 123680
+        },
+        "after": {
+          "cold_ms": 27.128461999999985,
+          "warm_ms": 14.231674999999996,
+          "warm_cpu_us": 20706,
+          "peak_rss_kib": 116236
+        }
+      }
+    },
+    {
+      "case": "RGB-1920x1080-identical",
+      "phases": {
+        "before": {
+          "cold_ms": 175.835766,
+          "warm_ms": 163.12989399999992,
+          "warm_cpu_us": 196985,
+          "peak_rss_kib": 166500
+        },
+        "after": {
+          "cold_ms": 127.06143400000002,
+          "warm_ms": 115.45990499999994,
+          "warm_cpu_us": 147259,
+          "peak_rss_kib": 158228
+        }
+      }
+    },
+    {
+      "case": "RGB-1920x1080-changed",
+      "phases": {
+        "before": {
+          "cold_ms": 175.64285700000002,
+          "warm_ms": 161.65518100000008,
+          "warm_cpu_us": 194322,
+          "peak_rss_kib": 166800
+        },
+        "after": {
+          "cold_ms": 128.62533499999998,
+          "warm_ms": 109.49121200000013,
+          "warm_cpu_us": 139915,
+          "peak_rss_kib": 157460
+        }
+      }
+    },
+    {
+      "case": "RGBA-1920x1080-identical",
+      "phases": {
+        "before": {
+          "cold_ms": 170.489689,
+          "warm_ms": 164.188441,
+          "warm_cpu_us": 195760,
+          "peak_rss_kib": 160160
+        },
+        "after": {
+          "cold_ms": 101.52159500000002,
+          "warm_ms": 78.92262799999992,
+          "warm_cpu_us": 104541,
+          "peak_rss_kib": 161724
+        }
+      }
+    },
+    {
+      "case": "RGBA-1920x1080-changed",
+      "phases": {
+        "before": {
+          "cold_ms": 172.651335,
+          "warm_ms": 164.99188500000002,
+          "warm_cpu_us": 197655,
+          "peak_rss_kib": 162904
+        },
+        "after": {
+          "cold_ms": 101.248863,
+          "warm_ms": 78.79344900000001,
+          "warm_cpu_us": 103842,
+          "peak_rss_kib": 161540
+        }
+      }
+    }
+  ],
+  "performance_method": "Three alternating before/after rounds, fresh Node24.22.1 processes, seven complete artifact+schema+comparison tasks each. Cold=median of first call across three processes; warm=median of calls 5–7 across all three. Disk read/import and independent producer setup excluded. Complete outputs and independent Pillow RGBA metrics identical.",
+  "artifact": {
+    "id": 14308102040,
+    "zip_sha256": "c7d3f561d61512c8c96901ad8148cfe7ac7dba9f566ef42d7cbe4411b68514ad",
+    "git_blob": "182fb3e2c552f67a319228c5784e9a6685c83cf3",
+    "bytes": 628481
+  },
+  "previous_failed_run": {
+    "url": "https://github.com/Afloat16/rea/actions/runs/44037659072",
+    "reason": "Validation selector passed a built-project contract test to test:local; corrected to test:focused. No production failure or successful benchmark claimed for the failed attempt."
+  },
+  "published": false,
+  "counted_as_prepared": false
+}
