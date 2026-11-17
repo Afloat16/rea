@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "status": "excluded_historical_equivalent",
+  "counted_as_prepared": false,
+  "counted_as_published": false,
+  "baseline": "af062e7a2d290fec4307fb9444298a13c2fea630",
+  "candidate": "Avoid converting unused Intel HEX type-00 payload to a big-endian number",
+  "reason": "Earlier alternative implementation PR #7368 already branches on type and converts only control fields. Under this task's strict prohibition on equivalent historical implementations, an early-return spelling in the adopted parser is not counted as new.",
+  "historical_pr": "https://github.com/morluto/rea/pull/7368",
+  "historical_head": "2c0527ad875d1d3da9556c57aae43f6dded8101c",
+  "historical_path": "src/domain/firmwareText.ts",
+  "performance_note": "Exploratory shared-host measurements only: six fresh processes on GNU objcopy-produced 4MiB payload have byte-identical complete metadata/region facts and independently equal payload bytes; median 364.25 vs348.26ms with large overlap. No robust speedup or public-reader benchmark claim.",
+  "history_limit": "Enough specific historical equivalent found to reject. Full all-ref audit was not performed for this abandoned candidate.",
+  "created_at": "2026-11-17T07:09:30.871Z"
+}

@@ -1,0 +1,729 @@
+@@ -0,0 +1,728 @@
++import type {
++  IntelHexMetadata,
++  SrecMetadata,
++} from "./artifactFormatMetadata.js";
++
++/** Text firmware container families recognized from bytes or file suffixes. */
++export type FirmwareTextFormat = "intel-hex" | "srec";
++
++/** One source line after newline removal; line numbers are one-based. */
++export interface FirmwareTextLine {
++  readonly number: number;
++  readonly bytes: Uint8Array;
++}
++
++/** Bounded address-contiguous bytes decoded from one firmware text container. */
++export interface FirmwareTextRegion {
++  readonly startAddress: number;
++  readonly endAddress: number;
++  readonly bytes: Uint8Array;
++}
++
++export interface IntelHexImage {
++  readonly format: "intel-hex";
++  readonly metadata: IntelHexMetadata;
++  readonly regions: readonly FirmwareTextRegion[];
++}
++
++export interface SrecImage {
++  readonly format: "srec";
++  readonly metadata: SrecMetadata;
++  readonly regions: readonly FirmwareTextRegion[];
++}
++
++export type FirmwareTextImage = IntelHexImage | SrecImage;
++
++export interface FirmwareTextParseOptions {
++  /** Aggregate decoded bytes allowed before the parser fails closed. */
++  readonly maxExpandedBytes?: number;
++  /** Address-contiguous regions allowed before the parser fails closed. */
++  readonly maxRegions?: number;
++}
++
++/** A format or expansion-budget refusal with the source line that caused it. */
++export class FirmwareTextParseError extends Error {
++  readonly line: number | null;
++
++  constructor(
++    readonly reason: "format" | "limit",
++    message: string,
++    line: number | null = null,
++  ) {
++    super(message);
++    this.name = "FirmwareTextParseError";
++    this.line = line;
++  }
++}
++
++const INTEL_HEX_SUFFIXES = [".hex", ".ihx", ".ihex"] as const;
++const SREC_SUFFIXES = [".s19", ".s28", ".s37", ".mot", ".srec"] as const;
++const UTF8_BOM = [0xef, 0xbb, 0xbf] as const;
++const MAX_PROBE_LINES = 64;
++
++interface DataRecord {
++  readonly start: number;
++  readonly bytes: Uint8Array;
++  readonly line: number;
++}
++
++/** File-suffix hint only; recognition from bytes remains the primary fact. */
++export const firmwareTextFormatForPath = (
++  path: string,
++): FirmwareTextFormat | undefined => {
++  const lower = path.toLowerCase();
++  if (INTEL_HEX_SUFFIXES.some((suffix) => lower.endsWith(suffix)))
++    return "intel-hex";
++  if (SREC_SUFFIXES.some((suffix) => lower.endsWith(suffix))) return "srec";
++  return undefined;
++};
++
++const prefixLines = (
++  prefix: Uint8Array,
++): readonly { readonly text: string; readonly offset: number }[] => {
++  const lines: Array<{ text: string; offset: number }> = [];
++  let start = 0;
++  for (let index = 0; index <= prefix.length; index += 1) {
++    if (index !== prefix.length && prefix[index] !== 0x0a) continue;
++    let end = index;
++    if (end > start && prefix[end - 1] === 0x0d) end -= 1;
++    lines.push({
++      offset: start,
++      text: Buffer.from(prefix.subarray(start, end)).toString("latin1"),
++    });
++    start = index + 1;
++  }
++  return lines;
++};
++
++const structuralIntelHexLine = (text: string): boolean => {
++  const match = /^:([0-9a-fA-F]+)$/u.exec(text);
++  if (match === null) return false;
++  const hex = match[1];
++  if (hex === undefined || hex.length < 10 || hex.length % 2 !== 0)
++    return false;
++  const bytes = Buffer.from(hex, "hex");
++  return bytes.length === (bytes[0] ?? -1) + 5;
++};
++
++const structuralSrecLine = (text: string): boolean => {
++  const match = /^S([0-9])([0-9a-fA-F]+)$/u.exec(text);
++  if (match === null) return false;
++  const hex = match[2];
++  if (hex === undefined || hex.length < 4 || hex.length % 2 !== 0) return false;
++  const count = Number.parseInt(hex.slice(0, 2), 16);
++  return text.length === 4 + count * 2 && count >= 2;
++};
++
++const trimProbeLine = (
++  prefix: Uint8Array,
++  line: { readonly text: string; readonly offset: number },
++): string => {
++  let text = line.text;
++  if (line.offset === 0) {
++    const bom = Buffer.from(UTF8_BOM);
++    if (prefix.length >= bom.length && bom.equals(prefix.subarray(0, 3)))
++      text = text.slice(3);
++  }
++  return text.trim();
++};
++
++/** Recognize a record-shaped first line without accepting its checksum as valid. */
++export const detectFirmwareTextFormat = (
++  prefix: Uint8Array,
++): FirmwareTextFormat | undefined => {
++  let inspected = 0;
++  for (const line of prefixLines(prefix)) {
++    if (inspected >= MAX_PROBE_LINES) break;
++    inspected += 1;
++    const text = trimProbeLine(prefix, line);
++    if (text.length === 0) continue;
++    if (structuralIntelHexLine(text)) return "intel-hex";
++    if (structuralSrecLine(text)) return "srec";
++    return undefined;
++  }
++  return undefined;
++};
++
++const looksTextual = (prefix: Uint8Array): boolean => {
++  if (prefix.length === 0) return false;
++  const bom = Buffer.from(UTF8_BOM);
++  const start = bom.equals(Buffer.from(prefix.subarray(0, bom.length))) ? 3 : 0;
++  for (let index = start; index < prefix.length; index += 1) {
++    const byte = prefix[index];
++    if (
++      byte === undefined ||
++      (byte !== 0x09 &&
++        byte !== 0x0a &&
++        byte !== 0x0d &&
++        (byte < 0x20 || byte > 0x7e))
++    )
++      return false;
++  }
++  return true;
++};
++
++/**
++ * Classify bytes first. A known suffix only selects a reader when the retained
++ * prefix is plain ASCII/whitespace, so an ELF or PE file named `.hex` keeps its
++ * executable classification.
++ */
++export const classifyFirmwareTextFormat = (
++  path: string,
++  prefix: Uint8Array,
++): FirmwareTextFormat | undefined => {
++  const fromContent = detectFirmwareTextFormat(prefix);
++  if (fromContent !== undefined) return fromContent;
++  const fromPath = firmwareTextFormatForPath(path);
++  return fromPath !== undefined && looksTextual(prefix) ? fromPath : undefined;
++};
++
++const displayByte = (byte: number): string =>
++  `0x${byte.toString(16).padStart(2, "0")}`;
++
++const formatError = (line: number, message: string): FirmwareTextParseError =>
++  new FirmwareTextParseError(
++    "format",
++    `line ${String(line)}: ${message}`,
++    line,
++  );
++
++const decodeLineText = (line: FirmwareTextLine): string | null => {
++  let bytes = line.bytes;
++  if (line.number === 1) {
++    const bom = Buffer.from(UTF8_BOM);
++    if (
++      bytes.length >= bom.length &&
++      bom.equals(Buffer.from(bytes.subarray(0, bom.length)))
++    )
++      bytes = bytes.subarray(bom.length);
++  }
++  for (const byte of bytes)
++    if (byte !== 0x09 && (byte < 0x20 || byte > 0x7e))
++      throw formatError(
++        line.number,
++        `non-ASCII byte ${displayByte(byte)} in a text firmware container`,
++      );
++  return Buffer.from(bytes).toString("latin1").trim() || null;
++};
++
++const checkedIntelChecksum = (line: number, bytes: Uint8Array): void => {
++  const sum = bytes.reduce((total, byte) => total + byte, 0);
++  if ((sum & 0xff) !== 0)
++    throw formatError(
++      line,
++      `Intel HEX checksum mismatch: record declares ${displayByte(bytes.at(-1) ?? 0)}, computed ${displayByte((0x100 - ((sum - (bytes.at(-1) ?? 0)) & 0xff)) & 0xff)}`,
++    );
++};
++
++const checkedSrecChecksum = (
++  line: number,
++  count: number,
++  bytes: Uint8Array,
++): void => {
++  const sum = bytes.reduce((total, byte) => total + byte, count);
++  const computed = (0xff - ((sum - (bytes.at(-1) ?? 0)) & 0xff)) & 0xff;
++  const expected = bytes.at(-1) ?? 0;
++  if ((sum & 0xff) !== 0xff)
++    throw formatError(
++      line,
++      `S-record checksum mismatch: record declares ${displayByte(expected)}, computed ${displayByte(computed)}`,
++    );
++};
++
++const addDataRecord = (
++  records: DataRecord[],
++  start: number,
++  bytes: Uint8Array,
++  line: number,
++  maxExpandedBytes: number | undefined,
++  charged: { bytes: number },
++): void => {
++  if (bytes.length === 0) return;
++  if (start + bytes.length - 1 > 0xffff_ffff)
++    throw formatError(line, "data record exceeds the 32-bit address space");
++  charged.bytes += bytes.length;
++  if (maxExpandedBytes !== undefined && charged.bytes > maxExpandedBytes)
++    throw new FirmwareTextParseError(
++      "limit",
++      `decoded firmware bytes exceed the ${String(maxExpandedBytes)}-byte expansion budget`,
++    );
++  records.push({ start, bytes, line });
++};
++
++interface MutableRegion {
++  readonly startAddress: number;
++  endAddress: number;
++  bytes: Uint8Array;
++}
++
++const buildRegions = (
++  records: readonly DataRecord[],
++  maxRegions: number | undefined,
++): FirmwareTextRegion[] => {
++  const sorted = [...records].sort(
++    (left, right) => left.start - right.start || left.line - right.line,
++  );
++  const regions: MutableRegion[] = [];
++  for (const record of sorted) {
++    const previous = regions.at(-1);
++    if (previous === undefined || record.start > previous.endAddress + 1) {
++      if (maxRegions !== undefined && regions.length >= maxRegions)
++        throw new FirmwareTextParseError(
++          "limit",
++          `decoded firmware image has more than ${String(maxRegions)} address-contiguous regions`,
++        );
++      regions.push({
++        startAddress: record.start,
++        endAddress: record.start + record.bytes.length - 1,
++        bytes: Buffer.from(record.bytes),
++      });
++      continue;
++    }
++    const overlapStart = record.start;
++    const overlapEnd = Math.min(
++      previous.endAddress,
++      record.start + record.bytes.length - 1,
++    );
++    for (let address = overlapStart; address <= overlapEnd; address += 1) {
++      const previousByte = previous.bytes[address - previous.startAddress];
++      const recordByte = record.bytes[address - record.start];
++      if (previousByte !== recordByte)
++        throw formatError(
++          record.line,
++          `conflicting overlap at address ${displayAddress(address)}: existing ${displayByte(previousByte ?? 0)}, record ${displayByte(recordByte ?? 0)}`,
++        );
++    }
++    if (record.start + record.bytes.length - 1 <= previous.endAddress) continue;
++    const tailStart = previous.endAddress + 1 - record.start;
++    const merged = Buffer.concat([
++      Buffer.from(previous.bytes),
++      Buffer.from(record.bytes.subarray(tailStart)),
++    ]);
++    previous.bytes = merged;
++    previous.endAddress = record.start + record.bytes.length - 1;
++  }
++  return regions;
++};
++
++const displayAddress = (address: number): string =>
++  `0x${address.toString(16).padStart(8, "0")}`;
++
++const parseIntelHex = async (
++  lines: AsyncIterable<FirmwareTextLine>,
++  options: FirmwareTextParseOptions,
++): Promise<IntelHexImage> => {
++  let extendedSegment = 0;
++  let extendedLinear = 0;
++  let sawSegment = false;
++  let sawLinear = false;
++  let startAddress: number | null = null;
++  let startAddressSource: "record-03" | "record-05" | null = null;
++  let startSegment: number | null = null;
++  let startOffset: number | null = null;
++  let terminated = false;
++  let sawRecord = false;
++  const records = {
++    data: 0,
++    end_of_file: 0,
++    extended_segment_address: 0,
++    start_segment_address: 0,
++    extended_linear_address: 0,
++    start_linear_address: 0,
++  };
++  const dataRecords: DataRecord[] = [];
++  const charged = { bytes: 0 };
++
++  for await (const line of lines) {
++    const text = decodeLineText(line);
++    if (text === null) continue;
++    if (terminated)
++      throw formatError(line.number, "content follows the end-of-file record");
++    sawRecord = true;
++    const match = /^:([0-9a-fA-F]+)$/u.exec(text);
++    if (match === null)
++      throw formatError(
++        line.number,
++        "expected an Intel HEX record starting with ':'",
++      );
++    const hex = match[1] ?? "";
++    if (hex.length < 10 || hex.length % 2 !== 0)
++      throw formatError(
++        line.number,
++        "record has a truncated or odd-length hexadecimal body",
++      );
++    const bytes = Buffer.from(hex, "hex");
++    const count = bytes[0] ?? 0;
++    if (bytes.length !== count + 5)
++      throw formatError(
++        line.number,
++        `byte count ${String(count)} requires ${String(count + 5)} record bytes, line has ${String(bytes.length)}`,
++      );
++    checkedIntelChecksum(line.number, bytes);
++    const address = ((bytes[1] ?? 0) << 8) | (bytes[2] ?? 0);
++    const type = bytes[3] ?? 0;
++    const data = bytes.subarray(4, 4 + count);
++    switch (type) {
++      case 0x00: {
++        records.data += 1;
++        if (address + count > 0x1_0000)
++          throw formatError(
++            line.number,
++            "data record crosses a 64 KiB address boundary",
++          );
++        const base = sawLinear
++          ? extendedLinear * 0x1_0000
++          : sawSegment
++            ? extendedSegment * 0x10
++            : 0;
++        addDataRecord(
++          dataRecords,
++          base + address,
++          data,
++          line.number,
++          options.maxExpandedBytes,
++          charged,
++        );
++        break;
++      }
++      case 0x01:
++        records.end_of_file += 1;
++        if (count !== 0 || address !== 0)
++          throw formatError(
++            line.number,
++            "end-of-file record must have a zero address and byte count",
++          );
++        terminated = true;
++        break;
++      case 0x02:
++        records.extended_segment_address += 1;
++        if (sawLinear)
++          throw formatError(
++            line.number,
++            "extended segment address record conflicts with an extended linear address record",
++          );
++        if (count !== 2)
++          throw formatError(
++            line.number,
++            "extended segment address record must contain 2 bytes",
++          );
++        sawSegment = true;
++        extendedSegment = ((data[0] ?? 0) << 8) | (data[1] ?? 0);
++        break;
++      case 0x03: {
++        records.start_segment_address += 1;
++        if (count !== 4)
++          throw formatError(
++            line.number,
++            "start segment address record must contain 4 bytes",
++          );
++        const segment = ((data[0] ?? 0) << 8) | (data[1] ?? 0);
++        const offset = ((data[2] ?? 0) << 8) | (data[3] ?? 0);
++        const declared = segment * 0x10 + offset;
++        if (startAddress !== null && startAddress !== declared)
++          throw formatError(
++            line.number,
++            `start address ${displayAddress(declared)} conflicts with the earlier ${displayAddress(startAddress)}`,
++          );
++        startAddress ??= declared;
++        startAddressSource ??= "record-03";
++        startSegment ??= segment;
++        startOffset ??= offset;
++        break;
++      }
++      case 0x04:
++        records.extended_linear_address += 1;
++        if (sawSegment)
++          throw formatError(
++            line.number,
++            "extended linear address record conflicts with an extended segment address record",
++          );
++        if (count !== 2)
++          throw formatError(
++            line.number,
++            "extended linear address record must contain 2 bytes",
++          );
++        sawLinear = true;
++        extendedLinear = ((data[0] ?? 0) << 8) | (data[1] ?? 0);
++        break;
++      case 0x05: {
++        records.start_linear_address += 1;
++        if (count !== 4)
++          throw formatError(
++            line.number,
++            "start linear address record must contain 4 bytes",
++          );
++        const declared =
++          ((data[0] ?? 0) * 0x1_000000 +
++            (data[1] ?? 0) * 0x1_0000 +
++            (data[2] ?? 0) * 0x100 +
++            (data[3] ?? 0)) >>>
++          0;
++        if (startAddress !== null && startAddress !== declared)
++          throw formatError(
++            line.number,
++            `start address ${displayAddress(declared)} conflicts with the earlier ${displayAddress(startAddress)}`,
++          );
++        startAddress ??= declared;
++        startAddressSource ??= "record-05";
++        break;
++      }
++      default:
++        throw formatError(
++          line.number,
++          `unknown record type 0x${type.toString(16).padStart(2, "0")}`,
++        );
++    }
++  }
++  if (!sawRecord)
++    throw new FirmwareTextParseError(
++      "format",
++      "line 1: empty Intel HEX container",
++      1,
++    );
++
++  return {
++    format: "intel-hex",
++    metadata: {
++      kind: "intel-hex",
++      variant: sawLinear ? "i32" : sawSegment ? "i16" : "i8",
++      start_address: startAddress,
++      start_address_source: startAddressSource,
++      start_segment: startSegment,
++      start_offset: startOffset,
++      records,
++      eof_terminated: terminated,
++    },
++    regions: buildRegions(dataRecords, options.maxRegions),
++  };
++};
++
++interface ParsedSrecRecord {
++  readonly type: number;
++  readonly address: number;
++  readonly data: Uint8Array;
++  readonly line: number;
++}
++
++const SREC_ADDRESS_BYTES: Readonly<Record<number, number>> = {
++  0: 2,
++  1: 2,
++  2: 3,
++  3: 4,
++  5: 2,
++  6: 3,
++  7: 4,
++  8: 3,
++  9: 2,
++};
++
++const parseSrecRecord = (
++  line: FirmwareTextLine,
++  text: string,
++): ParsedSrecRecord => {
++  const match = /^S([0-9])([0-9a-fA-F]+)$/u.exec(text);
++  if (match === null)
++    throw formatError(
++      line.number,
++      "expected a Motorola S-record starting with 'S' and a type digit",
++    );
++  const type = Number.parseInt(match[1] ?? "", 10);
++  const hex = match[2] ?? "";
++  if (hex.length < 4 || hex.length % 2 !== 0)
++    throw formatError(
++      line.number,
++      "record has a truncated or odd-length hexadecimal body",
++    );
++  const count = Number.parseInt(hex.slice(0, 2), 16);
++  if (text.length !== 4 + count * 2)
++    throw formatError(
++      line.number,
++      `byte count ${String(count)} requires ${String(4 + count * 2)} characters, line has ${String(text.length)}`,
++    );
++  const bytes = Buffer.from(hex.slice(2), "hex");
++  checkedSrecChecksum(line.number, count, bytes);
++  const addressBytes = SREC_ADDRESS_BYTES[type];
++  if (addressBytes === undefined)
++    throw formatError(
++      line.number,
++      `unknown or reserved record type S${String(type)}`,
++    );
++  if (bytes.length < addressBytes + 1)
++    throw formatError(
++      line.number,
++      `S${String(type)} requires at least ${String(addressBytes)} address bytes and a checksum`,
++    );
++  let address = 0;
++  for (let index = 0; index < addressBytes; index += 1)
++    address = address * 0x100 + (bytes[index] ?? 0);
++  return {
++    type,
++    address,
++    data: bytes.subarray(addressBytes, bytes.length - 1),
++    line: line.number,
++  };
++};
++
++const parseSrec = async (
++  lines: AsyncIterable<FirmwareTextLine>,
++  options: FirmwareTextParseOptions,
++): Promise<SrecImage> => {
++  let terminated = false;
++  let sawRecord = false;
++  let s0Address: number | null = null;
++  let s0Header: string | null = null;
++  let s0HeaderHex: string | null = null;
++  let sawS1 = false;
++  let sawS2 = false;
++  let sawS3 = false;
++  let terminationType: 7 | 8 | 9 | null = null;
++  let startAddress: number | null = null;
++  let declaredCount: number | null = null;
++  let declaredCountLine: number | null = null;
++  let dataRecordCount = 0;
++  const records = {
++    s0: 0,
++    s1: 0,
++    s2: 0,
++    s3: 0,
++    s5: 0,
++    s6: 0,
++    s7: 0,
++    s8: 0,
++    s9: 0,
++  };
++  const dataRecords: DataRecord[] = [];
++  const charged = { bytes: 0 };
++
++  for await (const line of lines) {
++    const text = decodeLineText(line);
++    if (text === null) continue;
++    if (terminated)
++      throw formatError(line.number, "content follows the termination record");
++    sawRecord = true;
++    const parsed = parseSrecRecord(line, text);
++    switch (parsed.type) {
++      case 0:
++        records.s0 += 1;
++        if (records.s0 > 1)
++          throw formatError(line.number, "duplicate S0 header record");
++        s0Address = parsed.address;
++        s0HeaderHex = Buffer.from(parsed.data).toString("hex");
++        s0Header = printableHeader(parsed.data);
++        break;
++      case 1:
++      case 2:
++      case 3: {
++        records[`s${String(parsed.type)}` as "s1" | "s2" | "s3"] += 1;
++        sawS1 ||= parsed.type === 1;
++        sawS2 ||= parsed.type === 2;
++        sawS3 ||= parsed.type === 3;
++        dataRecordCount += 1;
++        addDataRecord(
++          dataRecords,
++          parsed.address,
++          parsed.data,
++          parsed.line,
++          options.maxExpandedBytes,
++          charged,
++        );
++        break;
++      }
++      case 5:
++      case 6: {
++        const key = parsed.type === 5 ? "s5" : "s6";
++        records[key] += 1;
++        if (declaredCountLine !== null)
++          throw formatError(line.number, "duplicate data-record count record");
++        if (parsed.data.length !== 0)
++          throw formatError(
++            line.number,
++            `S${String(parsed.type)} count record must not contain data bytes`,
++          );
++        declaredCount = parsed.address;
++        declaredCountLine = line.number;
++        break;
++      }
++      case 7:
++      case 8:
++      case 9:
++        records[`s${String(parsed.type)}` as "s7" | "s8" | "s9"] += 1;
++        terminated = true;
++        terminationType = parsed.type as 7 | 8 | 9;
++        startAddress = parsed.address;
++        if (parsed.data.length !== 0)
++          throw formatError(
++            line.number,
++            "termination record must not contain data bytes",
++          );
++        break;
++      default:
++        throw formatError(
++          line.number,
++          `unsupported record type S${String(parsed.type)}`,
++        );
++    }
++  }
++  if (!sawRecord)
++    throw new FirmwareTextParseError(
++      "format",
++      "line 1: empty S-record container",
++      1,
++    );
++  if (declaredCount !== null && declaredCount !== dataRecordCount)
++    throw formatError(
++      declaredCountLine ?? 1,
++      `declared ${String(declaredCount)} data records but observed ${String(dataRecordCount)}`,
++    );
++
++  return {
++    format: "srec",
++    metadata: {
++      kind: "srec",
++      variant: sawS3
++        ? "s37"
++        : sawS2
++          ? "s28"
++          : sawS1
++            ? "s19"
++            : terminationType === 7
++              ? "s37"
++              : terminationType === 8
++                ? "s28"
++                : terminationType === 9
++                  ? "s19"
++                  : null,
++      start_address: startAddress,
++      start_address_source:
++        terminationType === 7
++          ? "s7"
++          : terminationType === 8
++            ? "s8"
++            : terminationType === 9
++              ? "s9"
++              : null,
++      s0_address: s0Address,
++      s0_header: s0Header,
++      s0_header_hex: s0HeaderHex,
++      records,
++      terminated,
++    },
++    regions: buildRegions(dataRecords, options.maxRegions),
++  };
++};
++
++const printableHeader = (bytes: Uint8Array): string | null => {
++  if (bytes.length === 0) return "";
++  for (const byte of bytes) if (byte < 0x20 || byte > 0x7e) return null;
++  return Buffer.from(bytes).toString("latin1");
++};
++
++/** Parse an Intel HEX or S-record line stream into bounded address regions. */
++export const parseFirmwareText = (
++  format: FirmwareTextFormat,
++  lines: AsyncIterable<FirmwareTextLine>,
++  options: FirmwareTextParseOptions = {},
++): Promise<FirmwareTextImage> =>
++  format === "intel-hex"
++    ? parseIntelHex(lines, options)
++    : parseSrec(lines, options);

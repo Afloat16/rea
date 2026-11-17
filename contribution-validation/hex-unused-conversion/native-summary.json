@@ -1,0 +1,412 @@
+{
+  "producer": "GNU objcopy (GNU Binutils for Debian) 2.44",
+  "fixture": "/workspace/scratch/4bed741d4966/probes/rea-firmware/hex-objcopy-probe",
+  "measurements": [
+    {
+      "phase": "before",
+      "node": "v24.22.1",
+      "source_sha256": "476f8223a838006b9f825da122c86b66f456c7c837bc1df3110d627f0ad83397",
+      "input_bytes": 11797602,
+      "input_sha256": "7a5413c027a2c224934303d879c0efb5d6a413ae28b97382173622344ceda793",
+      "payload_bytes": 4194304,
+      "payload_sha256": "2b07811057df887086f06a67edc6ebf911de8b6741156e7a2eb1416a4b8b1b2e",
+      "parse_ms": 364.24579400000005,
+      "total_ms": 378.727811,
+      "cpu": {
+        "user": 462747,
+        "system": 8791
+      },
+      "peak_rss_kib": 107356,
+      "memory_before": {
+        "rss": 94334976,
+        "heapTotal": 16941056,
+        "heapUsed": 11672208,
+        "external": 27128123,
+        "arrayBuffers": 16204297
+      },
+      "memory_after": {
+        "rss": 109932544,
+        "heapTotal": 18513920,
+        "heapUsed": 12285424,
+        "external": 41450520,
+        "arrayBuffers": 30495182
+      },
+      "result_sha256": "e25cda96347a845439fcf57c0a79e65120fa7f97e56934b813c34f099c4d39dd",
+      "facts": {
+        "metadata": {
+          "kind": "hex-records",
+          "encoding": "intel-hex",
+          "variant": "I32HEX",
+          "line_count": 262210,
+          "record_count": 262210,
+          "data_record_count": 262144,
+          "data_bytes": 4194304,
+          "duplicate_bytes": 0,
+          "region_count": 1,
+          "lowest_address": 134217728,
+          "highest_address": 138412031,
+          "termination": "present",
+          "start_address": 134217728,
+          "start_address_record": "05",
+          "start_segment_cs": null,
+          "start_segment_ip": null,
+          "header_hex": null,
+          "header_text": null,
+          "declared_data_record_count": null
+        },
+        "regions": [
+          {
+            "start": 134217728,
+            "end": 138412031,
+            "recordCount": 262144,
+            "firstLine": 2,
+            "lastLine": 262208,
+            "bytes": 4194304,
+            "payload_sha256": "2b07811057df887086f06a67edc6ebf911de8b6741156e7a2eb1416a4b8b1b2e"
+          }
+        ],
+        "terminated": true,
+        "limitations": []
+      }
+    },
+    {
+      "phase": "after",
+      "node": "v24.22.1",
+      "source_sha256": "5be7c898be0d273d9d6caa610ddcafc7c6876884ff05ba28358999be9da8efb7",
+      "input_bytes": 11797602,
+      "input_sha256": "7a5413c027a2c224934303d879c0efb5d6a413ae28b97382173622344ceda793",
+      "payload_bytes": 4194304,
+      "payload_sha256": "2b07811057df887086f06a67edc6ebf911de8b6741156e7a2eb1416a4b8b1b2e",
+      "parse_ms": 348.2613329999999,
+      "total_ms": 363.11142399999994,
+      "cpu": {
+        "user": 495069,
+        "system": 9107
+      },
+      "peak_rss_kib": 108408,
+      "memory_before": {
+        "rss": 95674368,
+        "heapTotal": 16941056,
+        "heapUsed": 11672360,
+        "external": 27128123,
+        "arrayBuffers": 16204297
+      },
+      "memory_after": {
+        "rss": 111009792,
+        "heapTotal": 17727488,
+        "heapUsed": 12157648,
+        "external": 41448777,
+        "arrayBuffers": 30493439
+      },
+      "result_sha256": "e25cda96347a845439fcf57c0a79e65120fa7f97e56934b813c34f099c4d39dd",
+      "facts": {
+        "metadata": {
+          "kind": "hex-records",
+          "encoding": "intel-hex",
+          "variant": "I32HEX",
+          "line_count": 262210,
+          "record_count": 262210,
+          "data_record_count": 262144,
+          "data_bytes": 4194304,
+          "duplicate_bytes": 0,
+          "region_count": 1,
+          "lowest_address": 134217728,
+          "highest_address": 138412031,
+          "termination": "present",
+          "start_address": 134217728,
+          "start_address_record": "05",
+          "start_segment_cs": null,
+          "start_segment_ip": null,
+          "header_hex": null,
+          "header_text": null,
+          "declared_data_record_count": null
+        },
+        "regions": [
+          {
+            "start": 134217728,
+            "end": 138412031,
+            "recordCount": 262144,
+            "firstLine": 2,
+            "lastLine": 262208,
+            "bytes": 4194304,
+            "payload_sha256": "2b07811057df887086f06a67edc6ebf911de8b6741156e7a2eb1416a4b8b1b2e"
+          }
+        ],
+        "terminated": true,
+        "limitations": []
+      }
+    },
+    {
+      "phase": "after",
+      "node": "v24.22.1",
+      "source_sha256": "5be7c898be0d273d9d6caa610ddcafc7c6876884ff05ba28358999be9da8efb7",
+      "input_bytes": 11797602,
+      "input_sha256": "7a5413c027a2c224934303d879c0efb5d6a413ae28b97382173622344ceda793",
+      "payload_bytes": 4194304,
+      "payload_sha256": "2b07811057df887086f06a67edc6ebf911de8b6741156e7a2eb1416a4b8b1b2e",
+      "parse_ms": 351.6015050000001,
+      "total_ms": 384.89335100000005,
+      "cpu": {
+        "user": 447142,
+        "system": 30692
+      },
+      "peak_rss_kib": 108200,
+      "memory_before": {
+        "rss": 95461376,
+        "heapTotal": 16941056,
+        "heapUsed": 11673696,
+        "external": 27128123,
+        "arrayBuffers": 16204297
+      },
+      "memory_after": {
+        "rss": 110796800,
+        "heapTotal": 18513920,
+        "heapUsed": 12365088,
+        "external": 41452851,
+        "arrayBuffers": 30497513
+      },
+      "result_sha256": "e25cda96347a845439fcf57c0a79e65120fa7f97e56934b813c34f099c4d39dd",
+      "facts": {
+        "metadata": {
+          "kind": "hex-records",
+          "encoding": "intel-hex",
+          "variant": "I32HEX",
+          "line_count": 262210,
+          "record_count": 262210,
+          "data_record_count": 262144,
+          "data_bytes": 4194304,
+          "duplicate_bytes": 0,
+          "region_count": 1,
+          "lowest_address": 134217728,
+          "highest_address": 138412031,
+          "termination": "present",
+          "start_address": 134217728,
+          "start_address_record": "05",
+          "start_segment_cs": null,
+          "start_segment_ip": null,
+          "header_hex": null,
+          "header_text": null,
+          "declared_data_record_count": null
+        },
+        "regions": [
+          {
+            "start": 134217728,
+            "end": 138412031,
+            "recordCount": 262144,
+            "firstLine": 2,
+            "lastLine": 262208,
+            "bytes": 4194304,
+            "payload_sha256": "2b07811057df887086f06a67edc6ebf911de8b6741156e7a2eb1416a4b8b1b2e"
+          }
+        ],
+        "terminated": true,
+        "limitations": []
+      }
+    },
+    {
+      "phase": "before",
+      "node": "v24.22.1",
+      "source_sha256": "476f8223a838006b9f825da122c86b66f456c7c837bc1df3110d627f0ad83397",
+      "input_bytes": 11797602,
+      "input_sha256": "7a5413c027a2c224934303d879c0efb5d6a413ae28b97382173622344ceda793",
+      "payload_bytes": 4194304,
+      "payload_sha256": "2b07811057df887086f06a67edc6ebf911de8b6741156e7a2eb1416a4b8b1b2e",
+      "parse_ms": 317.349295,
+      "total_ms": 340.750345,
+      "cpu": {
+        "user": 425739,
+        "system": 11103
+      },
+      "peak_rss_kib": 107840,
+      "memory_before": {
+        "rss": 93126656,
+        "heapTotal": 16941056,
+        "heapUsed": 11673568,
+        "external": 27128123,
+        "arrayBuffers": 16204297
+      },
+      "memory_after": {
+        "rss": 110428160,
+        "heapTotal": 17727488,
+        "heapUsed": 13419952,
+        "external": 41469210,
+        "arrayBuffers": 30513872
+      },
+      "result_sha256": "e25cda96347a845439fcf57c0a79e65120fa7f97e56934b813c34f099c4d39dd",
+      "facts": {
+        "metadata": {
+          "kind": "hex-records",
+          "encoding": "intel-hex",
+          "variant": "I32HEX",
+          "line_count": 262210,
+          "record_count": 262210,
+          "data_record_count": 262144,
+          "data_bytes": 4194304,
+          "duplicate_bytes": 0,
+          "region_count": 1,
+          "lowest_address": 134217728,
+          "highest_address": 138412031,
+          "termination": "present",
+          "start_address": 134217728,
+          "start_address_record": "05",
+          "start_segment_cs": null,
+          "start_segment_ip": null,
+          "header_hex": null,
+          "header_text": null,
+          "declared_data_record_count": null
+        },
+        "regions": [
+          {
+            "start": 134217728,
+            "end": 138412031,
+            "recordCount": 262144,
+            "firstLine": 2,
+            "lastLine": 262208,
+            "bytes": 4194304,
+            "payload_sha256": "2b07811057df887086f06a67edc6ebf911de8b6741156e7a2eb1416a4b8b1b2e"
+          }
+        ],
+        "terminated": true,
+        "limitations": []
+      }
+    },
+    {
+      "phase": "before",
+      "node": "v24.22.1",
+      "source_sha256": "476f8223a838006b9f825da122c86b66f456c7c837bc1df3110d627f0ad83397",
+      "input_bytes": 11797602,
+      "input_sha256": "7a5413c027a2c224934303d879c0efb5d6a413ae28b97382173622344ceda793",
+      "payload_bytes": 4194304,
+      "payload_sha256": "2b07811057df887086f06a67edc6ebf911de8b6741156e7a2eb1416a4b8b1b2e",
+      "parse_ms": 406.260287,
+      "total_ms": 432.90885799999995,
+      "cpu": {
+        "user": 534423,
+        "system": 24701
+      },
+      "peak_rss_kib": 108168,
+      "memory_before": {
+        "rss": 95690752,
+        "heapTotal": 16678912,
+        "heapUsed": 11672264,
+        "external": 27128123,
+        "arrayBuffers": 16204297
+      },
+      "memory_after": {
+        "rss": 110764032,
+        "heapTotal": 17727488,
+        "heapUsed": 14058232,
+        "external": 41479668,
+        "arrayBuffers": 30524330
+      },
+      "result_sha256": "e25cda96347a845439fcf57c0a79e65120fa7f97e56934b813c34f099c4d39dd",
+      "facts": {
+        "metadata": {
+          "kind": "hex-records",
+          "encoding": "intel-hex",
+          "variant": "I32HEX",
+          "line_count": 262210,
+          "record_count": 262210,
+          "data_record_count": 262144,
+          "data_bytes": 4194304,
+          "duplicate_bytes": 0,
+          "region_count": 1,
+          "lowest_address": 134217728,
+          "highest_address": 138412031,
+          "termination": "present",
+          "start_address": 134217728,
+          "start_address_record": "05",
+          "start_segment_cs": null,
+          "start_segment_ip": null,
+          "header_hex": null,
+          "header_text": null,
+          "declared_data_record_count": null
+        },
+        "regions": [
+          {
+            "start": 134217728,
+            "end": 138412031,
+            "recordCount": 262144,
+            "firstLine": 2,
+            "lastLine": 262208,
+            "bytes": 4194304,
+            "payload_sha256": "2b07811057df887086f06a67edc6ebf911de8b6741156e7a2eb1416a4b8b1b2e"
+          }
+        ],
+        "terminated": true,
+        "limitations": []
+      }
+    },
+    {
+      "phase": "after",
+      "node": "v24.22.1",
+      "source_sha256": "5be7c898be0d273d9d6caa610ddcafc7c6876884ff05ba28358999be9da8efb7",
+      "input_bytes": 11797602,
+      "input_sha256": "7a5413c027a2c224934303d879c0efb5d6a413ae28b97382173622344ceda793",
+      "payload_bytes": 4194304,
+      "payload_sha256": "2b07811057df887086f06a67edc6ebf911de8b6741156e7a2eb1416a4b8b1b2e",
+      "parse_ms": 285.96378000000004,
+      "total_ms": 302.022686,
+      "cpu": {
+        "user": 405042,
+        "system": 3276
+      },
+      "peak_rss_kib": 108572,
+      "memory_before": {
+        "rss": 95449088,
+        "heapTotal": 16941056,
+        "heapUsed": 11672496,
+        "external": 27128123,
+        "arrayBuffers": 16204297
+      },
+      "memory_after": {
+        "rss": 111177728,
+        "heapTotal": 17203200,
+        "heapUsed": 12349008,
+        "external": 41453292,
+        "arrayBuffers": 30497954
+      },
+      "result_sha256": "e25cda96347a845439fcf57c0a79e65120fa7f97e56934b813c34f099c4d39dd",
+      "facts": {
+        "metadata": {
+          "kind": "hex-records",
+          "encoding": "intel-hex",
+          "variant": "I32HEX",
+          "line_count": 262210,
+          "record_count": 262210,
+          "data_record_count": 262144,
+          "data_bytes": 4194304,
+          "duplicate_bytes": 0,
+          "region_count": 1,
+          "lowest_address": 134217728,
+          "highest_address": 138412031,
+          "termination": "present",
+          "start_address": 134217728,
+          "start_address_record": "05",
+          "start_segment_cs": null,
+          "start_segment_ip": null,
+          "header_hex": null,
+          "header_text": null,
+          "declared_data_record_count": null
+        },
+        "regions": [
+          {
+            "start": 134217728,
+            "end": 138412031,
+            "recordCount": 262144,
+            "firstLine": 2,
+            "lastLine": 262208,
+            "bytes": 4194304,
+            "payload_sha256": "2b07811057df887086f06a67edc6ebf911de8b6741156e7a2eb1416a4b8b1b2e"
+          }
+        ],
+        "terminated": true,
+        "limitations": []
+      }
+    }
+  ],
+  "median_parse_ms": {
+    "before": 364.24579400000005,
+    "after": 348.2613329999999
+  }
+}
