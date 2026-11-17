@@ -1,0 +1,46 @@
+{
+  "repo": "morluto/rea",
+  "base": "d5a942177fad030d3caf0f8d39856c116e3e5cda",
+  "files": [
+    {
+      "path": "src/domain/firmware/dfuse.ts",
+      "sha": "dd68f4f819da4ffe756ccbf429b3386246b6f757"
+    },
+    {
+      "path": "src/domain/firmware/dfuse.fixture.ts",
+      "sha": "6d874f5845894615279ae1dcd794e51506b2cb49"
+    },
+    {
+      "path": "src/domain/firmware/uf2.ts",
+      "sha": "ed4ef6e996b94b3b898f4366fbfc1bcbb50fcbb4"
+    },
+    {
+      "path": "src/domain/firmware/uf2.fixture.ts",
+      "sha": "90804b2bf34ddb69f5a81df47cddd6f2366947ea"
+    },
+    {
+      "path": "src/domain/firmware/uf2Families.ts",
+      "sha": "e5147601f185e7452b08408f1b971c18b765487c"
+    },
+    {
+      "path": "src/domain/firmware/addressRuns.ts",
+      "sha": "7eb778460f8c7778154eaf3186e1d94132467925"
+    },
+    {
+      "path": "src/domain/boundedList.ts",
+      "sha": "24cfd75f135f54a4c35b92fe0da2ebafd6e0fce6"
+    },
+    {
+      "path": "src/domain/result.ts",
+      "sha": "cf7cb0789206ecf40a3de09f95b7538fde6001cd"
+    },
+    {
+      "path": "src/kernel/byteToHex.ts",
+      "sha": "924eb287d75551b8012ad56c869ff1044d25f86b"
+    },
+    {
+      "path": "scripts/lib/verifier-source-loader.mjs",
+      "sha": "526992611fa72fac5fa427226b29a7f1b5367bf3"
+    }
+  ]
+}

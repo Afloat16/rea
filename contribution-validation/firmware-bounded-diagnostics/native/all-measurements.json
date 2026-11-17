@@ -1,0 +1,908 @@
+[
+  {
+    "phase": "before",
+    "scenario": "absent",
+    "count": 65536,
+    "label": "before-0-absent-65536",
+    "node": "v24.22.1",
+    "input_bytes": 33554432,
+    "input_sha256": "0ad9bf27901ec376782981b1cbdafc362342c4665a019c0cfe1affd96ad80602",
+    "source_sha256": "ce51061e58b0d7b55f533dadaff109617d012c2400f9d93845b089e79f334893",
+    "result_sha256": "0b96b3d7a8d3ef43b9b7d5d481ee2e0d18fe6a0b33bc7d16ec29b42fdf715168",
+    "result_bytes": 9601372,
+    "parse_ms": 417.42271800000003,
+    "total_ms": 531.60977,
+    "parse_cpu": {
+      "user": 364758,
+      "system": 241844
+    },
+    "total_cpu": {
+      "user": 398226,
+      "system": 292569
+    },
+    "peak_rss_kib_before": 117100,
+    "parse_peak_rss_kib": 233312,
+    "peak_rss_kib": 269532,
+    "memory_before": {
+      "rss": 119910400,
+      "heapTotal": 21659648,
+      "heapUsed": 11753280,
+      "external": 44560406,
+      "arrayBuffers": 33766551
+    },
+    "memory_parsed": {
+      "rss": 238911488,
+      "heapTotal": 216535040,
+      "heapUsed": 112409992,
+      "external": 75756110,
+      "arrayBuffers": 64962215
+    },
+    "memory_after": {
+      "rss": 266407936,
+      "heapTotal": 226140160,
+      "heapUsed": 134298344,
+      "external": 75853118,
+      "arrayBuffers": 65027751
+    },
+    "limitations": [
+      "UF2 numbering declares 65536 block(s) that are absent: family 0x00000001 with 2 numbered blocks has 1 of them; family 0x00000002 with 2 numbered blocks has 1 of them; family 0x00000003 with 2 numbered blocks has 1 of them; family 0x00000004 with 2 numbered blocks has 1 of them; and 65532 more."
+    ],
+    "repeat": 0,
+    "sampled_process_peak_rss_kib": 262788
+  },
+  {
+    "phase": "before",
+    "scenario": "ambiguous",
+    "count": 21845,
+    "label": "before-0-ambiguous-21845",
+    "node": "v24.22.1",
+    "input_bytes": 33553920,
+    "input_sha256": "a82d34508b743c922cff488fc6d47a1b0ae6b922654edeb35ed7abcad04b8839",
+    "source_sha256": "ce51061e58b0d7b55f533dadaff109617d012c2400f9d93845b089e79f334893",
+    "result_sha256": "1c77500d271d6a54a3d793d2e0deaf10efe13ab144df38b9c19bd2cb5059ab1b",
+    "result_bytes": 3455919,
+    "parse_ms": 128.781656,
+    "total_ms": 178.806125,
+    "parse_cpu": {
+      "user": 212109,
+      "system": 20039
+    },
+    "total_cpu": {
+      "user": 237221,
+      "system": 24218
+    },
+    "peak_rss_kib_before": 115400,
+    "parse_peak_rss_kib": 178536,
+    "peak_rss_kib": 198376,
+    "memory_before": {
+      "rss": 118169600,
+      "heapTotal": 21659648,
+      "heapUsed": 11753424,
+      "external": 44559894,
+      "arrayBuffers": 33766039
+    },
+    "memory_parsed": {
+      "rss": 182820864,
+      "heapTotal": 100499456,
+      "heapUsed": 49618040,
+      "external": 75755122,
+      "arrayBuffers": 64961227
+    },
+    "memory_after": {
+      "rss": 199733248,
+      "heapTotal": 103956480,
+      "heapUsed": 60016160,
+      "external": 75786594,
+      "arrayBuffers": 64961227
+    },
+    "limitations": [
+      "UF2 numbering cannot show that every copy of a block sequence is complete: family 0x00000001 with 2 numbered blocks has some numbers at 1 address(es) and others at 2; family 0x00000002 with 2 numbered blocks has some numbers at 1 address(es) and others at 2; family 0x00000003 with 2 numbered blocks has some numbers at 1 address(es) and others at 2; family 0x00000004 with 2 numbered blocks has some numbers at 1 address(es) and others at 2; and 21841 more."
+    ],
+    "repeat": 0,
+    "sampled_process_peak_rss_kib": 195996
+  },
+  {
+    "phase": "before",
+    "scenario": "complete",
+    "count": 8192,
+    "label": "before-0-complete-8192",
+    "node": "v24.22.1",
+    "input_bytes": 8388608,
+    "input_sha256": "d751bb3575c8fc05d45176eeee562a8a9893f1a2806bae5db1f64ff23c1bb9bd",
+    "source_sha256": "ce51061e58b0d7b55f533dadaff109617d012c2400f9d93845b089e79f334893",
+    "result_sha256": "d502e1dd3360255a29af21355d96b6af670167619ef12e8b30402fb1abfd78b5",
+    "result_bytes": 1233569,
+    "parse_ms": 47.96021999999999,
+    "total_ms": 70.54147400000002,
+    "parse_cpu": {
+      "user": 82833,
+      "system": 12496
+    },
+    "total_cpu": {
+      "user": 100635,
+      "system": 16151
+    },
+    "peak_rss_kib_before": 88808,
+    "parse_peak_rss_kib": 104808,
+    "peak_rss_kib": 110952,
+    "memory_before": {
+      "rss": 90939392,
+      "heapTotal": 17727488,
+      "heapUsed": 11768320,
+      "external": 19394582,
+      "arrayBuffers": 8600727
+    },
+    "memory_parsed": {
+      "rss": 107323392,
+      "heapTotal": 34906112,
+      "heapUsed": 24105288,
+      "external": 27193934,
+      "arrayBuffers": 16400039
+    },
+    "memory_after": {
+      "rss": 113614848,
+      "heapTotal": 55541760,
+      "heapUsed": 22852600,
+      "external": 27290942,
+      "arrayBuffers": 16465575
+    },
+    "limitations": [],
+    "repeat": 0,
+    "sampled_process_peak_rss_kib": 111624
+  },
+  {
+    "phase": "after",
+    "scenario": "absent",
+    "count": 65536,
+    "label": "after-0-absent-65536",
+    "node": "v24.22.1",
+    "input_bytes": 33554432,
+    "input_sha256": "0ad9bf27901ec376782981b1cbdafc362342c4665a019c0cfe1affd96ad80602",
+    "source_sha256": "e99d4d18a9064f1b3b33f21c42ce51e2c0a6940f17c335c5b4b4957e4b46a233",
+    "result_sha256": "0b96b3d7a8d3ef43b9b7d5d481ee2e0d18fe6a0b33bc7d16ec29b42fdf715168",
+    "result_bytes": 9601372,
+    "parse_ms": 336.592476,
+    "total_ms": 506.4769069999999,
+    "parse_cpu": {
+      "user": 400342,
+      "system": 191423
+    },
+    "total_cpu": {
+      "user": 429248,
+      "system": 305160
+    },
+    "peak_rss_kib_before": 112984,
+    "parse_peak_rss_kib": 230800,
+    "peak_rss_kib": 257740,
+    "memory_before": {
+      "rss": 115695616,
+      "heapTotal": 17727488,
+      "heapUsed": 11755056,
+      "external": 44625942,
+      "arrayBuffers": 33766551
+    },
+    "memory_parsed": {
+      "rss": 236339200,
+      "heapTotal": 214003712,
+      "heapUsed": 86868704,
+      "external": 75821646,
+      "arrayBuffers": 64962215
+    },
+    "memory_after": {
+      "rss": 254361600,
+      "heapTotal": 223870976,
+      "heapUsed": 111857160,
+      "external": 75918654,
+      "arrayBuffers": 65027751
+    },
+    "limitations": [
+      "UF2 numbering declares 65536 block(s) that are absent: family 0x00000001 with 2 numbered blocks has 1 of them; family 0x00000002 with 2 numbered blocks has 1 of them; family 0x00000003 with 2 numbered blocks has 1 of them; family 0x00000004 with 2 numbered blocks has 1 of them; and 65532 more."
+    ],
+    "repeat": 0,
+    "sampled_process_peak_rss_kib": 258396
+  },
+  {
+    "phase": "after",
+    "scenario": "ambiguous",
+    "count": 21845,
+    "label": "after-0-ambiguous-21845",
+    "node": "v24.22.1",
+    "input_bytes": 33553920,
+    "input_sha256": "a82d34508b743c922cff488fc6d47a1b0ae6b922654edeb35ed7abcad04b8839",
+    "source_sha256": "e99d4d18a9064f1b3b33f21c42ce51e2c0a6940f17c335c5b4b4957e4b46a233",
+    "result_sha256": "1c77500d271d6a54a3d793d2e0deaf10efe13ab144df38b9c19bd2cb5059ab1b",
+    "result_bytes": 3455919,
+    "parse_ms": 104.83250999999996,
+    "total_ms": 154.39650999999998,
+    "parse_cpu": {
+      "user": 190830,
+      "system": 22876
+    },
+    "total_cpu": {
+      "user": 226747,
+      "system": 25617
+    },
+    "peak_rss_kib_before": 112728,
+    "parse_peak_rss_kib": 164164,
+    "peak_rss_kib": 188296,
+    "memory_before": {
+      "rss": 115195904,
+      "heapTotal": 16941056,
+      "heapUsed": 11755088,
+      "external": 44625430,
+      "arrayBuffers": 33766039
+    },
+    "memory_parsed": {
+      "rss": 168103936,
+      "heapTotal": 101818368,
+      "heapUsed": 66404520,
+      "external": 75820658,
+      "arrayBuffers": 64961227
+    },
+    "memory_after": {
+      "rss": 189362176,
+      "heapTotal": 104034304,
+      "heapUsed": 49740344,
+      "external": 75852130,
+      "arrayBuffers": 64961227
+    },
+    "limitations": [
+      "UF2 numbering cannot show that every copy of a block sequence is complete: family 0x00000001 with 2 numbered blocks has some numbers at 1 address(es) and others at 2; family 0x00000002 with 2 numbered blocks has some numbers at 1 address(es) and others at 2; family 0x00000003 with 2 numbered blocks has some numbers at 1 address(es) and others at 2; family 0x00000004 with 2 numbered blocks has some numbers at 1 address(es) and others at 2; and 21841 more."
+    ],
+    "repeat": 0,
+    "sampled_process_peak_rss_kib": 185600
+  },
+  {
+    "phase": "after",
+    "scenario": "complete",
+    "count": 8192,
+    "label": "after-0-complete-8192",
+    "node": "v24.22.1",
+    "input_bytes": 8388608,
+    "input_sha256": "d751bb3575c8fc05d45176eeee562a8a9893f1a2806bae5db1f64ff23c1bb9bd",
+    "source_sha256": "e99d4d18a9064f1b3b33f21c42ce51e2c0a6940f17c335c5b4b4957e4b46a233",
+    "result_sha256": "d502e1dd3360255a29af21355d96b6af670167619ef12e8b30402fb1abfd78b5",
+    "result_bytes": 1233569,
+    "parse_ms": 38.918316000000004,
+    "total_ms": 53.76738900000001,
+    "parse_cpu": {
+      "user": 76360,
+      "system": 8767
+    },
+    "total_cpu": {
+      "user": 91132,
+      "system": 9186
+    },
+    "peak_rss_kib_before": 87884,
+    "parse_peak_rss_kib": 102092,
+    "peak_rss_kib": 107468,
+    "memory_before": {
+      "rss": 89993216,
+      "heapTotal": 17203200,
+      "heapUsed": 11770296,
+      "external": 19460118,
+      "arrayBuffers": 8600727
+    },
+    "memory_parsed": {
+      "rss": 104542208,
+      "heapTotal": 35430400,
+      "heapUsed": 22045064,
+      "external": 27259470,
+      "arrayBuffers": 16400039
+    },
+    "memory_after": {
+      "rss": 110047232,
+      "heapTotal": 36667392,
+      "heapUsed": 26505816,
+      "external": 27356478,
+      "arrayBuffers": 16465575
+    },
+    "limitations": [],
+    "repeat": 0,
+    "sampled_process_peak_rss_kib": 111176
+  },
+  {
+    "phase": "after",
+    "scenario": "absent",
+    "count": 65536,
+    "label": "after-1-absent-65536",
+    "node": "v24.22.1",
+    "input_bytes": 33554432,
+    "input_sha256": "0ad9bf27901ec376782981b1cbdafc362342c4665a019c0cfe1affd96ad80602",
+    "source_sha256": "e99d4d18a9064f1b3b33f21c42ce51e2c0a6940f17c335c5b4b4957e4b46a233",
+    "result_sha256": "0b96b3d7a8d3ef43b9b7d5d481ee2e0d18fe6a0b33bc7d16ec29b42fdf715168",
+    "result_bytes": 9601372,
+    "parse_ms": 235.50143200000002,
+    "total_ms": 477.38307399999997,
+    "parse_cpu": {
+      "user": 357235,
+      "system": 85143
+    },
+    "total_cpu": {
+      "user": 429860,
+      "system": 213524
+    },
+    "peak_rss_kib_before": 112736,
+    "parse_peak_rss_kib": 231436,
+    "peak_rss_kib": 264612,
+    "memory_before": {
+      "rss": 115269632,
+      "heapTotal": 17203200,
+      "heapUsed": 11755208,
+      "external": 44625942,
+      "arrayBuffers": 33766551
+    },
+    "memory_parsed": {
+      "rss": 235048960,
+      "heapTotal": 211292160,
+      "heapUsed": 79889744,
+      "external": 75821646,
+      "arrayBuffers": 33767079
+    },
+    "memory_after": {
+      "rss": 270962688,
+      "heapTotal": 220897280,
+      "heapUsed": 104480344,
+      "external": 44723518,
+      "arrayBuffers": 33832615
+    },
+    "limitations": [
+      "UF2 numbering declares 65536 block(s) that are absent: family 0x00000001 with 2 numbered blocks has 1 of them; family 0x00000002 with 2 numbered blocks has 1 of them; family 0x00000003 with 2 numbered blocks has 1 of them; family 0x00000004 with 2 numbered blocks has 1 of them; and 65532 more."
+    ],
+    "repeat": 1,
+    "sampled_process_peak_rss_kib": 265504
+  },
+  {
+    "phase": "after",
+    "scenario": "ambiguous",
+    "count": 21845,
+    "label": "after-1-ambiguous-21845",
+    "node": "v24.22.1",
+    "input_bytes": 33553920,
+    "input_sha256": "a82d34508b743c922cff488fc6d47a1b0ae6b922654edeb35ed7abcad04b8839",
+    "source_sha256": "e99d4d18a9064f1b3b33f21c42ce51e2c0a6940f17c335c5b4b4957e4b46a233",
+    "result_sha256": "1c77500d271d6a54a3d793d2e0deaf10efe13ab144df38b9c19bd2cb5059ab1b",
+    "result_bytes": 3455919,
+    "parse_ms": 136.469074,
+    "total_ms": 234.84971299999998,
+    "parse_cpu": {
+      "user": 187218,
+      "system": 35431
+    },
+    "total_cpu": {
+      "user": 213678,
+      "system": 87746
+    },
+    "peak_rss_kib_before": 114448,
+    "parse_peak_rss_kib": 162984,
+    "peak_rss_kib": 186932,
+    "memory_before": {
+      "rss": 117194752,
+      "heapTotal": 21659648,
+      "heapUsed": 11755128,
+      "external": 44625430,
+      "arrayBuffers": 33766039
+    },
+    "memory_parsed": {
+      "rss": 166895616,
+      "heapTotal": 101294080,
+      "heapUsed": 65805632,
+      "external": 75820658,
+      "arrayBuffers": 64961227
+    },
+    "memory_after": {
+      "rss": 188055552,
+      "heapTotal": 103510016,
+      "heapUsed": 48324616,
+      "external": 75852130,
+      "arrayBuffers": 64961227
+    },
+    "limitations": [
+      "UF2 numbering cannot show that every copy of a block sequence is complete: family 0x00000001 with 2 numbered blocks has some numbers at 1 address(es) and others at 2; family 0x00000002 with 2 numbered blocks has some numbers at 1 address(es) and others at 2; family 0x00000003 with 2 numbered blocks has some numbers at 1 address(es) and others at 2; family 0x00000004 with 2 numbered blocks has some numbers at 1 address(es) and others at 2; and 21841 more."
+    ],
+    "repeat": 1,
+    "sampled_process_peak_rss_kib": 184716
+  },
+  {
+    "phase": "after",
+    "scenario": "complete",
+    "count": 8192,
+    "label": "after-1-complete-8192",
+    "node": "v24.22.1",
+    "input_bytes": 8388608,
+    "input_sha256": "d751bb3575c8fc05d45176eeee562a8a9893f1a2806bae5db1f64ff23c1bb9bd",
+    "source_sha256": "e99d4d18a9064f1b3b33f21c42ce51e2c0a6940f17c335c5b4b4957e4b46a233",
+    "result_sha256": "d502e1dd3360255a29af21355d96b6af670167619ef12e8b30402fb1abfd78b5",
+    "result_bytes": 1233569,
+    "parse_ms": 40.145894,
+    "total_ms": 58.60937899999999,
+    "parse_cpu": {
+      "user": 85940,
+      "system": 1020
+    },
+    "total_cpu": {
+      "user": 104193,
+      "system": 1031
+    },
+    "peak_rss_kib_before": 88348,
+    "parse_peak_rss_kib": 102556,
+    "peak_rss_kib": 107548,
+    "memory_before": {
+      "rss": 90468352,
+      "heapTotal": 17203200,
+      "heapUsed": 11769264,
+      "external": 19460118,
+      "arrayBuffers": 8600727
+    },
+    "memory_parsed": {
+      "rss": 105017344,
+      "heapTotal": 34906112,
+      "heapUsed": 21819664,
+      "external": 27259470,
+      "arrayBuffers": 16400039
+    },
+    "memory_after": {
+      "rss": 110129152,
+      "heapTotal": 36143104,
+      "heapUsed": 26357688,
+      "external": 27356478,
+      "arrayBuffers": 16465575
+    },
+    "limitations": [],
+    "repeat": 1,
+    "sampled_process_peak_rss_kib": 106296
+  },
+  {
+    "phase": "before",
+    "scenario": "absent",
+    "count": 65536,
+    "label": "before-1-absent-65536",
+    "node": "v24.22.1",
+    "input_bytes": 33554432,
+    "input_sha256": "0ad9bf27901ec376782981b1cbdafc362342c4665a019c0cfe1affd96ad80602",
+    "source_sha256": "ce51061e58b0d7b55f533dadaff109617d012c2400f9d93845b089e79f334893",
+    "result_sha256": "0b96b3d7a8d3ef43b9b7d5d481ee2e0d18fe6a0b33bc7d16ec29b42fdf715168",
+    "result_bytes": 9601372,
+    "parse_ms": 360.568372,
+    "total_ms": 503.24485599999997,
+    "parse_cpu": {
+      "user": 360707,
+      "system": 192345
+    },
+    "total_cpu": {
+      "user": 402364,
+      "system": 256364
+    },
+    "peak_rss_kib_before": 113028,
+    "parse_peak_rss_kib": 231780,
+    "peak_rss_kib": 266760,
+    "memory_before": {
+      "rss": 115740672,
+      "heapTotal": 17465344,
+      "heapUsed": 11753184,
+      "external": 44560406,
+      "arrayBuffers": 33766551
+    },
+    "memory_parsed": {
+      "rss": 237342720,
+      "heapTotal": 217059328,
+      "heapUsed": 113074376,
+      "external": 75756110,
+      "arrayBuffers": 64962215
+    },
+    "memory_after": {
+      "rss": 263569408,
+      "heapTotal": 226664448,
+      "heapUsed": 132661408,
+      "external": 75853118,
+      "arrayBuffers": 65027751
+    },
+    "limitations": [
+      "UF2 numbering declares 65536 block(s) that are absent: family 0x00000001 with 2 numbered blocks has 1 of them; family 0x00000002 with 2 numbered blocks has 1 of them; family 0x00000003 with 2 numbered blocks has 1 of them; family 0x00000004 with 2 numbered blocks has 1 of them; and 65532 more."
+    ],
+    "repeat": 1,
+    "sampled_process_peak_rss_kib": 267644
+  },
+  {
+    "phase": "before",
+    "scenario": "ambiguous",
+    "count": 21845,
+    "label": "before-1-ambiguous-21845",
+    "node": "v24.22.1",
+    "input_bytes": 33553920,
+    "input_sha256": "a82d34508b743c922cff488fc6d47a1b0ae6b922654edeb35ed7abcad04b8839",
+    "source_sha256": "ce51061e58b0d7b55f533dadaff109617d012c2400f9d93845b089e79f334893",
+    "result_sha256": "1c77500d271d6a54a3d793d2e0deaf10efe13ab144df38b9c19bd2cb5059ab1b",
+    "result_bytes": 3455919,
+    "parse_ms": 194.43650399999999,
+    "total_ms": 240.948362,
+    "parse_cpu": {
+      "user": 287704,
+      "system": 53940
+    },
+    "total_cpu": {
+      "user": 305331,
+      "system": 61658
+    },
+    "peak_rss_kib_before": 116176,
+    "parse_peak_rss_kib": 178432,
+    "peak_rss_kib": 198144,
+    "memory_before": {
+      "rss": 118964224,
+      "heapTotal": 21397504,
+      "heapUsed": 11762472,
+      "external": 44559894,
+      "arrayBuffers": 33766039
+    },
+    "memory_parsed": {
+      "rss": 182714368,
+      "heapTotal": 100237312,
+      "heapUsed": 49359424,
+      "external": 75755122,
+      "arrayBuffers": 64961227
+    },
+    "memory_after": {
+      "rss": 199462912,
+      "heapTotal": 103694336,
+      "heapUsed": 59903056,
+      "external": 75786594,
+      "arrayBuffers": 64961227
+    },
+    "limitations": [
+      "UF2 numbering cannot show that every copy of a block sequence is complete: family 0x00000001 with 2 numbered blocks has some numbers at 1 address(es) and others at 2; family 0x00000002 with 2 numbered blocks has some numbers at 1 address(es) and others at 2; family 0x00000003 with 2 numbered blocks has some numbers at 1 address(es) and others at 2; family 0x00000004 with 2 numbered blocks has some numbers at 1 address(es) and others at 2; and 21841 more."
+    ],
+    "repeat": 1,
+    "sampled_process_peak_rss_kib": 195728
+  },
+  {
+    "phase": "before",
+    "scenario": "complete",
+    "count": 8192,
+    "label": "before-1-complete-8192",
+    "node": "v24.22.1",
+    "input_bytes": 8388608,
+    "input_sha256": "d751bb3575c8fc05d45176eeee562a8a9893f1a2806bae5db1f64ff23c1bb9bd",
+    "source_sha256": "ce51061e58b0d7b55f533dadaff109617d012c2400f9d93845b089e79f334893",
+    "result_sha256": "d502e1dd3360255a29af21355d96b6af670167619ef12e8b30402fb1abfd78b5",
+    "result_bytes": 1233569,
+    "parse_ms": 35.898889999999994,
+    "total_ms": 50.270891000000006,
+    "parse_cpu": {
+      "user": 69743,
+      "system": 11164
+    },
+    "total_cpu": {
+      "user": 84398,
+      "system": 11546
+    },
+    "peak_rss_kib_before": 87660,
+    "parse_peak_rss_kib": 102380,
+    "peak_rss_kib": 107500,
+    "memory_before": {
+      "rss": 89763840,
+      "heapTotal": 17203200,
+      "heapUsed": 11777464,
+      "external": 19394582,
+      "arrayBuffers": 8600727
+    },
+    "memory_parsed": {
+      "rss": 104837120,
+      "heapTotal": 35692544,
+      "heapUsed": 22645000,
+      "external": 27193934,
+      "arrayBuffers": 16400039
+    },
+    "memory_after": {
+      "rss": 110080000,
+      "heapTotal": 36929536,
+      "heapUsed": 27109048,
+      "external": 27290942,
+      "arrayBuffers": 16465575
+    },
+    "limitations": [],
+    "repeat": 1,
+    "sampled_process_peak_rss_kib": 108228
+  },
+  {
+    "phase": "before",
+    "scenario": "absent",
+    "count": 65536,
+    "label": "before-2-absent-65536",
+    "node": "v24.22.1",
+    "input_bytes": 33554432,
+    "input_sha256": "0ad9bf27901ec376782981b1cbdafc362342c4665a019c0cfe1affd96ad80602",
+    "source_sha256": "ce51061e58b0d7b55f533dadaff109617d012c2400f9d93845b089e79f334893",
+    "result_sha256": "0b96b3d7a8d3ef43b9b7d5d481ee2e0d18fe6a0b33bc7d16ec29b42fdf715168",
+    "result_bytes": 9601372,
+    "parse_ms": 237.090244,
+    "total_ms": 318.35633100000007,
+    "parse_cpu": {
+      "user": 405436,
+      "system": 27106
+    },
+    "total_cpu": {
+      "user": 450958,
+      "system": 34983
+    },
+    "peak_rss_kib_before": 117084,
+    "parse_peak_rss_kib": 232980,
+    "peak_rss_kib": 271260,
+    "memory_before": {
+      "rss": 119894016,
+      "heapTotal": 21397504,
+      "heapUsed": 11756912,
+      "external": 44560406,
+      "arrayBuffers": 33766551
+    },
+    "memory_parsed": {
+      "rss": 238571520,
+      "heapTotal": 216535040,
+      "heapUsed": 114541528,
+      "external": 75756110,
+      "arrayBuffers": 64962215
+    },
+    "memory_after": {
+      "rss": 268177408,
+      "heapTotal": 226140160,
+      "heapUsed": 136576688,
+      "external": 75853118,
+      "arrayBuffers": 65027751
+    },
+    "limitations": [
+      "UF2 numbering declares 65536 block(s) that are absent: family 0x00000001 with 2 numbered blocks has 1 of them; family 0x00000002 with 2 numbered blocks has 1 of them; family 0x00000003 with 2 numbered blocks has 1 of them; family 0x00000004 with 2 numbered blocks has 1 of them; and 65532 more."
+    ],
+    "repeat": 2,
+    "sampled_process_peak_rss_kib": 264832
+  },
+  {
+    "phase": "before",
+    "scenario": "ambiguous",
+    "count": 21845,
+    "label": "before-2-ambiguous-21845",
+    "node": "v24.22.1",
+    "input_bytes": 33553920,
+    "input_sha256": "a82d34508b743c922cff488fc6d47a1b0ae6b922654edeb35ed7abcad04b8839",
+    "source_sha256": "ce51061e58b0d7b55f533dadaff109617d012c2400f9d93845b089e79f334893",
+    "result_sha256": "1c77500d271d6a54a3d793d2e0deaf10efe13ab144df38b9c19bd2cb5059ab1b",
+    "result_bytes": 3455919,
+    "parse_ms": 116.00296100000003,
+    "total_ms": 159.608406,
+    "parse_cpu": {
+      "user": 173665,
+      "system": 41006
+    },
+    "total_cpu": {
+      "user": 192641,
+      "system": 48015
+    },
+    "peak_rss_kib_before": 115292,
+    "parse_peak_rss_kib": 178712,
+    "peak_rss_kib": 198680,
+    "memory_before": {
+      "rss": 118059008,
+      "heapTotal": 21397504,
+      "heapUsed": 11754032,
+      "external": 44559894,
+      "arrayBuffers": 33766039
+    },
+    "memory_parsed": {
+      "rss": 183001088,
+      "heapTotal": 100499456,
+      "heapUsed": 49550144,
+      "external": 75755122,
+      "arrayBuffers": 64961227
+    },
+    "memory_after": {
+      "rss": 200089600,
+      "heapTotal": 103956480,
+      "heapUsed": 59983056,
+      "external": 75786594,
+      "arrayBuffers": 64961227
+    },
+    "limitations": [
+      "UF2 numbering cannot show that every copy of a block sequence is complete: family 0x00000001 with 2 numbered blocks has some numbers at 1 address(es) and others at 2; family 0x00000002 with 2 numbered blocks has some numbers at 1 address(es) and others at 2; family 0x00000003 with 2 numbered blocks has some numbers at 1 address(es) and others at 2; family 0x00000004 with 2 numbered blocks has some numbers at 1 address(es) and others at 2; and 21841 more."
+    ],
+    "repeat": 2,
+    "sampled_process_peak_rss_kib": 196124
+  },
+  {
+    "phase": "before",
+    "scenario": "complete",
+    "count": 8192,
+    "label": "before-2-complete-8192",
+    "node": "v24.22.1",
+    "input_bytes": 8388608,
+    "input_sha256": "d751bb3575c8fc05d45176eeee562a8a9893f1a2806bae5db1f64ff23c1bb9bd",
+    "source_sha256": "ce51061e58b0d7b55f533dadaff109617d012c2400f9d93845b089e79f334893",
+    "result_sha256": "d502e1dd3360255a29af21355d96b6af670167619ef12e8b30402fb1abfd78b5",
+    "result_bytes": 1233569,
+    "parse_ms": 38.561983999999995,
+    "total_ms": 55.47125299999999,
+    "parse_cpu": {
+      "user": 71829,
+      "system": 13257
+    },
+    "total_cpu": {
+      "user": 95660,
+      "system": 13264
+    },
+    "peak_rss_kib_before": 87876,
+    "parse_peak_rss_kib": 104260,
+    "peak_rss_kib": 111684,
+    "memory_before": {
+      "rss": 89985024,
+      "heapTotal": 16941056,
+      "heapUsed": 11753552,
+      "external": 19394582,
+      "arrayBuffers": 8600727
+    },
+    "memory_parsed": {
+      "rss": 106762240,
+      "heapTotal": 35430400,
+      "heapUsed": 23960720,
+      "external": 27193934,
+      "arrayBuffers": 16400039
+    },
+    "memory_after": {
+      "rss": 114364416,
+      "heapTotal": 57114624,
+      "heapUsed": 23687856,
+      "external": 27290942,
+      "arrayBuffers": 16465575
+    },
+    "limitations": [],
+    "repeat": 2,
+    "sampled_process_peak_rss_kib": 109856
+  },
+  {
+    "phase": "after",
+    "scenario": "absent",
+    "count": 65536,
+    "label": "after-2-absent-65536",
+    "node": "v24.22.1",
+    "input_bytes": 33554432,
+    "input_sha256": "0ad9bf27901ec376782981b1cbdafc362342c4665a019c0cfe1affd96ad80602",
+    "source_sha256": "e99d4d18a9064f1b3b33f21c42ce51e2c0a6940f17c335c5b4b4957e4b46a233",
+    "result_sha256": "0b96b3d7a8d3ef43b9b7d5d481ee2e0d18fe6a0b33bc7d16ec29b42fdf715168",
+    "result_bytes": 9601372,
+    "parse_ms": 196.421141,
+    "total_ms": 303.17063300000007,
+    "parse_cpu": {
+      "user": 273441,
+      "system": 67437
+    },
+    "total_cpu": {
+      "user": 304492,
+      "system": 111200
+    },
+    "peak_rss_kib_before": 117320,
+    "parse_peak_rss_kib": 225076,
+    "peak_rss_kib": 262684,
+    "memory_before": {
+      "rss": 120135680,
+      "heapTotal": 21397504,
+      "heapUsed": 11757776,
+      "external": 44625942,
+      "arrayBuffers": 33766551
+    },
+    "memory_parsed": {
+      "rss": 230477824,
+      "heapTotal": 198086656,
+      "heapUsed": 94713512,
+      "external": 75821646,
+      "arrayBuffers": 64962215
+    },
+    "memory_after": {
+      "rss": 259420160,
+      "heapTotal": 207691776,
+      "heapUsed": 117474280,
+      "external": 75918654,
+      "arrayBuffers": 65027751
+    },
+    "limitations": [
+      "UF2 numbering declares 65536 block(s) that are absent: family 0x00000001 with 2 numbered blocks has 1 of them; family 0x00000002 with 2 numbered blocks has 1 of them; family 0x00000003 with 2 numbered blocks has 1 of them; family 0x00000004 with 2 numbered blocks has 1 of them; and 65532 more."
+    ],
+    "repeat": 2,
+    "sampled_process_peak_rss_kib": 263552
+  },
+  {
+    "phase": "after",
+    "scenario": "ambiguous",
+    "count": 21845,
+    "label": "after-2-ambiguous-21845",
+    "node": "v24.22.1",
+    "input_bytes": 33553920,
+    "input_sha256": "a82d34508b743c922cff488fc6d47a1b0ae6b922654edeb35ed7abcad04b8839",
+    "source_sha256": "e99d4d18a9064f1b3b33f21c42ce51e2c0a6940f17c335c5b4b4957e4b46a233",
+    "result_sha256": "1c77500d271d6a54a3d793d2e0deaf10efe13ab144df38b9c19bd2cb5059ab1b",
+    "result_bytes": 3455919,
+    "parse_ms": 162.938686,
+    "total_ms": 257.26715,
+    "parse_cpu": {
+      "user": 167099,
+      "system": 88966
+    },
+    "total_cpu": {
+      "user": 204579,
+      "system": 126995
+    },
+    "peak_rss_kib_before": 115000,
+    "parse_peak_rss_kib": 161988,
+    "peak_rss_kib": 185604,
+    "memory_before": {
+      "rss": 117760000,
+      "heapTotal": 21659648,
+      "heapUsed": 11755208,
+      "external": 44625430,
+      "arrayBuffers": 33766039
+    },
+    "memory_parsed": {
+      "rss": 165875712,
+      "heapTotal": 101294080,
+      "heapUsed": 64084504,
+      "external": 75820658,
+      "arrayBuffers": 64961227
+    },
+    "memory_after": {
+      "rss": 186720256,
+      "heapTotal": 103772160,
+      "heapUsed": 47091568,
+      "external": 75852130,
+      "arrayBuffers": 64961227
+    },
+    "limitations": [
+      "UF2 numbering cannot show that every copy of a block sequence is complete: family 0x00000001 with 2 numbered blocks has some numbers at 1 address(es) and others at 2; family 0x00000002 with 2 numbered blocks has some numbers at 1 address(es) and others at 2; family 0x00000003 with 2 numbered blocks has some numbers at 1 address(es) and others at 2; family 0x00000004 with 2 numbered blocks has some numbers at 1 address(es) and others at 2; and 21841 more."
+    ],
+    "repeat": 2,
+    "sampled_process_peak_rss_kib": 183460
+  },
+  {
+    "phase": "after",
+    "scenario": "complete",
+    "count": 8192,
+    "label": "after-2-complete-8192",
+    "node": "v24.22.1",
+    "input_bytes": 8388608,
+    "input_sha256": "d751bb3575c8fc05d45176eeee562a8a9893f1a2806bae5db1f64ff23c1bb9bd",
+    "source_sha256": "e99d4d18a9064f1b3b33f21c42ce51e2c0a6940f17c335c5b4b4957e4b46a233",
+    "result_sha256": "d502e1dd3360255a29af21355d96b6af670167619ef12e8b30402fb1abfd78b5",
+    "result_bytes": 1233569,
+    "parse_ms": 64.766784,
+    "total_ms": 99.83160299999997,
+    "parse_cpu": {
+      "user": 76163,
+      "system": 29360
+    },
+    "total_cpu": {
+      "user": 92657,
+      "system": 38108
+    },
+    "peak_rss_kib_before": 87992,
+    "parse_peak_rss_kib": 101944,
+    "peak_rss_kib": 106936,
+    "memory_before": {
+      "rss": 90103808,
+      "heapTotal": 17203200,
+      "heapUsed": 11754496,
+      "external": 19460118,
+      "arrayBuffers": 8600727
+    },
+    "memory_parsed": {
+      "rss": 104390656,
+      "heapTotal": 35692544,
+      "heapUsed": 21553904,
+      "external": 27259470,
+      "arrayBuffers": 16400039
+    },
+    "memory_after": {
+      "rss": 109502464,
+      "heapTotal": 36929536,
+      "heapUsed": 25897456,
+      "external": 27356478,
+      "arrayBuffers": 16465575
+    },
+    "limitations": [],
+    "repeat": 2,
+    "sampled_process_peak_rss_kib": 109628
+  }
+]

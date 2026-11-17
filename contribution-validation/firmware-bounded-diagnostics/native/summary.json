@@ -1,0 +1,88 @@
+{
+  "base": "d5a942177fad030d3caf0f8d39856c116e3e5cda",
+  "native_node": "24.22.1",
+  "fresh_processes": 18,
+  "rounds": 3,
+  "guard_rss_kib": 460800,
+  "guard_stops": 0,
+  "entrypoint": "createUf2Decoder.write/finish with unchanged Node verifier source loader",
+  "scope": "Static generated UF2 files; production parser functions imported verbatim; public CLI/provider validation pending",
+  "comparisons": [
+    {
+      "scenario": "absent",
+      "count": 65536,
+      "input_bytes": 33554432,
+      "input_sha256": "0ad9bf27901ec376782981b1cbdafc362342c4665a019c0cfe1affd96ad80602",
+      "result_sha256": "0b96b3d7a8d3ef43b9b7d5d481ee2e0d18fe6a0b33bc7d16ec29b42fdf715168",
+      "result_bytes": 9601372,
+      "all_complete_output_bytes_equal": true,
+      "median": {
+        "before": {
+          "parse_ms": 360.568372,
+          "total_ms": 503.24485599999997,
+          "parse_peak_rss_kib": 232980,
+          "peak_rss_kib": 269532,
+          "sampled_process_peak_rss_kib": 264832
+        },
+        "after": {
+          "parse_ms": 235.50143200000002,
+          "total_ms": 477.38307399999997,
+          "parse_peak_rss_kib": 230800,
+          "peak_rss_kib": 262684,
+          "sampled_process_peak_rss_kib": 263552
+        }
+      }
+    },
+    {
+      "scenario": "ambiguous",
+      "count": 21845,
+      "input_bytes": 33553920,
+      "input_sha256": "a82d34508b743c922cff488fc6d47a1b0ae6b922654edeb35ed7abcad04b8839",
+      "result_sha256": "1c77500d271d6a54a3d793d2e0deaf10efe13ab144df38b9c19bd2cb5059ab1b",
+      "result_bytes": 3455919,
+      "all_complete_output_bytes_equal": true,
+      "median": {
+        "before": {
+          "parse_ms": 128.781656,
+          "total_ms": 178.806125,
+          "parse_peak_rss_kib": 178536,
+          "peak_rss_kib": 198376,
+          "sampled_process_peak_rss_kib": 195996
+        },
+        "after": {
+          "parse_ms": 136.469074,
+          "total_ms": 234.84971299999998,
+          "parse_peak_rss_kib": 162984,
+          "peak_rss_kib": 186932,
+          "sampled_process_peak_rss_kib": 184716
+        }
+      }
+    },
+    {
+      "scenario": "complete",
+      "count": 8192,
+      "input_bytes": 8388608,
+      "input_sha256": "d751bb3575c8fc05d45176eeee562a8a9893f1a2806bae5db1f64ff23c1bb9bd",
+      "result_sha256": "d502e1dd3360255a29af21355d96b6af670167619ef12e8b30402fb1abfd78b5",
+      "result_bytes": 1233569,
+      "all_complete_output_bytes_equal": true,
+      "median": {
+        "before": {
+          "parse_ms": 38.561983999999995,
+          "total_ms": 55.47125299999999,
+          "parse_peak_rss_kib": 104260,
+          "peak_rss_kib": 110952,
+          "sampled_process_peak_rss_kib": 109856
+        },
+        "after": {
+          "parse_ms": 40.145894,
+          "total_ms": 58.60937899999999,
+          "parse_peak_rss_kib": 102092,
+          "peak_rss_kib": 107468,
+          "sampled_process_peak_rss_kib": 109628
+        }
+      }
+    }
+  ],
+  "limits": "CPU timings vary across rounds; no general speedup, token reduction or real-device result claimed. Large complete-group peak samples overlap. Do not infer whole public workflow improvements from this parser benchmark."
+}
