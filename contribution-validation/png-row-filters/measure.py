@@ -23,7 +23,7 @@ select("after")
 command("format",["./node_modules/.bin/oxfmt",*paths],timeout=120)
 after={p:(source/p).read_bytes() for p in paths}
 select("before")
-tests=["src/domain/pngVisualDiff.test.ts","src/domain/pngHeader.test.ts","tests/boundary/browser/browserToolContractExamples.test.ts"]
+tests=["src/domain/pngVisualDiff.test.ts","src/domain/pngHeader.test.ts"]
 command("before-source-tests",npm+["run","test:local","--",*tests])
 fixtures=out/"fixtures"
 command("independent-producer",[os.environ["REA_PNG_PYTHON"],str(payload/"producer.py"),str(fixtures)])
@@ -47,7 +47,7 @@ for case in cases:
 print("REA_PNG_OUTPUTS_BYTE_EQUAL",json.dumps({"cases":len(cases),"fresh_processes":len(records),"calls_per_process":7,"independent_oracle":"Pillow 13.0.0 exact RGBA difference metrics"}),flush=True)
 select("after")
 command("after-source-tests",npm+["run","test:local","--",*tests])
-command("after-public-cli",npm+["run","test:focused","--","tests/boundary/cli/browserCli.test.ts"])
+command("after-public-cli",npm+["run","test:focused","--","tests/boundary/cli/browserCli.test.ts","tests/boundary/browser/browserToolContractExamples.test.ts"])
 command("after-required-check",npm+["run","check"])
 command("diff-check",["git","diff","--check"])
 changed=subprocess.check_output(["git","diff","--name-only"],cwd=source,text=True).splitlines()
