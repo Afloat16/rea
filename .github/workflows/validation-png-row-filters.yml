@@ -1,0 +1,50 @@
+name: Validate PNG row filter reconstruction
+
+on:
+  push:
+    branches: [validation/rea-png-row-filters-20261117]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validate-png-row-filters-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  native:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      HUSKY: "0"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version-file: .nvmrc
+      - name: Prepare isolated exact source and producer
+        run: |
+          echo "REA_SOURCE_ROOT=$RUNNER_TEMP/rea-png-source" >> "$GITHUB_ENV"
+          echo "REA_VALIDATION_OUTPUT=$RUNNER_TEMP/rea-png-results" >> "$GITHUB_ENV"
+          echo "REA_NPM_CLI=$RUNNER_TEMP/rea-png-toolchain/node_modules/npm/bin/npm-cli.js" >> "$GITHUB_ENV"
+          echo "REA_PNG_PYTHON=$RUNNER_TEMP/rea-png-producer/bin/python" >> "$GITHUB_ENV"
+          git worktree add --detach "$RUNNER_TEMP/rea-png-source" af062e7a2d290fec4307fb9444298a13c2fea630
+          npm install --prefix "$RUNNER_TEMP/rea-png-toolchain" --no-audit --no-fund npm@11.16.0
+          echo "$RUNNER_TEMP/rea-png-toolchain/node_modules/.bin" >> "$GITHUB_PATH"
+          python3 -m venv "$RUNNER_TEMP/rea-png-producer"
+          "$RUNNER_TEMP/rea-png-producer/bin/python" -m pip install Pillow==13.0.0
+      - name: Install locked source dependencies
+        working-directory: ${{ runner.temp }}/rea-png-source
+        run: node "$REA_NPM_CLI" ci --no-audit --no-fund
+      - name: Compare complete public tasks and run required verification
+        run: python3 contribution-validation/png-row-filters/measure.py
+      - name: Retain exact inputs, outputs and native logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: png-row-filter-validation
+          path: ${{ runner.temp }}/rea-png-results/
+          retention-days: 7
