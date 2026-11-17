@@ -14,19 +14,17 @@
     "numeric_open_cap_found": false
   },
   "published": [],
-  "prepared": [],
-  "research_only": [
+  "prepared": [
     {
       "key": "firmware-bounded-diagnostics",
-      "status": "combined_native_validation_in_progress",
-      "branch": "validation/rea-dfuse-overlap-20261116",
-      "head": "7bf54f334db2c13fbabf195d9ad541dd100a37c5",
-      "tree": "0b04ae790018ea0363d7b10d429112fb2a6a626b",
-      "scope": "One producer-level diagnostic string allocation improvement covering DfuSe overlap and UF2 numbering reports; all facts/payload retained.",
-      "production_pr": null,
-      "notes": "DfuSe full native/public validation success; UF2 local native evidence success; combined UF2 full history/public reader and required check pending."
+      "status": "production_branch_verified_pending_single_draft_attempt",
+      "head": "dd42eb715349651889b4b49c1be9ce0362454070",
+      "head_ref": "perf/firmware-bounded-diagnostics-20261117",
+      "ready_path": "contribution-validation/firmware-bounded-diagnostics/ready.json",
+      "upstream_pr": null
     }
   ],
+  "research_only": [],
   "author_readiness": {
     "draft_allowed": true,
     "source": "https://github.com/morluto/rea/blob/d5a942177fad030d3caf0f8d39856c116e3e5cda/CONTRIBUTING.md#pull-request-ownership-and-readiness",
@@ -69,8 +67,8 @@
         "f35d55a5bda0cf71638afb4777db58afc84afeef"
       ]
     },
-    "uf2_manual_semantic_review": "pending current combined full-ref run",
-    "positive_novelty_claim": "DfuSe source complete; overall combined proposal awaits UF2"
+    "uf2_manual_semantic_review": "Complete, six historical owning sources identical and unbounded; alternate #7560 one source also not equivalent",
+    "positive_novelty_claim": true
   },
   "environment": {
     "node": "24.22.1",
@@ -97,6 +95,6 @@
       "production_change": false
     }
   ],
-  "findings_limit": "DfuSe measurement completed through native decoder and public ArtifactReader; synthetic fixed-layout fixtures. No general CPU/token claim. No production branch/PR or new contribution counted.",
-  "updated_at": "2026-11-17T06:50:57.029Z"
+  "findings_limit": "Native Linux Node24.22.1, synthetic fixed-layout input, one runner, three fresh processes/phase/case. Public absent-number peak unchanged; complete-group control +2.89 MiB. No general CPU/latency/token claim; no third-party firmware or hardware qualification.",
+  "updated_at": "2026-11-17T06:59:24.022Z"
 }

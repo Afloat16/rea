@@ -1,0 +1,3213 @@
+{
+  "schema": 1,
+  "baseline": "d5a942177fad030d3caf0f8d39856c116e3e5cda",
+  "validation_head": "7bf54f334db2c13fbabf195d9ad541dd100a37c5",
+  "run": 44034092158,
+  "job": 133872678844,
+  "run_url": "https://github.com/Afloat16/rea/actions/runs/44034092158",
+  "status": "completed",
+  "conclusion": "success",
+  "tests": {
+    "before_source": 45,
+    "after_source": 45,
+    "after_cli_mcp": 7,
+    "required_check": "passed; advisory typed-lint warnings retained",
+    "diff_check": "passed",
+    "all_48_outputs_byte_equal": true
+  },
+  "source_files": [
+    {
+      "path": "src/domain/firmware/dfuse.ts",
+      "blob_sha": "f63eedde56a8b51ddefaaef54f5ea2d90a65c061",
+      "sha256": "8a7f6412009cb87431582c3f786358fe7a4b858da0b08fe2550487ce15ff5f0c",
+      "content_equal_to_tested": true
+    },
+    {
+      "path": "src/domain/firmware/dfuse.test.ts",
+      "blob_sha": "b287070b0ecd0d0c7c71424378bd7858ad255fe8",
+      "sha256": "6ec846277071be8a3c691121a4ace2c6f3670db9136d985b93b1a3c517b9e0a9",
+      "content_equal_to_tested": true
+    },
+    {
+      "path": "src/domain/firmware/uf2.ts",
+      "blob_sha": "09fcd1e1fab0296264c8e63313ec06ad745fe23d",
+      "sha256": "e99d4d18a9064f1b3b33f21c42ce51e2c0a6940f17c335c5b4b4957e4b46a233",
+      "content_equal_to_tested": true
+    },
+    {
+      "path": "src/domain/firmware/uf2.test.ts",
+      "blob_sha": "ded08358a9d77532b1f3846e1c1319d56f51fe70",
+      "sha256": "889a14066337d04fbdb6860c13507a73d5cd5713487ede24b33840ca51dd8fbd",
+      "content_equal_to_tested": true
+    }
+  ],
+  "production_head": "dd42eb715349651889b4b49c1be9ce0362454070",
+  "measurements": [
+    {
+      "scenario": "absent",
+      "count": 8,
+      "mode": "decoder",
+      "records": 6,
+      "input_bytes": 4096,
+      "input_sha256": "59e6fd857439b51ff6101ae18d9442bf07bd5a06b9b432eeb54cf4764944fef5",
+      "result_bytes": 2135,
+      "result_sha256": "7e37451be0b08ace2b22c09c06fa96fbd2d712dbaa632ece5ef0783541db09ef",
+      "output_unique": 1,
+      "before": {
+        "parse_ms": {
+          "median": 1.9865260000000262,
+          "min": 1.970166000000006,
+          "max": 1.9962939999999776
+        },
+        "total_ms": {
+          "median": 2.4416719999999827,
+          "min": 2.399586999999997,
+          "max": 2.447681999999986
+        },
+        "parse_peak_rss_kib": {
+          "median": 122832,
+          "min": 121292,
+          "max": 125244
+        },
+        "peak_rss_kib": {
+          "median": 122832,
+          "min": 121292,
+          "max": 125244
+        }
+      },
+      "after": {
+        "parse_ms": {
+          "median": 2.0058089999999993,
+          "min": 1.8061539999999923,
+          "max": 2.0136170000000106
+        },
+        "total_ms": {
+          "median": 2.459206999999992,
+          "min": 2.2700270000000273,
+          "max": 2.4757960000000026
+        },
+        "parse_peak_rss_kib": {
+          "median": 121256,
+          "min": 120612,
+          "max": 121696
+        },
+        "peak_rss_kib": {
+          "median": 121256,
+          "min": 120612,
+          "max": 121696
+        }
+      }
+    },
+    {
+      "scenario": "absent",
+      "count": 8,
+      "mode": "reader",
+      "records": 6,
+      "input_bytes": 4096,
+      "input_sha256": "59e6fd857439b51ff6101ae18d9442bf07bd5a06b9b432eeb54cf4764944fef5",
+      "result_bytes": 4436,
+      "result_sha256": "2c75d0647ae87dbaa027f15c9c7836a48e45a8f6206513738b590627bd2a010b",
+      "output_unique": 1,
+      "before": {
+        "parse_ms": {
+          "median": 7.862688999999989,
+          "min": 7.827296000000047,
+          "max": 8.869145000000003
+        },
+        "total_ms": {
+          "median": 8.287347000000011,
+          "min": 8.264912999999979,
+          "max": 9.275967999999978
+        },
+        "parse_peak_rss_kib": {
+          "median": 121988,
+          "min": 121016,
+          "max": 122108
+        },
+        "peak_rss_kib": {
+          "median": 121988,
+          "min": 121016,
+          "max": 122108
+        }
+      },
+      "after": {
+        "parse_ms": {
+          "median": 7.862806000000035,
+          "min": 7.8146299999999655,
+          "max": 8.024067000000002
+        },
+        "total_ms": {
+          "median": 8.283547999999996,
+          "min": 8.266194999999982,
+          "max": 8.476148999999964
+        },
+        "parse_peak_rss_kib": {
+          "median": 121624,
+          "min": 121480,
+          "max": 121840
+        },
+        "peak_rss_kib": {
+          "median": 121624,
+          "min": 121608,
+          "max": 121840
+        }
+      }
+    },
+    {
+      "scenario": "absent",
+      "count": 65536,
+      "mode": "decoder",
+      "records": 6,
+      "input_bytes": 33554432,
+      "input_sha256": "cb5f32e998574b3a8a925befd25eaeb6a9670c08d58a4118f7be147320912624",
+      "result_bytes": 11108701,
+      "result_sha256": "daabf2dac1818bf963cdbb03ac84c0569ea83970f6c47feadc570895b683cc0e",
+      "output_unique": 1,
+      "before": {
+        "parse_ms": {
+          "median": 149.599338,
+          "min": 148.26564299999995,
+          "max": 149.62048000000004
+        },
+        "total_ms": {
+          "median": 238.65812300000005,
+          "min": 238.00427000000002,
+          "max": 239.334254
+        },
+        "parse_peak_rss_kib": {
+          "median": 292580,
+          "min": 292356,
+          "max": 292628
+        },
+        "peak_rss_kib": {
+          "median": 331572,
+          "min": 330836,
+          "max": 332116
+        }
+      },
+      "after": {
+        "parse_ms": {
+          "median": 140.18826800000005,
+          "min": 131.434575,
+          "max": 165.11069500000002
+        },
+        "total_ms": {
+          "median": 226.64108300000004,
+          "min": 214.089243,
+          "max": 244.473505
+        },
+        "parse_peak_rss_kib": {
+          "median": 270136,
+          "min": 268900,
+          "max": 270592
+        },
+        "peak_rss_kib": {
+          "median": 303032,
+          "min": 297716,
+          "max": 303344
+        }
+      }
+    },
+    {
+      "scenario": "absent",
+      "count": 65536,
+      "mode": "reader",
+      "records": 6,
+      "input_bytes": 33554432,
+      "input_sha256": "cb5f32e998574b3a8a925befd25eaeb6a9670c08d58a4118f7be147320912624",
+      "result_bytes": 29382174,
+      "result_sha256": "1861de7fc25f3bf1f76cbe1ce759e82f3570026375ef9a3d0b99a582426f10b7",
+      "output_unique": 1,
+      "before": {
+        "parse_ms": {
+          "median": 457.045828,
+          "min": 449.353618,
+          "max": 461.09687599999995
+        },
+        "total_ms": {
+          "median": 590.957345,
+          "min": 579.872719,
+          "max": 596.30386
+        },
+        "parse_peak_rss_kib": {
+          "median": 381440,
+          "min": 380128,
+          "max": 386696
+        },
+        "peak_rss_kib": {
+          "median": 456108,
+          "min": 455768,
+          "max": 461776
+        }
+      },
+      "after": {
+        "parse_ms": {
+          "median": 442.912582,
+          "min": 431.53479300000004,
+          "max": 453.25115
+        },
+        "total_ms": {
+          "median": 575.934373,
+          "min": 564.01652,
+          "max": 589.3486760000001
+        },
+        "parse_peak_rss_kib": {
+          "median": 380968,
+          "min": 379808,
+          "max": 386740
+        },
+        "peak_rss_kib": {
+          "median": 456260,
+          "min": 456184,
+          "max": 461204
+        }
+      }
+    },
+    {
+      "scenario": "ambiguous",
+      "count": 21845,
+      "mode": "decoder",
+      "records": 6,
+      "input_bytes": 33553920,
+      "input_sha256": "011d7ee1b601ca24e5d2dba16fa01a8cd829edb109403658134b874de594905b",
+      "result_bytes": 5006915,
+      "result_sha256": "1fbd1f386f85153851fd17b9665bd2338c28c3949c0a07bce9066a5b64373068",
+      "output_unique": 1,
+      "before": {
+        "parse_ms": {
+          "median": 94.41401199999996,
+          "min": 91.43324799999999,
+          "max": 96.90615999999994
+        },
+        "total_ms": {
+          "median": 146.09525199999996,
+          "min": 144.86176199999994,
+          "max": 151.834995
+        },
+        "parse_peak_rss_kib": {
+          "median": 223316,
+          "min": 217576,
+          "max": 238196
+        },
+        "peak_rss_kib": {
+          "median": 253108,
+          "min": 237720,
+          "max": 255864
+        }
+      },
+      "after": {
+        "parse_ms": {
+          "median": 90.42725200000001,
+          "min": 88.18435199999999,
+          "max": 96.31146700000005
+        },
+        "total_ms": {
+          "median": 141.78919100000002,
+          "min": 138.415441,
+          "max": 150.46067499999998
+        },
+        "parse_peak_rss_kib": {
+          "median": 215360,
+          "min": 212980,
+          "max": 218460
+        },
+        "peak_rss_kib": {
+          "median": 235604,
+          "min": 233236,
+          "max": 238312
+        }
+      }
+    },
+    {
+      "scenario": "ambiguous",
+      "count": 21845,
+      "mode": "reader",
+      "records": 6,
+      "input_bytes": 33553920,
+      "input_sha256": "011d7ee1b601ca24e5d2dba16fa01a8cd829edb109403658134b874de594905b",
+      "result_bytes": 9823589,
+      "result_sha256": "537062c665d928efa52152b797c831140405722a5abd7062f2e16ef08deb6216",
+      "output_unique": 1,
+      "before": {
+        "parse_ms": {
+          "median": 262.096856,
+          "min": 247.162309,
+          "max": 262.53117799999995
+        },
+        "total_ms": {
+          "median": 316.89231300000006,
+          "min": 300.896282,
+          "max": 320.29905199999996
+        },
+        "parse_peak_rss_kib": {
+          "median": 256540,
+          "min": 255708,
+          "max": 258588
+        },
+        "peak_rss_kib": {
+          "median": 282844,
+          "min": 282652,
+          "max": 283676
+        }
+      },
+      "after": {
+        "parse_ms": {
+          "median": 243.03946299999996,
+          "min": 238.929939,
+          "max": 243.71475500000003
+        },
+        "total_ms": {
+          "median": 295.710284,
+          "min": 294.40154300000006,
+          "max": 297.91391500000003
+        },
+        "parse_peak_rss_kib": {
+          "median": 251336,
+          "min": 250068,
+          "max": 259020
+        },
+        "peak_rss_kib": {
+          "median": 270560,
+          "min": 270488,
+          "max": 278688
+        }
+      }
+    },
+    {
+      "scenario": "complete",
+      "count": 8192,
+      "mode": "decoder",
+      "records": 6,
+      "input_bytes": 8388608,
+      "input_sha256": "79ebdf7f8453c576a4143bb86d2fa2d22a74ad7cc2cb02297c38ee35bb5e53b0",
+      "result_bytes": 1610401,
+      "result_sha256": "17563f612a1d94974bd00eec98fc2d309045f65d77adc7f03f16393e1a7c94b1",
+      "output_unique": 1,
+      "before": {
+        "parse_ms": {
+          "median": 27.312828000000025,
+          "min": 27.13819000000001,
+          "max": 28.649238000000025
+        },
+        "total_ms": {
+          "median": 42.52777400000002,
+          "min": 41.82678800000002,
+          "max": 45.06883499999998
+        },
+        "parse_peak_rss_kib": {
+          "median": 151948,
+          "min": 146552,
+          "max": 152012
+        },
+        "peak_rss_kib": {
+          "median": 160652,
+          "min": 151160,
+          "max": 160844
+        }
+      },
+      "after": {
+        "parse_ms": {
+          "median": 25.099751999999967,
+          "min": 24.286141999999984,
+          "max": 27.218053999999995
+        },
+        "total_ms": {
+          "median": 41.04123099999998,
+          "min": 40.629234,
+          "max": 41.75765000000001
+        },
+        "parse_peak_rss_kib": {
+          "median": 149476,
+          "min": 145476,
+          "max": 149500
+        },
+        "peak_rss_kib": {
+          "median": 158564,
+          "min": 149700,
+          "max": 158736
+        }
+      }
+    },
+    {
+      "scenario": "complete",
+      "count": 8192,
+      "mode": "reader",
+      "records": 6,
+      "input_bytes": 8388608,
+      "input_sha256": "79ebdf7f8453c576a4143bb86d2fa2d22a74ad7cc2cb02297c38ee35bb5e53b0",
+      "result_bytes": 3649140,
+      "result_sha256": "b4cb54aaa29affc6844b8f0822492bf18943c7533c715f2af045cac1d35725b8",
+      "output_unique": 1,
+      "before": {
+        "parse_ms": {
+          "median": 73.749976,
+          "min": 73.35722800000002,
+          "max": 79.84466500000002
+        },
+        "total_ms": {
+          "median": 90.83169599999997,
+          "min": 90.76417400000003,
+          "max": 96.259256
+        },
+        "parse_peak_rss_kib": {
+          "median": 175452,
+          "min": 170912,
+          "max": 175944
+        },
+        "peak_rss_kib": {
+          "median": 182876,
+          "min": 173960,
+          "max": 183368
+        }
+      },
+      "after": {
+        "parse_ms": {
+          "median": 73.94943999999998,
+          "min": 73.433739,
+          "max": 74.16317700000002
+        },
+        "total_ms": {
+          "median": 91.356875,
+          "min": 90.56188199999997,
+          "max": 92.03598099999999
+        },
+        "parse_peak_rss_kib": {
+          "median": 178152,
+          "min": 176712,
+          "max": 178528
+        },
+        "peak_rss_kib": {
+          "median": 185832,
+          "min": 184392,
+          "max": 186208
+        }
+      }
+    }
+  ],
+  "raw_measurements": [
+    {
+      "scenario": "absent",
+      "mode": "decoder",
+      "count": 8,
+      "node": "v24.22.1",
+      "input_bytes": 4096,
+      "input_sha256": "59e6fd857439b51ff6101ae18d9442bf07bd5a06b9b432eeb54cf4764944fef5",
+      "source_sha256": "ce51061e58b0d7b55f533dadaff109617d012c2400f9d93845b089e79f334893",
+      "result_sha256": "7e37451be0b08ace2b22c09c06fa96fbd2d712dbaa632ece5ef0783541db09ef",
+      "result_bytes": 2135,
+      "parse_ms": 1.9865260000000262,
+      "total_ms": 2.399586999999997,
+      "parse_cpu": {
+        "user": 4590,
+        "system": 0
+      },
+      "total_cpu": {
+        "user": 5015,
+        "system": 0
+      },
+      "peak_rss_kib_before": 121164,
+      "parse_peak_rss_kib": 121292,
+      "peak_rss_kib": 121292,
+      "memory_before": {
+        "rss": 124071936,
+        "heapTotal": 36478976,
+        "heapUsed": 18353480,
+        "external": 10115568,
+        "arrayBuffers": 154391
+      },
+      "memory_parsed": {
+        "rss": 124203008,
+        "heapTotal": 36478976,
+        "heapUsed": 18503960,
+        "external": 10151416,
+        "arrayBuffers": 158727
+      },
+      "memory_after": {
+        "rss": 124203008,
+        "heapTotal": 36478976,
+        "heapUsed": 18536736,
+        "external": 10168987,
+        "arrayBuffers": 176298
+      },
+      "limitations": [
+        "UF2 numbering declares 8 block(s) that are absent: family 0x00000001 with 2 numbered blocks has 1 of them; family 0x00000002 with 2 numbered blocks has 1 of them; family 0x00000003 with 2 numbered blocks has 1 of them; family 0x00000004 with 2 numbered blocks has 1 of them; and 4 more."
+      ],
+      "phase": "before",
+      "repeat": 0,
+      "label": "before-0-absent-8-decoder"
+    },
+    {
+      "scenario": "absent",
+      "mode": "reader",
+      "count": 8,
+      "node": "v24.22.1",
+      "input_bytes": 4096,
+      "input_sha256": "59e6fd857439b51ff6101ae18d9442bf07bd5a06b9b432eeb54cf4764944fef5",
+      "source_sha256": "ce51061e58b0d7b55f533dadaff109617d012c2400f9d93845b089e79f334893",
+      "result_sha256": "2c75d0647ae87dbaa027f15c9c7836a48e45a8f6206513738b590627bd2a010b",
+      "result_bytes": 4436,
+      "parse_ms": 8.869145000000003,
+      "total_ms": 9.275967999999978,
+      "parse_cpu": {
+        "user": 12540,
+        "system": 30
+      },
+      "total_cpu": {
+        "user": 12939,
+        "system": 52
+      },
+      "peak_rss_kib_before": 121852,
+      "parse_peak_rss_kib": 122108,
+      "peak_rss_kib": 122108,
+      "memory_before": {
+        "rss": 124776448,
+        "heapTotal": 36741120,
+        "heapUsed": 18355848,
+        "external": 10115568,
+        "arrayBuffers": 154391
+      },
+      "memory_parsed": {
+        "rss": 125038592,
+        "heapTotal": 36741120,
+        "heapUsed": 19232680,
+        "external": 10284536,
+        "arrayBuffers": 291847
+      },
+      "memory_after": {
+        "rss": 125038592,
+        "heapTotal": 36741120,
+        "heapUsed": 19264936,
+        "external": 10302107,
+        "arrayBuffers": 309418
+      },
+      "limitations": [
+        "UF2 numbering declares 8 block(s) that are absent: family 0x00000001 with 2 numbered blocks has 1 of them; family 0x00000002 with 2 numbered blocks has 1 of them; family 0x00000003 with 2 numbered blocks has 1 of them; family 0x00000004 with 2 numbered blocks has 1 of them; and 4 more."
+      ],
+      "phase": "before",
+      "repeat": 0,
+      "label": "before-0-absent-8-reader"
+    },
+    {
+      "scenario": "absent",
+      "mode": "decoder",
+      "count": 65536,
+      "node": "v24.22.1",
+      "input_bytes": 33554432,
+      "input_sha256": "cb5f32e998574b3a8a925befd25eaeb6a9670c08d58a4118f7be147320912624",
+      "source_sha256": "ce51061e58b0d7b55f533dadaff109617d012c2400f9d93845b089e79f334893",
+      "result_sha256": "daabf2dac1818bf963cdbb03ac84c0569ea83970f6c47feadc570895b683cc0e",
+      "result_bytes": 11108701,
+      "parse_ms": 149.599338,
+      "total_ms": 239.334254,
+      "parse_cpu": {
+        "user": 202537,
+        "system": 59073
+      },
+      "total_cpu": {
+        "user": 280495,
+        "system": 81697
+      },
+      "peak_rss_kib_before": 161192,
+      "parse_peak_rss_kib": 292356,
+      "peak_rss_kib": 330836,
+      "memory_before": {
+        "rss": 165060608,
+        "heapTotal": 55091200,
+        "heapUsed": 18421624,
+        "external": 43665904,
+        "arrayBuffers": 33704727
+      },
+      "memory_parsed": {
+        "rss": 299372544,
+        "heapTotal": 207937536,
+        "heapUsed": 137589912,
+        "external": 74893080,
+        "arrayBuffers": 64900391
+      },
+      "memory_after": {
+        "rss": 327741440,
+        "heapTotal": 226480128,
+        "heapUsed": 100959120,
+        "external": 74910651,
+        "arrayBuffers": 64917962
+      },
+      "limitations": [
+        "UF2 numbering declares 65536 block(s) that are absent: family 0x00000001 with 2 numbered blocks has 1 of them; family 0x00000002 with 2 numbered blocks has 1 of them; family 0x00000003 with 2 numbered blocks has 1 of them; family 0x00000004 with 2 numbered blocks has 1 of them; and 65532 more."
+      ],
+      "phase": "before",
+      "repeat": 0,
+      "label": "before-0-absent-65536-decoder"
+    },
+    {
+      "scenario": "absent",
+      "mode": "reader",
+      "count": 65536,
+      "node": "v24.22.1",
+      "input_bytes": 33554432,
+      "input_sha256": "cb5f32e998574b3a8a925befd25eaeb6a9670c08d58a4118f7be147320912624",
+      "source_sha256": "ce51061e58b0d7b55f533dadaff109617d012c2400f9d93845b089e79f334893",
+      "result_sha256": "1861de7fc25f3bf1f76cbe1ce759e82f3570026375ef9a3d0b99a582426f10b7",
+      "result_bytes": 29382174,
+      "parse_ms": 461.09687599999995,
+      "total_ms": 596.30386,
+      "parse_cpu": {
+        "user": 778056,
+        "system": 112498
+      },
+      "total_cpu": {
+        "user": 876426,
+        "system": 149544
+      },
+      "peak_rss_kib_before": 161340,
+      "parse_peak_rss_kib": 380128,
+      "peak_rss_kib": 455768,
+      "memory_before": {
+        "rss": 165212160,
+        "heapTotal": 54829056,
+        "heapUsed": 18428480,
+        "external": 43665904,
+        "arrayBuffers": 33704727
+      },
+      "memory_parsed": {
+        "rss": 383184896,
+        "heapTotal": 239034368,
+        "heapUsed": 99753416,
+        "external": 43692513,
+        "arrayBuffers": 33704743
+      },
+      "memory_after": {
+        "rss": 437338112,
+        "heapTotal": 268419072,
+        "heapUsed": 133386512,
+        "external": 43710084,
+        "arrayBuffers": 33722314
+      },
+      "limitations": [
+        "UF2 numbering declares 65536 block(s) that are absent: family 0x00000001 with 2 numbered blocks has 1 of them; family 0x00000002 with 2 numbered blocks has 1 of them; family 0x00000003 with 2 numbered blocks has 1 of them; family 0x00000004 with 2 numbered blocks has 1 of them; and 65532 more."
+      ],
+      "phase": "before",
+      "repeat": 0,
+      "label": "before-0-absent-65536-reader"
+    },
+    {
+      "scenario": "ambiguous",
+      "mode": "decoder",
+      "count": 21845,
+      "node": "v24.22.1",
+      "input_bytes": 33553920,
+      "input_sha256": "011d7ee1b601ca24e5d2dba16fa01a8cd829edb109403658134b874de594905b",
+      "source_sha256": "ce51061e58b0d7b55f533dadaff109617d012c2400f9d93845b089e79f334893",
+      "result_sha256": "1fbd1f386f85153851fd17b9665bd2338c28c3949c0a07bce9066a5b64373068",
+      "result_bytes": 5006915,
+      "parse_ms": 96.90615999999994,
+      "total_ms": 151.834995,
+      "parse_cpu": {
+        "user": 153594,
+        "system": 21588
+      },
+      "total_cpu": {
+        "user": 205223,
+        "system": 34858
+      },
+      "peak_rss_kib_before": 161404,
+      "parse_peak_rss_kib": 223316,
+      "peak_rss_kib": 253108,
+      "memory_before": {
+        "rss": 165277696,
+        "heapTotal": 54829056,
+        "heapUsed": 18429928,
+        "external": 43665392,
+        "arrayBuffers": 33704215
+      },
+      "memory_parsed": {
+        "rss": 228675584,
+        "heapTotal": 107945984,
+        "heapUsed": 67952576,
+        "external": 74892092,
+        "arrayBuffers": 64899403
+      },
+      "memory_after": {
+        "rss": 254210048,
+        "heapTotal": 123781120,
+        "heapUsed": 55085432,
+        "external": 74909663,
+        "arrayBuffers": 64916974
+      },
+      "limitations": [
+        "UF2 numbering cannot show that every copy of a block sequence is complete: family 0x00000001 with 2 numbered blocks has some numbers at 1 address(es) and others at 2; family 0x00000002 with 2 numbered blocks has some numbers at 1 address(es) and others at 2; family 0x00000003 with 2 numbered blocks has some numbers at 1 address(es) and others at 2; family 0x00000004 with 2 numbered blocks has some numbers at 1 address(es) and others at 2; and 21841 more."
+      ],
+      "phase": "before",
+      "repeat": 0,
+      "label": "before-0-ambiguous-21845-decoder"
+    },
+    {
+      "scenario": "ambiguous",
+      "mode": "reader",
+      "count": 21845,
+      "node": "v24.22.1",
+      "input_bytes": 33553920,
+      "input_sha256": "011d7ee1b601ca24e5d2dba16fa01a8cd829edb109403658134b874de594905b",
+      "source_sha256": "ce51061e58b0d7b55f533dadaff109617d012c2400f9d93845b089e79f334893",
+      "result_sha256": "537062c665d928efa52152b797c831140405722a5abd7062f2e16ef08deb6216",
+      "result_bytes": 9823589,
+      "parse_ms": 247.162309,
+      "total_ms": 300.896282,
+      "parse_cpu": {
+        "user": 420933,
+        "system": 69034
+      },
+      "total_cpu": {
+        "user": 464827,
+        "system": 78998
+      },
+      "peak_rss_kib_before": 161208,
+      "parse_peak_rss_kib": 258588,
+      "peak_rss_kib": 283676,
+      "memory_before": {
+        "rss": 165076992,
+        "heapTotal": 54304768,
+        "heapUsed": 18431424,
+        "external": 43665392,
+        "arrayBuffers": 33704215
+      },
+      "memory_parsed": {
+        "rss": 264794112,
+        "heapTotal": 178331648,
+        "heapUsed": 73104184,
+        "external": 75673381,
+        "arrayBuffers": 33704519
+      },
+      "memory_after": {
+        "rss": 290484224,
+        "heapTotal": 188157952,
+        "heapUsed": 84381744,
+        "external": 43709860,
+        "arrayBuffers": 33722090
+      },
+      "limitations": [
+        "UF2 numbering cannot show that every copy of a block sequence is complete: family 0x00000001 with 2 numbered blocks has some numbers at 1 address(es) and others at 2; family 0x00000002 with 2 numbered blocks has some numbers at 1 address(es) and others at 2; family 0x00000003 with 2 numbered blocks has some numbers at 1 address(es) and others at 2; family 0x00000004 with 2 numbered blocks has some numbers at 1 address(es) and others at 2; and 21841 more."
+      ],
+      "phase": "before",
+      "repeat": 0,
+      "label": "before-0-ambiguous-21845-reader"
+    },
+    {
+      "scenario": "complete",
+      "mode": "decoder",
+      "count": 8192,
+      "node": "v24.22.1",
+      "input_bytes": 8388608,
+      "input_sha256": "79ebdf7f8453c576a4143bb86d2fa2d22a74ad7cc2cb02297c38ee35bb5e53b0",
+      "source_sha256": "ce51061e58b0d7b55f533dadaff109617d012c2400f9d93845b089e79f334893",
+      "result_sha256": "17563f612a1d94974bd00eec98fc2d309045f65d77adc7f03f16393e1a7c94b1",
+      "result_bytes": 1610401,
+      "parse_ms": 27.13819000000001,
+      "total_ms": 42.52777400000002,
+      "parse_cpu": {
+        "user": 49597,
+        "system": 6017
+      },
+      "total_cpu": {
+        "user": 65754,
+        "system": 10947
+      },
+      "peak_rss_kib_before": 136460,
+      "parse_peak_rss_kib": 151948,
+      "peak_rss_kib": 160652,
+      "memory_before": {
+        "rss": 139735040,
+        "heapTotal": 54042624,
+        "heapUsed": 18430552,
+        "external": 18500080,
+        "arrayBuffers": 8538903
+      },
+      "memory_parsed": {
+        "rss": 155594752,
+        "heapTotal": 54968320,
+        "heapUsed": 34840976,
+        "external": 26330904,
+        "arrayBuffers": 16338215
+      },
+      "memory_after": {
+        "rss": 164507648,
+        "heapTotal": 62087168,
+        "heapUsed": 27388720,
+        "external": 18549179,
+        "arrayBuffers": 8556490
+      },
+      "limitations": [],
+      "phase": "before",
+      "repeat": 0,
+      "label": "before-0-complete-8192-decoder"
+    },
+    {
+      "scenario": "complete",
+      "mode": "reader",
+      "count": 8192,
+      "node": "v24.22.1",
+      "input_bytes": 8388608,
+      "input_sha256": "79ebdf7f8453c576a4143bb86d2fa2d22a74ad7cc2cb02297c38ee35bb5e53b0",
+      "source_sha256": "ce51061e58b0d7b55f533dadaff109617d012c2400f9d93845b089e79f334893",
+      "result_sha256": "b4cb54aaa29affc6844b8f0822492bf18943c7533c715f2af045cac1d35725b8",
+      "result_bytes": 3649140,
+      "parse_ms": 79.84466500000002,
+      "total_ms": 96.259256,
+      "parse_cpu": {
+        "user": 150221,
+        "system": 16273
+      },
+      "total_cpu": {
+        "user": 165521,
+        "system": 17366
+      },
+      "peak_rss_kib_before": 136096,
+      "parse_peak_rss_kib": 170912,
+      "peak_rss_kib": 173960,
+      "memory_before": {
+        "rss": 139362304,
+        "heapTotal": 37265408,
+        "heapUsed": 18433392,
+        "external": 18500080,
+        "arrayBuffers": 8538903
+      },
+      "memory_parsed": {
+        "rss": 174465024,
+        "heapTotal": 99889152,
+        "heapUsed": 30199696,
+        "external": 18597656,
+        "arrayBuffers": 8538919
+      },
+      "memory_after": {
+        "rss": 178135040,
+        "heapTotal": 103538688,
+        "heapUsed": 34400152,
+        "external": 18549179,
+        "arrayBuffers": 8556490
+      },
+      "limitations": [],
+      "phase": "before",
+      "repeat": 0,
+      "label": "before-0-complete-8192-reader"
+    },
+    {
+      "scenario": "absent",
+      "mode": "decoder",
+      "count": 8,
+      "node": "v24.22.1",
+      "input_bytes": 4096,
+      "input_sha256": "59e6fd857439b51ff6101ae18d9442bf07bd5a06b9b432eeb54cf4764944fef5",
+      "source_sha256": "e99d4d18a9064f1b3b33f21c42ce51e2c0a6940f17c335c5b4b4957e4b46a233",
+      "result_sha256": "7e37451be0b08ace2b22c09c06fa96fbd2d712dbaa632ece5ef0783541db09ef",
+      "result_bytes": 2135,
+      "parse_ms": 2.0058089999999993,
+      "total_ms": 2.4757960000000026,
+      "parse_cpu": {
+        "user": 4611,
+        "system": 0
+      },
+      "total_cpu": {
+        "user": 4642,
+        "system": 429
+      },
+      "peak_rss_kib_before": 120612,
+      "parse_peak_rss_kib": 120612,
+      "peak_rss_kib": 120612,
+      "memory_before": {
+        "rss": 123506688,
+        "heapTotal": 36741120,
+        "heapUsed": 18357144,
+        "external": 10115568,
+        "arrayBuffers": 154391
+      },
+      "memory_parsed": {
+        "rss": 123506688,
+        "heapTotal": 36741120,
+        "heapUsed": 18506480,
+        "external": 10151416,
+        "arrayBuffers": 158727
+      },
+      "memory_after": {
+        "rss": 123506688,
+        "heapTotal": 36741120,
+        "heapUsed": 18539256,
+        "external": 10169353,
+        "arrayBuffers": 176664
+      },
+      "limitations": [
+        "UF2 numbering declares 8 block(s) that are absent: family 0x00000001 with 2 numbered blocks has 1 of them; family 0x00000002 with 2 numbered blocks has 1 of them; family 0x00000003 with 2 numbered blocks has 1 of them; family 0x00000004 with 2 numbered blocks has 1 of them; and 4 more."
+      ],
+      "phase": "after",
+      "repeat": 0,
+      "label": "after-0-absent-8-decoder"
+    },
+    {
+      "scenario": "absent",
+      "mode": "reader",
+      "count": 8,
+      "node": "v24.22.1",
+      "input_bytes": 4096,
+      "input_sha256": "59e6fd857439b51ff6101ae18d9442bf07bd5a06b9b432eeb54cf4764944fef5",
+      "source_sha256": "e99d4d18a9064f1b3b33f21c42ce51e2c0a6940f17c335c5b4b4957e4b46a233",
+      "result_sha256": "2c75d0647ae87dbaa027f15c9c7836a48e45a8f6206513738b590627bd2a010b",
+      "result_bytes": 4436,
+      "parse_ms": 8.024067000000002,
+      "total_ms": 8.476148999999964,
+      "parse_cpu": {
+        "user": 10845,
+        "system": 986
+      },
+      "total_cpu": {
+        "user": 11256,
+        "system": 988
+      },
+      "peak_rss_kib_before": 121352,
+      "parse_peak_rss_kib": 121480,
+      "peak_rss_kib": 121608,
+      "memory_before": {
+        "rss": 124264448,
+        "heapTotal": 36741120,
+        "heapUsed": 18355872,
+        "external": 10115568,
+        "arrayBuffers": 154391
+      },
+      "memory_parsed": {
+        "rss": 124395520,
+        "heapTotal": 37003264,
+        "heapUsed": 19231568,
+        "external": 10284536,
+        "arrayBuffers": 291847
+      },
+      "memory_after": {
+        "rss": 124526592,
+        "heapTotal": 37003264,
+        "heapUsed": 19263824,
+        "external": 10302473,
+        "arrayBuffers": 309784
+      },
+      "limitations": [
+        "UF2 numbering declares 8 block(s) that are absent: family 0x00000001 with 2 numbered blocks has 1 of them; family 0x00000002 with 2 numbered blocks has 1 of them; family 0x00000003 with 2 numbered blocks has 1 of them; family 0x00000004 with 2 numbered blocks has 1 of them; and 4 more."
+      ],
+      "phase": "after",
+      "repeat": 0,
+      "label": "after-0-absent-8-reader"
+    },
+    {
+      "scenario": "absent",
+      "mode": "decoder",
+      "count": 65536,
+      "node": "v24.22.1",
+      "input_bytes": 33554432,
+      "input_sha256": "cb5f32e998574b3a8a925befd25eaeb6a9670c08d58a4118f7be147320912624",
+      "source_sha256": "e99d4d18a9064f1b3b33f21c42ce51e2c0a6940f17c335c5b4b4957e4b46a233",
+      "result_sha256": "daabf2dac1818bf963cdbb03ac84c0569ea83970f6c47feadc570895b683cc0e",
+      "result_bytes": 11108701,
+      "parse_ms": 131.434575,
+      "total_ms": 214.089243,
+      "parse_cpu": {
+        "user": 199809,
+        "system": 48239
+      },
+      "total_cpu": {
+        "user": 263324,
+        "system": 67119
+      },
+      "peak_rss_kib_before": 161680,
+      "parse_peak_rss_kib": 270136,
+      "peak_rss_kib": 303032,
+      "memory_before": {
+        "rss": 165560320,
+        "heapTotal": 54566912,
+        "heapUsed": 18422952,
+        "external": 43665904,
+        "arrayBuffers": 33704727
+      },
+      "memory_parsed": {
+        "rss": 276619264,
+        "heapTotal": 206979072,
+        "heapUsed": 113585400,
+        "external": 74893080,
+        "arrayBuffers": 64900391
+      },
+      "memory_after": {
+        "rss": 299249664,
+        "heapTotal": 218091520,
+        "heapUsed": 127893144,
+        "external": 74911017,
+        "arrayBuffers": 64918328
+      },
+      "limitations": [
+        "UF2 numbering declares 65536 block(s) that are absent: family 0x00000001 with 2 numbered blocks has 1 of them; family 0x00000002 with 2 numbered blocks has 1 of them; family 0x00000003 with 2 numbered blocks has 1 of them; family 0x00000004 with 2 numbered blocks has 1 of them; and 65532 more."
+      ],
+      "phase": "after",
+      "repeat": 0,
+      "label": "after-0-absent-65536-decoder"
+    },
+    {
+      "scenario": "absent",
+      "mode": "reader",
+      "count": 65536,
+      "node": "v24.22.1",
+      "input_bytes": 33554432,
+      "input_sha256": "cb5f32e998574b3a8a925befd25eaeb6a9670c08d58a4118f7be147320912624",
+      "source_sha256": "e99d4d18a9064f1b3b33f21c42ce51e2c0a6940f17c335c5b4b4957e4b46a233",
+      "result_sha256": "1861de7fc25f3bf1f76cbe1ce759e82f3570026375ef9a3d0b99a582426f10b7",
+      "result_bytes": 29382174,
+      "parse_ms": 431.53479300000004,
+      "total_ms": 564.01652,
+      "parse_cpu": {
+        "user": 760224,
+        "system": 107026
+      },
+      "total_cpu": {
+        "user": 856544,
+        "system": 142876
+      },
+      "peak_rss_kib_before": 161380,
+      "parse_peak_rss_kib": 379808,
+      "peak_rss_kib": 456260,
+      "memory_before": {
+        "rss": 165253120,
+        "heapTotal": 55353344,
+        "heapUsed": 18429224,
+        "external": 43665904,
+        "arrayBuffers": 33704727
+      },
+      "memory_parsed": {
+        "rss": 383221760,
+        "heapTotal": 241803264,
+        "heapUsed": 136427432,
+        "external": 75281377,
+        "arrayBuffers": 33704743
+      },
+      "memory_after": {
+        "rss": 437829632,
+        "heapTotal": 271187968,
+        "heapUsed": 170059752,
+        "external": 43710450,
+        "arrayBuffers": 33722680
+      },
+      "limitations": [
+        "UF2 numbering declares 65536 block(s) that are absent: family 0x00000001 with 2 numbered blocks has 1 of them; family 0x00000002 with 2 numbered blocks has 1 of them; family 0x00000003 with 2 numbered blocks has 1 of them; family 0x00000004 with 2 numbered blocks has 1 of them; and 65532 more."
+      ],
+      "phase": "after",
+      "repeat": 0,
+      "label": "after-0-absent-65536-reader"
+    },
+    {
+      "scenario": "ambiguous",
+      "mode": "decoder",
+      "count": 21845,
+      "node": "v24.22.1",
+      "input_bytes": 33553920,
+      "input_sha256": "011d7ee1b601ca24e5d2dba16fa01a8cd829edb109403658134b874de594905b",
+      "source_sha256": "e99d4d18a9064f1b3b33f21c42ce51e2c0a6940f17c335c5b4b4957e4b46a233",
+      "result_sha256": "1fbd1f386f85153851fd17b9665bd2338c28c3949c0a07bce9066a5b64373068",
+      "result_bytes": 5006915,
+      "parse_ms": 90.42725200000001,
+      "total_ms": 141.78919100000002,
+      "parse_cpu": {
+        "user": 146043,
+        "system": 17889
+      },
+      "total_cpu": {
+        "user": 190081,
+        "system": 28037
+      },
+      "peak_rss_kib_before": 160352,
+      "parse_peak_rss_kib": 212980,
+      "peak_rss_kib": 233236,
+      "memory_before": {
+        "rss": 164200448,
+        "heapTotal": 55353344,
+        "heapUsed": 18423144,
+        "external": 43665392,
+        "arrayBuffers": 33704215
+      },
+      "memory_parsed": {
+        "rss": 218091520,
+        "heapTotal": 108023808,
+        "heapUsed": 58922456,
+        "external": 74892092,
+        "arrayBuffers": 64899403
+      },
+      "memory_after": {
+        "rss": 233873408,
+        "heapTotal": 113033216,
+        "heapUsed": 66471256,
+        "external": 74910029,
+        "arrayBuffers": 64917340
+      },
+      "limitations": [
+        "UF2 numbering cannot show that every copy of a block sequence is complete: family 0x00000001 with 2 numbered blocks has some numbers at 1 address(es) and others at 2; family 0x00000002 with 2 numbered blocks has some numbers at 1 address(es) and others at 2; family 0x00000003 with 2 numbered blocks has some numbers at 1 address(es) and others at 2; family 0x00000004 with 2 numbered blocks has some numbers at 1 address(es) and others at 2; and 21841 more."
+      ],
+      "phase": "after",
+      "repeat": 0,
+      "label": "after-0-ambiguous-21845-decoder"
+    },
+    {
+      "scenario": "ambiguous",
+      "mode": "reader",
+      "count": 21845,
+      "node": "v24.22.1",
+      "input_bytes": 33553920,
+      "input_sha256": "011d7ee1b601ca24e5d2dba16fa01a8cd829edb109403658134b874de594905b",
+      "source_sha256": "e99d4d18a9064f1b3b33f21c42ce51e2c0a6940f17c335c5b4b4957e4b46a233",
+      "result_sha256": "537062c665d928efa52152b797c831140405722a5abd7062f2e16ef08deb6216",
+      "result_bytes": 9823589,
+      "parse_ms": 238.929939,
+      "total_ms": 294.40154300000006,
+      "parse_cpu": {
+        "user": 428841,
+        "system": 53269
+      },
+      "total_cpu": {
+        "user": 478290,
+        "system": 59313
+      },
+      "peak_rss_kib_before": 160452,
+      "parse_peak_rss_kib": 251336,
+      "peak_rss_kib": 270488,
+      "memory_before": {
+        "rss": 164302848,
+        "heapTotal": 55091200,
+        "heapUsed": 18424544,
+        "external": 43665392,
+        "arrayBuffers": 33704215
+      },
+      "memory_parsed": {
+        "rss": 252600320,
+        "heapTotal": 179294208,
+        "heapUsed": 62175168,
+        "external": 75476997,
+        "arrayBuffers": 33704231
+      },
+      "memory_after": {
+        "rss": 276979712,
+        "heapTotal": 189120512,
+        "heapUsed": 73452568,
+        "external": 43709938,
+        "arrayBuffers": 33722168
+      },
+      "limitations": [
+        "UF2 numbering cannot show that every copy of a block sequence is complete: family 0x00000001 with 2 numbered blocks has some numbers at 1 address(es) and others at 2; family 0x00000002 with 2 numbered blocks has some numbers at 1 address(es) and others at 2; family 0x00000003 with 2 numbered blocks has some numbers at 1 address(es) and others at 2; family 0x00000004 with 2 numbered blocks has some numbers at 1 address(es) and others at 2; and 21841 more."
+      ],
+      "phase": "after",
+      "repeat": 0,
+      "label": "after-0-ambiguous-21845-reader"
+    },
+    {
+      "scenario": "complete",
+      "mode": "decoder",
+      "count": 8192,
+      "node": "v24.22.1",
+      "input_bytes": 8388608,
+      "input_sha256": "79ebdf7f8453c576a4143bb86d2fa2d22a74ad7cc2cb02297c38ee35bb5e53b0",
+      "source_sha256": "e99d4d18a9064f1b3b33f21c42ce51e2c0a6940f17c335c5b4b4957e4b46a233",
+      "result_sha256": "17563f612a1d94974bd00eec98fc2d309045f65d77adc7f03f16393e1a7c94b1",
+      "result_bytes": 1610401,
+      "parse_ms": 24.286141999999984,
+      "total_ms": 40.629234,
+      "parse_cpu": {
+        "user": 45810,
+        "system": 4846
+      },
+      "total_cpu": {
+        "user": 61992,
+        "system": 10768
+      },
+      "peak_rss_kib_before": 136164,
+      "parse_peak_rss_kib": 149476,
+      "peak_rss_kib": 158564,
+      "memory_before": {
+        "rss": 139431936,
+        "heapTotal": 54304768,
+        "heapUsed": 18423432,
+        "external": 18500080,
+        "arrayBuffers": 8538903
+      },
+      "memory_parsed": {
+        "rss": 153063424,
+        "heapTotal": 54968320,
+        "heapUsed": 32543648,
+        "external": 26330904,
+        "arrayBuffers": 16338215
+      },
+      "memory_after": {
+        "rss": 162369536,
+        "heapTotal": 63135744,
+        "heapUsed": 28163696,
+        "external": 18550057,
+        "arrayBuffers": 8557368
+      },
+      "limitations": [],
+      "phase": "after",
+      "repeat": 0,
+      "label": "after-0-complete-8192-decoder"
+    },
+    {
+      "scenario": "complete",
+      "mode": "reader",
+      "count": 8192,
+      "node": "v24.22.1",
+      "input_bytes": 8388608,
+      "input_sha256": "79ebdf7f8453c576a4143bb86d2fa2d22a74ad7cc2cb02297c38ee35bb5e53b0",
+      "source_sha256": "e99d4d18a9064f1b3b33f21c42ce51e2c0a6940f17c335c5b4b4957e4b46a233",
+      "result_sha256": "b4cb54aaa29affc6844b8f0822492bf18943c7533c715f2af045cac1d35725b8",
+      "result_bytes": 3649140,
+      "parse_ms": 73.94943999999998,
+      "total_ms": 92.03598099999999,
+      "parse_cpu": {
+        "user": 97705,
+        "system": 22599
+      },
+      "total_cpu": {
+        "user": 112912,
+        "system": 25604
+      },
+      "peak_rss_kib_before": 137084,
+      "parse_peak_rss_kib": 178528,
+      "peak_rss_kib": 186208,
+      "memory_before": {
+        "rss": 140214272,
+        "heapTotal": 54566912,
+        "heapUsed": 18424600,
+        "external": 18500080,
+        "arrayBuffers": 8538903
+      },
+      "memory_parsed": {
+        "rss": 182812672,
+        "heapTotal": 93736960,
+        "heapUsed": 47598168,
+        "external": 18597432,
+        "arrayBuffers": 8604743
+      },
+      "memory_after": {
+        "rss": 187064320,
+        "heapTotal": 97386496,
+        "heapUsed": 51799616,
+        "external": 18615369,
+        "arrayBuffers": 8622680
+      },
+      "limitations": [],
+      "phase": "after",
+      "repeat": 0,
+      "label": "after-0-complete-8192-reader"
+    },
+    {
+      "scenario": "absent",
+      "mode": "decoder",
+      "count": 8,
+      "node": "v24.22.1",
+      "input_bytes": 4096,
+      "input_sha256": "59e6fd857439b51ff6101ae18d9442bf07bd5a06b9b432eeb54cf4764944fef5",
+      "source_sha256": "e99d4d18a9064f1b3b33f21c42ce51e2c0a6940f17c335c5b4b4957e4b46a233",
+      "result_sha256": "7e37451be0b08ace2b22c09c06fa96fbd2d712dbaa632ece5ef0783541db09ef",
+      "result_bytes": 2135,
+      "parse_ms": 2.0136170000000106,
+      "total_ms": 2.459206999999992,
+      "parse_cpu": {
+        "user": 4625,
+        "system": 97
+      },
+      "total_cpu": {
+        "user": 5041,
+        "system": 122
+      },
+      "peak_rss_kib_before": 121256,
+      "parse_peak_rss_kib": 121256,
+      "peak_rss_kib": 121256,
+      "memory_before": {
+        "rss": 124166144,
+        "heapTotal": 36216832,
+        "heapUsed": 18356480,
+        "external": 10115568,
+        "arrayBuffers": 154391
+      },
+      "memory_parsed": {
+        "rss": 124166144,
+        "heapTotal": 36216832,
+        "heapUsed": 18505816,
+        "external": 10151416,
+        "arrayBuffers": 158727
+      },
+      "memory_after": {
+        "rss": 124166144,
+        "heapTotal": 36216832,
+        "heapUsed": 18538592,
+        "external": 10169353,
+        "arrayBuffers": 176664
+      },
+      "limitations": [
+        "UF2 numbering declares 8 block(s) that are absent: family 0x00000001 with 2 numbered blocks has 1 of them; family 0x00000002 with 2 numbered blocks has 1 of them; family 0x00000003 with 2 numbered blocks has 1 of them; family 0x00000004 with 2 numbered blocks has 1 of them; and 4 more."
+      ],
+      "phase": "after",
+      "repeat": 1,
+      "label": "after-1-absent-8-decoder"
+    },
+    {
+      "scenario": "absent",
+      "mode": "reader",
+      "count": 8,
+      "node": "v24.22.1",
+      "input_bytes": 4096,
+      "input_sha256": "59e6fd857439b51ff6101ae18d9442bf07bd5a06b9b432eeb54cf4764944fef5",
+      "source_sha256": "e99d4d18a9064f1b3b33f21c42ce51e2c0a6940f17c335c5b4b4957e4b46a233",
+      "result_sha256": "2c75d0647ae87dbaa027f15c9c7836a48e45a8f6206513738b590627bd2a010b",
+      "result_bytes": 4436,
+      "parse_ms": 7.8146299999999655,
+      "total_ms": 8.266194999999982,
+      "parse_cpu": {
+        "user": 10834,
+        "system": 993
+      },
+      "total_cpu": {
+        "user": 11254,
+        "system": 994
+      },
+      "peak_rss_kib_before": 121584,
+      "parse_peak_rss_kib": 121840,
+      "peak_rss_kib": 121840,
+      "memory_before": {
+        "rss": 124502016,
+        "heapTotal": 36478976,
+        "heapUsed": 18355744,
+        "external": 10115568,
+        "arrayBuffers": 154391
+      },
+      "memory_parsed": {
+        "rss": 124764160,
+        "heapTotal": 36741120,
+        "heapUsed": 19231440,
+        "external": 10284536,
+        "arrayBuffers": 291847
+      },
+      "memory_after": {
+        "rss": 124764160,
+        "heapTotal": 36741120,
+        "heapUsed": 19263696,
+        "external": 10302473,
+        "arrayBuffers": 309784
+      },
+      "limitations": [
+        "UF2 numbering declares 8 block(s) that are absent: family 0x00000001 with 2 numbered blocks has 1 of them; family 0x00000002 with 2 numbered blocks has 1 of them; family 0x00000003 with 2 numbered blocks has 1 of them; family 0x00000004 with 2 numbered blocks has 1 of them; and 4 more."
+      ],
+      "phase": "after",
+      "repeat": 1,
+      "label": "after-1-absent-8-reader"
+    },
+    {
+      "scenario": "absent",
+      "mode": "decoder",
+      "count": 65536,
+      "node": "v24.22.1",
+      "input_bytes": 33554432,
+      "input_sha256": "cb5f32e998574b3a8a925befd25eaeb6a9670c08d58a4118f7be147320912624",
+      "source_sha256": "e99d4d18a9064f1b3b33f21c42ce51e2c0a6940f17c335c5b4b4957e4b46a233",
+      "result_sha256": "daabf2dac1818bf963cdbb03ac84c0569ea83970f6c47feadc570895b683cc0e",
+      "result_bytes": 11108701,
+      "parse_ms": 165.11069500000002,
+      "total_ms": 244.473505,
+      "parse_cpu": {
+        "user": 309443,
+        "system": 47701
+      },
+      "total_cpu": {
+        "user": 373779,
+        "system": 62779
+      },
+      "peak_rss_kib_before": 160812,
+      "parse_peak_rss_kib": 268900,
+      "peak_rss_kib": 297716,
+      "memory_before": {
+        "rss": 164671488,
+        "heapTotal": 37527552,
+        "heapUsed": 18439896,
+        "external": 43665904,
+        "arrayBuffers": 33704727
+      },
+      "memory_parsed": {
+        "rss": 274284544,
+        "heapTotal": 221745152,
+        "heapUsed": 114367872,
+        "external": 74893080,
+        "arrayBuffers": 64900391
+      },
+      "memory_after": {
+        "rss": 293822464,
+        "heapTotal": 233119744,
+        "heapUsed": 128675800,
+        "external": 74911017,
+        "arrayBuffers": 64918328
+      },
+      "limitations": [
+        "UF2 numbering declares 65536 block(s) that are absent: family 0x00000001 with 2 numbered blocks has 1 of them; family 0x00000002 with 2 numbered blocks has 1 of them; family 0x00000003 with 2 numbered blocks has 1 of them; family 0x00000004 with 2 numbered blocks has 1 of them; and 65532 more."
+      ],
+      "phase": "after",
+      "repeat": 1,
+      "label": "after-1-absent-65536-decoder"
+    },
+    {
+      "scenario": "absent",
+      "mode": "reader",
+      "count": 65536,
+      "node": "v24.22.1",
+      "input_bytes": 33554432,
+      "input_sha256": "cb5f32e998574b3a8a925befd25eaeb6a9670c08d58a4118f7be147320912624",
+      "source_sha256": "e99d4d18a9064f1b3b33f21c42ce51e2c0a6940f17c335c5b4b4957e4b46a233",
+      "result_sha256": "1861de7fc25f3bf1f76cbe1ce759e82f3570026375ef9a3d0b99a582426f10b7",
+      "result_bytes": 29382174,
+      "parse_ms": 453.25115,
+      "total_ms": 589.3486760000001,
+      "parse_cpu": {
+        "user": 830179,
+        "system": 110688
+      },
+      "total_cpu": {
+        "user": 930084,
+        "system": 146812
+      },
+      "peak_rss_kib_before": 162616,
+      "parse_peak_rss_kib": 386740,
+      "peak_rss_kib": 461204,
+      "memory_before": {
+        "rss": 166367232,
+        "heapTotal": 55353344,
+        "heapUsed": 18429504,
+        "external": 43665904,
+        "arrayBuffers": 33704727
+      },
+      "memory_parsed": {
+        "rss": 389111808,
+        "heapTotal": 247111680,
+        "heapUsed": 97152568,
+        "external": 76788705,
+        "arrayBuffers": 33704743
+      },
+      "memory_after": {
+        "rss": 442900480,
+        "heapTotal": 276496384,
+        "heapUsed": 130784944,
+        "external": 43710450,
+        "arrayBuffers": 33722680
+      },
+      "limitations": [
+        "UF2 numbering declares 65536 block(s) that are absent: family 0x00000001 with 2 numbered blocks has 1 of them; family 0x00000002 with 2 numbered blocks has 1 of them; family 0x00000003 with 2 numbered blocks has 1 of them; family 0x00000004 with 2 numbered blocks has 1 of them; and 65532 more."
+      ],
+      "phase": "after",
+      "repeat": 1,
+      "label": "after-1-absent-65536-reader"
+    },
+    {
+      "scenario": "ambiguous",
+      "mode": "decoder",
+      "count": 21845,
+      "node": "v24.22.1",
+      "input_bytes": 33553920,
+      "input_sha256": "011d7ee1b601ca24e5d2dba16fa01a8cd829edb109403658134b874de594905b",
+      "source_sha256": "e99d4d18a9064f1b3b33f21c42ce51e2c0a6940f17c335c5b4b4957e4b46a233",
+      "result_sha256": "1fbd1f386f85153851fd17b9665bd2338c28c3949c0a07bce9066a5b64373068",
+      "result_bytes": 5006915,
+      "parse_ms": 96.31146700000005,
+      "total_ms": 150.46067499999998,
+      "parse_cpu": {
+        "user": 160231,
+        "system": 15031
+      },
+      "total_cpu": {
+        "user": 210454,
+        "system": 21156
+      },
+      "peak_rss_kib_before": 161644,
+      "parse_peak_rss_kib": 218460,
+      "peak_rss_kib": 238312,
+      "memory_before": {
+        "rss": 165523456,
+        "heapTotal": 55877632,
+        "heapUsed": 18429984,
+        "external": 43665392,
+        "arrayBuffers": 33704215
+      },
+      "memory_parsed": {
+        "rss": 223703040,
+        "heapTotal": 107945984,
+        "heapUsed": 62397936,
+        "external": 74892092,
+        "arrayBuffers": 64899403
+      },
+      "memory_after": {
+        "rss": 239071232,
+        "heapTotal": 112955392,
+        "heapUsed": 69946416,
+        "external": 74910029,
+        "arrayBuffers": 64917340
+      },
+      "limitations": [
+        "UF2 numbering cannot show that every copy of a block sequence is complete: family 0x00000001 with 2 numbered blocks has some numbers at 1 address(es) and others at 2; family 0x00000002 with 2 numbered blocks has some numbers at 1 address(es) and others at 2; family 0x00000003 with 2 numbered blocks has some numbers at 1 address(es) and others at 2; family 0x00000004 with 2 numbered blocks has some numbers at 1 address(es) and others at 2; and 21841 more."
+      ],
+      "phase": "after",
+      "repeat": 1,
+      "label": "after-1-ambiguous-21845-decoder"
+    },
+    {
+      "scenario": "ambiguous",
+      "mode": "reader",
+      "count": 21845,
+      "node": "v24.22.1",
+      "input_bytes": 33553920,
+      "input_sha256": "011d7ee1b601ca24e5d2dba16fa01a8cd829edb109403658134b874de594905b",
+      "source_sha256": "e99d4d18a9064f1b3b33f21c42ce51e2c0a6940f17c335c5b4b4957e4b46a233",
+      "result_sha256": "537062c665d928efa52152b797c831140405722a5abd7062f2e16ef08deb6216",
+      "result_bytes": 9823589,
+      "parse_ms": 243.71475500000003,
+      "total_ms": 297.91391500000003,
+      "parse_cpu": {
+        "user": 438894,
+        "system": 56818
+      },
+      "total_cpu": {
+        "user": 483039,
+        "system": 66809
+      },
+      "peak_rss_kib_before": 162596,
+      "parse_peak_rss_kib": 250068,
+      "peak_rss_kib": 270560,
+      "memory_before": {
+        "rss": 166334464,
+        "heapTotal": 54042624,
+        "heapUsed": 18423072,
+        "external": 43665392,
+        "arrayBuffers": 33704215
+      },
+      "memory_parsed": {
+        "rss": 251625472,
+        "heapTotal": 179032064,
+        "heapUsed": 62304864,
+        "external": 75411461,
+        "arrayBuffers": 33704231
+      },
+      "memory_after": {
+        "rss": 277053440,
+        "heapTotal": 188858368,
+        "heapUsed": 73582264,
+        "external": 43709938,
+        "arrayBuffers": 33722168
+      },
+      "limitations": [
+        "UF2 numbering cannot show that every copy of a block sequence is complete: family 0x00000001 with 2 numbered blocks has some numbers at 1 address(es) and others at 2; family 0x00000002 with 2 numbered blocks has some numbers at 1 address(es) and others at 2; family 0x00000003 with 2 numbered blocks has some numbers at 1 address(es) and others at 2; family 0x00000004 with 2 numbered blocks has some numbers at 1 address(es) and others at 2; and 21841 more."
+      ],
+      "phase": "after",
+      "repeat": 1,
+      "label": "after-1-ambiguous-21845-reader"
+    },
+    {
+      "scenario": "complete",
+      "mode": "decoder",
+      "count": 8192,
+      "node": "v24.22.1",
+      "input_bytes": 8388608,
+      "input_sha256": "79ebdf7f8453c576a4143bb86d2fa2d22a74ad7cc2cb02297c38ee35bb5e53b0",
+      "source_sha256": "e99d4d18a9064f1b3b33f21c42ce51e2c0a6940f17c335c5b4b4957e4b46a233",
+      "result_sha256": "17563f612a1d94974bd00eec98fc2d309045f65d77adc7f03f16393e1a7c94b1",
+      "result_bytes": 1610401,
+      "parse_ms": 27.218053999999995,
+      "total_ms": 41.75765000000001,
+      "parse_cpu": {
+        "user": 53552,
+        "system": 2176
+      },
+      "total_cpu": {
+        "user": 67827,
+        "system": 3258
+      },
+      "peak_rss_kib_before": 135364,
+      "parse_peak_rss_kib": 145476,
+      "peak_rss_kib": 149700,
+      "memory_before": {
+        "rss": 138612736,
+        "heapTotal": 38576128,
+        "heapUsed": 18430120,
+        "external": 18500080,
+        "arrayBuffers": 8538903
+      },
+      "memory_parsed": {
+        "rss": 148967424,
+        "heapTotal": 57851904,
+        "heapUsed": 27729144,
+        "external": 26330904,
+        "arrayBuffers": 8539431
+      },
+      "memory_after": {
+        "rss": 153292800,
+        "heapTotal": 59465728,
+        "heapUsed": 30036984,
+        "external": 18550057,
+        "arrayBuffers": 8557368
+      },
+      "limitations": [],
+      "phase": "after",
+      "repeat": 1,
+      "label": "after-1-complete-8192-decoder"
+    },
+    {
+      "scenario": "complete",
+      "mode": "reader",
+      "count": 8192,
+      "node": "v24.22.1",
+      "input_bytes": 8388608,
+      "input_sha256": "79ebdf7f8453c576a4143bb86d2fa2d22a74ad7cc2cb02297c38ee35bb5e53b0",
+      "source_sha256": "e99d4d18a9064f1b3b33f21c42ce51e2c0a6940f17c335c5b4b4957e4b46a233",
+      "result_sha256": "b4cb54aaa29affc6844b8f0822492bf18943c7533c715f2af045cac1d35725b8",
+      "result_bytes": 3649140,
+      "parse_ms": 74.16317700000002,
+      "total_ms": 91.356875,
+      "parse_cpu": {
+        "user": 101674,
+        "system": 20458
+      },
+      "total_cpu": {
+        "user": 116092,
+        "system": 23377
+      },
+      "peak_rss_kib_before": 135244,
+      "parse_peak_rss_kib": 176712,
+      "peak_rss_kib": 184392,
+      "memory_before": {
+        "rss": 138354688,
+        "heapTotal": 55091200,
+        "heapUsed": 18431536,
+        "external": 18500080,
+        "arrayBuffers": 8538903
+      },
+      "memory_parsed": {
+        "rss": 180953088,
+        "heapTotal": 93999104,
+        "heapUsed": 47576976,
+        "external": 18597432,
+        "arrayBuffers": 8604743
+      },
+      "memory_after": {
+        "rss": 185196544,
+        "heapTotal": 97648640,
+        "heapUsed": 51778424,
+        "external": 18615369,
+        "arrayBuffers": 8622680
+      },
+      "limitations": [],
+      "phase": "after",
+      "repeat": 1,
+      "label": "after-1-complete-8192-reader"
+    },
+    {
+      "scenario": "absent",
+      "mode": "decoder",
+      "count": 8,
+      "node": "v24.22.1",
+      "input_bytes": 4096,
+      "input_sha256": "59e6fd857439b51ff6101ae18d9442bf07bd5a06b9b432eeb54cf4764944fef5",
+      "source_sha256": "ce51061e58b0d7b55f533dadaff109617d012c2400f9d93845b089e79f334893",
+      "result_sha256": "7e37451be0b08ace2b22c09c06fa96fbd2d712dbaa632ece5ef0783541db09ef",
+      "result_bytes": 2135,
+      "parse_ms": 1.9962939999999776,
+      "total_ms": 2.4416719999999827,
+      "parse_cpu": {
+        "user": 4310,
+        "system": 78
+      },
+      "total_cpu": {
+        "user": 4726,
+        "system": 103
+      },
+      "peak_rss_kib_before": 122832,
+      "parse_peak_rss_kib": 122832,
+      "peak_rss_kib": 122832,
+      "memory_before": {
+        "rss": 125779968,
+        "heapTotal": 36741120,
+        "heapUsed": 18354768,
+        "external": 10115568,
+        "arrayBuffers": 154391
+      },
+      "memory_parsed": {
+        "rss": 125779968,
+        "heapTotal": 36741120,
+        "heapUsed": 18505248,
+        "external": 10151416,
+        "arrayBuffers": 158727
+      },
+      "memory_after": {
+        "rss": 125779968,
+        "heapTotal": 36741120,
+        "heapUsed": 18538024,
+        "external": 10168987,
+        "arrayBuffers": 176298
+      },
+      "limitations": [
+        "UF2 numbering declares 8 block(s) that are absent: family 0x00000001 with 2 numbered blocks has 1 of them; family 0x00000002 with 2 numbered blocks has 1 of them; family 0x00000003 with 2 numbered blocks has 1 of them; family 0x00000004 with 2 numbered blocks has 1 of them; and 4 more."
+      ],
+      "phase": "before",
+      "repeat": 1,
+      "label": "before-1-absent-8-decoder"
+    },
+    {
+      "scenario": "absent",
+      "mode": "reader",
+      "count": 8,
+      "node": "v24.22.1",
+      "input_bytes": 4096,
+      "input_sha256": "59e6fd857439b51ff6101ae18d9442bf07bd5a06b9b432eeb54cf4764944fef5",
+      "source_sha256": "ce51061e58b0d7b55f533dadaff109617d012c2400f9d93845b089e79f334893",
+      "result_sha256": "2c75d0647ae87dbaa027f15c9c7836a48e45a8f6206513738b590627bd2a010b",
+      "result_bytes": 4436,
+      "parse_ms": 7.862688999999989,
+      "total_ms": 8.264912999999979,
+      "parse_cpu": {
+        "user": 11714,
+        "system": 0
+      },
+      "total_cpu": {
+        "user": 12113,
+        "system": 0
+      },
+      "peak_rss_kib_before": 120760,
+      "parse_peak_rss_kib": 121016,
+      "peak_rss_kib": 121016,
+      "memory_before": {
+        "rss": 123658240,
+        "heapTotal": 36741120,
+        "heapUsed": 18354640,
+        "external": 10115568,
+        "arrayBuffers": 154391
+      },
+      "memory_parsed": {
+        "rss": 123920384,
+        "heapTotal": 37003264,
+        "heapUsed": 19231472,
+        "external": 10284536,
+        "arrayBuffers": 291847
+      },
+      "memory_after": {
+        "rss": 123920384,
+        "heapTotal": 37003264,
+        "heapUsed": 19263728,
+        "external": 10302107,
+        "arrayBuffers": 309418
+      },
+      "limitations": [
+        "UF2 numbering declares 8 block(s) that are absent: family 0x00000001 with 2 numbered blocks has 1 of them; family 0x00000002 with 2 numbered blocks has 1 of them; family 0x00000003 with 2 numbered blocks has 1 of them; family 0x00000004 with 2 numbered blocks has 1 of them; and 4 more."
+      ],
+      "phase": "before",
+      "repeat": 1,
+      "label": "before-1-absent-8-reader"
+    },
+    {
+      "scenario": "absent",
+      "mode": "decoder",
+      "count": 65536,
+      "node": "v24.22.1",
+      "input_bytes": 33554432,
+      "input_sha256": "cb5f32e998574b3a8a925befd25eaeb6a9670c08d58a4118f7be147320912624",
+      "source_sha256": "ce51061e58b0d7b55f533dadaff109617d012c2400f9d93845b089e79f334893",
+      "result_sha256": "daabf2dac1818bf963cdbb03ac84c0569ea83970f6c47feadc570895b683cc0e",
+      "result_bytes": 11108701,
+      "parse_ms": 148.26564299999995,
+      "total_ms": 238.00427000000002,
+      "parse_cpu": {
+        "user": 211771,
+        "system": 52769
+      },
+      "total_cpu": {
+        "user": 291355,
+        "system": 74761
+      },
+      "peak_rss_kib_before": 161260,
+      "parse_peak_rss_kib": 292628,
+      "peak_rss_kib": 331572,
+      "memory_before": {
+        "rss": 165130240,
+        "heapTotal": 54829056,
+        "heapUsed": 18428432,
+        "external": 43665904,
+        "arrayBuffers": 33704727
+      },
+      "memory_parsed": {
+        "rss": 299651072,
+        "heapTotal": 207937536,
+        "heapUsed": 137353048,
+        "external": 74893080,
+        "arrayBuffers": 64900391
+      },
+      "memory_after": {
+        "rss": 328466432,
+        "heapTotal": 226480128,
+        "heapUsed": 100523376,
+        "external": 74910651,
+        "arrayBuffers": 64917962
+      },
+      "limitations": [
+        "UF2 numbering declares 65536 block(s) that are absent: family 0x00000001 with 2 numbered blocks has 1 of them; family 0x00000002 with 2 numbered blocks has 1 of them; family 0x00000003 with 2 numbered blocks has 1 of them; family 0x00000004 with 2 numbered blocks has 1 of them; and 65532 more."
+      ],
+      "phase": "before",
+      "repeat": 1,
+      "label": "before-1-absent-65536-decoder"
+    },
+    {
+      "scenario": "absent",
+      "mode": "reader",
+      "count": 65536,
+      "node": "v24.22.1",
+      "input_bytes": 33554432,
+      "input_sha256": "cb5f32e998574b3a8a925befd25eaeb6a9670c08d58a4118f7be147320912624",
+      "source_sha256": "ce51061e58b0d7b55f533dadaff109617d012c2400f9d93845b089e79f334893",
+      "result_sha256": "1861de7fc25f3bf1f76cbe1ce759e82f3570026375ef9a3d0b99a582426f10b7",
+      "result_bytes": 29382174,
+      "parse_ms": 457.045828,
+      "total_ms": 590.957345,
+      "parse_cpu": {
+        "user": 824539,
+        "system": 111534
+      },
+      "total_cpu": {
+        "user": 924584,
+        "system": 145651
+      },
+      "peak_rss_kib_before": 161232,
+      "parse_peak_rss_kib": 386696,
+      "peak_rss_kib": 461776,
+      "memory_before": {
+        "rss": 165101568,
+        "heapTotal": 54829056,
+        "heapUsed": 18422288,
+        "external": 43665904,
+        "arrayBuffers": 33704727
+      },
+      "memory_parsed": {
+        "rss": 389058560,
+        "heapTotal": 245276672,
+        "heapUsed": 104205032,
+        "external": 76788705,
+        "arrayBuffers": 33704743
+      },
+      "memory_after": {
+        "rss": 443482112,
+        "heapTotal": 274661376,
+        "heapUsed": 137837352,
+        "external": 43710084,
+        "arrayBuffers": 33722314
+      },
+      "limitations": [
+        "UF2 numbering declares 65536 block(s) that are absent: family 0x00000001 with 2 numbered blocks has 1 of them; family 0x00000002 with 2 numbered blocks has 1 of them; family 0x00000003 with 2 numbered blocks has 1 of them; family 0x00000004 with 2 numbered blocks has 1 of them; and 65532 more."
+      ],
+      "phase": "before",
+      "repeat": 1,
+      "label": "before-1-absent-65536-reader"
+    },
+    {
+      "scenario": "ambiguous",
+      "mode": "decoder",
+      "count": 21845,
+      "node": "v24.22.1",
+      "input_bytes": 33553920,
+      "input_sha256": "011d7ee1b601ca24e5d2dba16fa01a8cd829edb109403658134b874de594905b",
+      "source_sha256": "ce51061e58b0d7b55f533dadaff109617d012c2400f9d93845b089e79f334893",
+      "result_sha256": "1fbd1f386f85153851fd17b9665bd2338c28c3949c0a07bce9066a5b64373068",
+      "result_bytes": 5006915,
+      "parse_ms": 91.43324799999999,
+      "total_ms": 144.86176199999994,
+      "parse_cpu": {
+        "user": 155017,
+        "system": 27378
+      },
+      "total_cpu": {
+        "user": 205017,
+        "system": 35379
+      },
+      "peak_rss_kib_before": 162364,
+      "parse_peak_rss_kib": 238196,
+      "peak_rss_kib": 255864,
+      "memory_before": {
+        "rss": 166260736,
+        "heapTotal": 54304768,
+        "heapUsed": 18426472,
+        "external": 43665392,
+        "arrayBuffers": 33704215
+      },
+      "memory_parsed": {
+        "rss": 243912704,
+        "heapTotal": 117571584,
+        "heapUsed": 53253896,
+        "external": 74892092,
+        "arrayBuffers": 64899403
+      },
+      "memory_after": {
+        "rss": 257032192,
+        "heapTotal": 122580992,
+        "heapUsed": 60802416,
+        "external": 74909663,
+        "arrayBuffers": 64916974
+      },
+      "limitations": [
+        "UF2 numbering cannot show that every copy of a block sequence is complete: family 0x00000001 with 2 numbered blocks has some numbers at 1 address(es) and others at 2; family 0x00000002 with 2 numbered blocks has some numbers at 1 address(es) and others at 2; family 0x00000003 with 2 numbered blocks has some numbers at 1 address(es) and others at 2; family 0x00000004 with 2 numbered blocks has some numbers at 1 address(es) and others at 2; and 21841 more."
+      ],
+      "phase": "before",
+      "repeat": 1,
+      "label": "before-1-ambiguous-21845-decoder"
+    },
+    {
+      "scenario": "ambiguous",
+      "mode": "reader",
+      "count": 21845,
+      "node": "v24.22.1",
+      "input_bytes": 33553920,
+      "input_sha256": "011d7ee1b601ca24e5d2dba16fa01a8cd829edb109403658134b874de594905b",
+      "source_sha256": "ce51061e58b0d7b55f533dadaff109617d012c2400f9d93845b089e79f334893",
+      "result_sha256": "537062c665d928efa52152b797c831140405722a5abd7062f2e16ef08deb6216",
+      "result_bytes": 9823589,
+      "parse_ms": 262.53117799999995,
+      "total_ms": 320.29905199999996,
+      "parse_cpu": {
+        "user": 461633,
+        "system": 54986
+      },
+      "total_cpu": {
+        "user": 506382,
+        "system": 67968
+      },
+      "peak_rss_kib_before": 161880,
+      "parse_peak_rss_kib": 255708,
+      "peak_rss_kib": 282844,
+      "memory_before": {
+        "rss": 165765120,
+        "heapTotal": 54829056,
+        "heapUsed": 18424208,
+        "external": 43665392,
+        "arrayBuffers": 33704215
+      },
+      "memory_parsed": {
+        "rss": 261844992,
+        "heapTotal": 176234496,
+        "heapUsed": 74045000,
+        "external": 43692289,
+        "arrayBuffers": 33704519
+      },
+      "memory_after": {
+        "rss": 289632256,
+        "heapTotal": 186060800,
+        "heapUsed": 85323248,
+        "external": 43709860,
+        "arrayBuffers": 33722090
+      },
+      "limitations": [
+        "UF2 numbering cannot show that every copy of a block sequence is complete: family 0x00000001 with 2 numbered blocks has some numbers at 1 address(es) and others at 2; family 0x00000002 with 2 numbered blocks has some numbers at 1 address(es) and others at 2; family 0x00000003 with 2 numbered blocks has some numbers at 1 address(es) and others at 2; family 0x00000004 with 2 numbered blocks has some numbers at 1 address(es) and others at 2; and 21841 more."
+      ],
+      "phase": "before",
+      "repeat": 1,
+      "label": "before-1-ambiguous-21845-reader"
+    },
+    {
+      "scenario": "complete",
+      "mode": "decoder",
+      "count": 8192,
+      "node": "v24.22.1",
+      "input_bytes": 8388608,
+      "input_sha256": "79ebdf7f8453c576a4143bb86d2fa2d22a74ad7cc2cb02297c38ee35bb5e53b0",
+      "source_sha256": "ce51061e58b0d7b55f533dadaff109617d012c2400f9d93845b089e79f334893",
+      "result_sha256": "17563f612a1d94974bd00eec98fc2d309045f65d77adc7f03f16393e1a7c94b1",
+      "result_bytes": 1610401,
+      "parse_ms": 28.649238000000025,
+      "total_ms": 45.06883499999998,
+      "parse_cpu": {
+        "user": 50262,
+        "system": 8032
+      },
+      "total_cpu": {
+        "user": 69120,
+        "system": 11050
+      },
+      "peak_rss_kib_before": 136652,
+      "parse_peak_rss_kib": 152012,
+      "peak_rss_kib": 160844,
+      "memory_before": {
+        "rss": 139931648,
+        "heapTotal": 54304768,
+        "heapUsed": 18430568,
+        "external": 18500080,
+        "arrayBuffers": 8538903
+      },
+      "memory_parsed": {
+        "rss": 155660288,
+        "heapTotal": 55230464,
+        "heapUsed": 34869864,
+        "external": 26330904,
+        "arrayBuffers": 16338215
+      },
+      "memory_after": {
+        "rss": 164704256,
+        "heapTotal": 62349312,
+        "heapUsed": 27441888,
+        "external": 18549179,
+        "arrayBuffers": 8556490
+      },
+      "limitations": [],
+      "phase": "before",
+      "repeat": 1,
+      "label": "before-1-complete-8192-decoder"
+    },
+    {
+      "scenario": "complete",
+      "mode": "reader",
+      "count": 8192,
+      "node": "v24.22.1",
+      "input_bytes": 8388608,
+      "input_sha256": "79ebdf7f8453c576a4143bb86d2fa2d22a74ad7cc2cb02297c38ee35bb5e53b0",
+      "source_sha256": "ce51061e58b0d7b55f533dadaff109617d012c2400f9d93845b089e79f334893",
+      "result_sha256": "b4cb54aaa29affc6844b8f0822492bf18943c7533c715f2af045cac1d35725b8",
+      "result_bytes": 3649140,
+      "parse_ms": 73.749976,
+      "total_ms": 90.83169599999997,
+      "parse_cpu": {
+        "user": 106293,
+        "system": 21594
+      },
+      "total_cpu": {
+        "user": 120291,
+        "system": 24609
+      },
+      "peak_rss_kib_before": 136648,
+      "parse_peak_rss_kib": 175944,
+      "peak_rss_kib": 183368,
+      "memory_before": {
+        "rss": 139927552,
+        "heapTotal": 54304768,
+        "heapUsed": 18430592,
+        "external": 18500080,
+        "arrayBuffers": 8538903
+      },
+      "memory_parsed": {
+        "rss": 180166656,
+        "heapTotal": 96620544,
+        "heapUsed": 41090944,
+        "external": 18597432,
+        "arrayBuffers": 8604455
+      },
+      "memory_after": {
+        "rss": 184176640,
+        "heapTotal": 100270080,
+        "heapUsed": 45292320,
+        "external": 18614715,
+        "arrayBuffers": 8622026
+      },
+      "limitations": [],
+      "phase": "before",
+      "repeat": 1,
+      "label": "before-1-complete-8192-reader"
+    },
+    {
+      "scenario": "absent",
+      "mode": "decoder",
+      "count": 8,
+      "node": "v24.22.1",
+      "input_bytes": 4096,
+      "input_sha256": "59e6fd857439b51ff6101ae18d9442bf07bd5a06b9b432eeb54cf4764944fef5",
+      "source_sha256": "ce51061e58b0d7b55f533dadaff109617d012c2400f9d93845b089e79f334893",
+      "result_sha256": "7e37451be0b08ace2b22c09c06fa96fbd2d712dbaa632ece5ef0783541db09ef",
+      "result_bytes": 2135,
+      "parse_ms": 1.970166000000006,
+      "total_ms": 2.447681999999986,
+      "parse_cpu": {
+        "user": 4630,
+        "system": 0
+      },
+      "total_cpu": {
+        "user": 5107,
+        "system": 0
+      },
+      "peak_rss_kib_before": 125244,
+      "parse_peak_rss_kib": 125244,
+      "peak_rss_kib": 125244,
+      "memory_before": {
+        "rss": 128249856,
+        "heapTotal": 36478976,
+        "heapUsed": 18355104,
+        "external": 10115568,
+        "arrayBuffers": 154391
+      },
+      "memory_parsed": {
+        "rss": 128249856,
+        "heapTotal": 36478976,
+        "heapUsed": 18505584,
+        "external": 10151416,
+        "arrayBuffers": 158727
+      },
+      "memory_after": {
+        "rss": 128249856,
+        "heapTotal": 36478976,
+        "heapUsed": 18538360,
+        "external": 10168987,
+        "arrayBuffers": 176298
+      },
+      "limitations": [
+        "UF2 numbering declares 8 block(s) that are absent: family 0x00000001 with 2 numbered blocks has 1 of them; family 0x00000002 with 2 numbered blocks has 1 of them; family 0x00000003 with 2 numbered blocks has 1 of them; family 0x00000004 with 2 numbered blocks has 1 of them; and 4 more."
+      ],
+      "phase": "before",
+      "repeat": 2,
+      "label": "before-2-absent-8-decoder"
+    },
+    {
+      "scenario": "absent",
+      "mode": "reader",
+      "count": 8,
+      "node": "v24.22.1",
+      "input_bytes": 4096,
+      "input_sha256": "59e6fd857439b51ff6101ae18d9442bf07bd5a06b9b432eeb54cf4764944fef5",
+      "source_sha256": "ce51061e58b0d7b55f533dadaff109617d012c2400f9d93845b089e79f334893",
+      "result_sha256": "2c75d0647ae87dbaa027f15c9c7836a48e45a8f6206513738b590627bd2a010b",
+      "result_bytes": 4436,
+      "parse_ms": 7.827296000000047,
+      "total_ms": 8.287347000000011,
+      "parse_cpu": {
+        "user": 10044,
+        "system": 980
+      },
+      "total_cpu": {
+        "user": 10476,
+        "system": 982
+      },
+      "peak_rss_kib_before": 121604,
+      "parse_peak_rss_kib": 121988,
+      "peak_rss_kib": 121988,
+      "memory_before": {
+        "rss": 124522496,
+        "heapTotal": 36216832,
+        "heapUsed": 18354528,
+        "external": 10115568,
+        "arrayBuffers": 154391
+      },
+      "memory_parsed": {
+        "rss": 124915712,
+        "heapTotal": 36478976,
+        "heapUsed": 19231360,
+        "external": 10284536,
+        "arrayBuffers": 291847
+      },
+      "memory_after": {
+        "rss": 124915712,
+        "heapTotal": 36478976,
+        "heapUsed": 19263616,
+        "external": 10302107,
+        "arrayBuffers": 309418
+      },
+      "limitations": [
+        "UF2 numbering declares 8 block(s) that are absent: family 0x00000001 with 2 numbered blocks has 1 of them; family 0x00000002 with 2 numbered blocks has 1 of them; family 0x00000003 with 2 numbered blocks has 1 of them; family 0x00000004 with 2 numbered blocks has 1 of them; and 4 more."
+      ],
+      "phase": "before",
+      "repeat": 2,
+      "label": "before-2-absent-8-reader"
+    },
+    {
+      "scenario": "absent",
+      "mode": "decoder",
+      "count": 65536,
+      "node": "v24.22.1",
+      "input_bytes": 33554432,
+      "input_sha256": "cb5f32e998574b3a8a925befd25eaeb6a9670c08d58a4118f7be147320912624",
+      "source_sha256": "ce51061e58b0d7b55f533dadaff109617d012c2400f9d93845b089e79f334893",
+      "result_sha256": "daabf2dac1818bf963cdbb03ac84c0569ea83970f6c47feadc570895b683cc0e",
+      "result_bytes": 11108701,
+      "parse_ms": 149.62048000000004,
+      "total_ms": 238.65812300000005,
+      "parse_cpu": {
+        "user": 223803,
+        "system": 46358
+      },
+      "total_cpu": {
+        "user": 306504,
+        "system": 64631
+      },
+      "peak_rss_kib_before": 161936,
+      "parse_peak_rss_kib": 292580,
+      "peak_rss_kib": 332116,
+      "memory_before": {
+        "rss": 165822464,
+        "heapTotal": 54566912,
+        "heapUsed": 18421944,
+        "external": 43665904,
+        "arrayBuffers": 33704727
+      },
+      "memory_parsed": {
+        "rss": 299601920,
+        "heapTotal": 208723968,
+        "heapUsed": 136799320,
+        "external": 74893080,
+        "arrayBuffers": 64900391
+      },
+      "memory_after": {
+        "rss": 329076736,
+        "heapTotal": 227266560,
+        "heapUsed": 99833776,
+        "external": 74910651,
+        "arrayBuffers": 64917962
+      },
+      "limitations": [
+        "UF2 numbering declares 65536 block(s) that are absent: family 0x00000001 with 2 numbered blocks has 1 of them; family 0x00000002 with 2 numbered blocks has 1 of them; family 0x00000003 with 2 numbered blocks has 1 of them; family 0x00000004 with 2 numbered blocks has 1 of them; and 65532 more."
+      ],
+      "phase": "before",
+      "repeat": 2,
+      "label": "before-2-absent-65536-decoder"
+    },
+    {
+      "scenario": "absent",
+      "mode": "reader",
+      "count": 65536,
+      "node": "v24.22.1",
+      "input_bytes": 33554432,
+      "input_sha256": "cb5f32e998574b3a8a925befd25eaeb6a9670c08d58a4118f7be147320912624",
+      "source_sha256": "ce51061e58b0d7b55f533dadaff109617d012c2400f9d93845b089e79f334893",
+      "result_sha256": "1861de7fc25f3bf1f76cbe1ce759e82f3570026375ef9a3d0b99a582426f10b7",
+      "result_bytes": 29382174,
+      "parse_ms": 449.353618,
+      "total_ms": 579.872719,
+      "parse_cpu": {
+        "user": 786303,
+        "system": 111137
+      },
+      "total_cpu": {
+        "user": 887474,
+        "system": 140262
+      },
+      "peak_rss_kib_before": 161788,
+      "parse_peak_rss_kib": 381440,
+      "peak_rss_kib": 456108,
+      "memory_before": {
+        "rss": 165670912,
+        "heapTotal": 54566912,
+        "heapUsed": 18431008,
+        "external": 43665904,
+        "arrayBuffers": 33704727
+      },
+      "memory_parsed": {
+        "rss": 384536576,
+        "heapTotal": 233529344,
+        "heapUsed": 99577984,
+        "external": 43692513,
+        "arrayBuffers": 33704743
+      },
+      "memory_after": {
+        "rss": 437673984,
+        "heapTotal": 262914048,
+        "heapUsed": 133211080,
+        "external": 43710084,
+        "arrayBuffers": 33722314
+      },
+      "limitations": [
+        "UF2 numbering declares 65536 block(s) that are absent: family 0x00000001 with 2 numbered blocks has 1 of them; family 0x00000002 with 2 numbered blocks has 1 of them; family 0x00000003 with 2 numbered blocks has 1 of them; family 0x00000004 with 2 numbered blocks has 1 of them; and 65532 more."
+      ],
+      "phase": "before",
+      "repeat": 2,
+      "label": "before-2-absent-65536-reader"
+    },
+    {
+      "scenario": "ambiguous",
+      "mode": "decoder",
+      "count": 21845,
+      "node": "v24.22.1",
+      "input_bytes": 33553920,
+      "input_sha256": "011d7ee1b601ca24e5d2dba16fa01a8cd829edb109403658134b874de594905b",
+      "source_sha256": "ce51061e58b0d7b55f533dadaff109617d012c2400f9d93845b089e79f334893",
+      "result_sha256": "1fbd1f386f85153851fd17b9665bd2338c28c3949c0a07bce9066a5b64373068",
+      "result_bytes": 5006915,
+      "parse_ms": 94.41401199999996,
+      "total_ms": 146.09525199999996,
+      "parse_cpu": {
+        "user": 158336,
+        "system": 24499
+      },
+      "total_cpu": {
+        "user": 202316,
+        "system": 35593
+      },
+      "peak_rss_kib_before": 161340,
+      "parse_peak_rss_kib": 217576,
+      "peak_rss_kib": 237720,
+      "memory_before": {
+        "rss": 165212160,
+        "heapTotal": 54042624,
+        "heapUsed": 18431408,
+        "external": 43665392,
+        "arrayBuffers": 33704215
+      },
+      "memory_parsed": {
+        "rss": 222797824,
+        "heapTotal": 109174784,
+        "heapUsed": 61968064,
+        "external": 74892092,
+        "arrayBuffers": 64899403
+      },
+      "memory_after": {
+        "rss": 238460928,
+        "heapTotal": 114184192,
+        "heapUsed": 69516520,
+        "external": 74909663,
+        "arrayBuffers": 64916974
+      },
+      "limitations": [
+        "UF2 numbering cannot show that every copy of a block sequence is complete: family 0x00000001 with 2 numbered blocks has some numbers at 1 address(es) and others at 2; family 0x00000002 with 2 numbered blocks has some numbers at 1 address(es) and others at 2; family 0x00000003 with 2 numbered blocks has some numbers at 1 address(es) and others at 2; family 0x00000004 with 2 numbered blocks has some numbers at 1 address(es) and others at 2; and 21841 more."
+      ],
+      "phase": "before",
+      "repeat": 2,
+      "label": "before-2-ambiguous-21845-decoder"
+    },
+    {
+      "scenario": "ambiguous",
+      "mode": "reader",
+      "count": 21845,
+      "node": "v24.22.1",
+      "input_bytes": 33553920,
+      "input_sha256": "011d7ee1b601ca24e5d2dba16fa01a8cd829edb109403658134b874de594905b",
+      "source_sha256": "ce51061e58b0d7b55f533dadaff109617d012c2400f9d93845b089e79f334893",
+      "result_sha256": "537062c665d928efa52152b797c831140405722a5abd7062f2e16ef08deb6216",
+      "result_bytes": 9823589,
+      "parse_ms": 262.096856,
+      "total_ms": 316.89231300000006,
+      "parse_cpu": {
+        "user": 449905,
+        "system": 62887
+      },
+      "total_cpu": {
+        "user": 494401,
+        "system": 72904
+      },
+      "peak_rss_kib_before": 161776,
+      "parse_peak_rss_kib": 256540,
+      "peak_rss_kib": 282652,
+      "memory_before": {
+        "rss": 165658624,
+        "heapTotal": 54042624,
+        "heapUsed": 18431888,
+        "external": 43665392,
+        "arrayBuffers": 33704215
+      },
+      "memory_parsed": {
+        "rss": 262696960,
+        "heapTotal": 178069504,
+        "heapUsed": 74307184,
+        "external": 43692289,
+        "arrayBuffers": 33704519
+      },
+      "memory_after": {
+        "rss": 289435648,
+        "heapTotal": 187895808,
+        "heapUsed": 85585432,
+        "external": 43709860,
+        "arrayBuffers": 33722090
+      },
+      "limitations": [
+        "UF2 numbering cannot show that every copy of a block sequence is complete: family 0x00000001 with 2 numbered blocks has some numbers at 1 address(es) and others at 2; family 0x00000002 with 2 numbered blocks has some numbers at 1 address(es) and others at 2; family 0x00000003 with 2 numbered blocks has some numbers at 1 address(es) and others at 2; family 0x00000004 with 2 numbered blocks has some numbers at 1 address(es) and others at 2; and 21841 more."
+      ],
+      "phase": "before",
+      "repeat": 2,
+      "label": "before-2-ambiguous-21845-reader"
+    },
+    {
+      "scenario": "complete",
+      "mode": "decoder",
+      "count": 8192,
+      "node": "v24.22.1",
+      "input_bytes": 8388608,
+      "input_sha256": "79ebdf7f8453c576a4143bb86d2fa2d22a74ad7cc2cb02297c38ee35bb5e53b0",
+      "source_sha256": "ce51061e58b0d7b55f533dadaff109617d012c2400f9d93845b089e79f334893",
+      "result_sha256": "17563f612a1d94974bd00eec98fc2d309045f65d77adc7f03f16393e1a7c94b1",
+      "result_bytes": 1610401,
+      "parse_ms": 27.312828000000025,
+      "total_ms": 41.82678800000002,
+      "parse_cpu": {
+        "user": 57578,
+        "system": 1817
+      },
+      "total_cpu": {
+        "user": 73070,
+        "system": 1856
+      },
+      "peak_rss_kib_before": 136440,
+      "parse_peak_rss_kib": 146552,
+      "peak_rss_kib": 151160,
+      "memory_before": {
+        "rss": 139714560,
+        "heapTotal": 38313984,
+        "heapUsed": 18430728,
+        "external": 18500080,
+        "arrayBuffers": 8538903
+      },
+      "memory_parsed": {
+        "rss": 150069248,
+        "heapTotal": 57851904,
+        "heapUsed": 30170768,
+        "external": 26330904,
+        "arrayBuffers": 8539431
+      },
+      "memory_after": {
+        "rss": 154787840,
+        "heapTotal": 59465728,
+        "heapUsed": 32478624,
+        "external": 18549691,
+        "arrayBuffers": 8557002
+      },
+      "limitations": [],
+      "phase": "before",
+      "repeat": 2,
+      "label": "before-2-complete-8192-decoder"
+    },
+    {
+      "scenario": "complete",
+      "mode": "reader",
+      "count": 8192,
+      "node": "v24.22.1",
+      "input_bytes": 8388608,
+      "input_sha256": "79ebdf7f8453c576a4143bb86d2fa2d22a74ad7cc2cb02297c38ee35bb5e53b0",
+      "source_sha256": "ce51061e58b0d7b55f533dadaff109617d012c2400f9d93845b089e79f334893",
+      "result_sha256": "b4cb54aaa29affc6844b8f0822492bf18943c7533c715f2af045cac1d35725b8",
+      "result_bytes": 3649140,
+      "parse_ms": 73.35722800000002,
+      "total_ms": 90.76417400000003,
+      "parse_cpu": {
+        "user": 105304,
+        "system": 20409
+      },
+      "total_cpu": {
+        "user": 119669,
+        "system": 23465
+      },
+      "peak_rss_kib_before": 136284,
+      "parse_peak_rss_kib": 175452,
+      "peak_rss_kib": 182876,
+      "memory_before": {
+        "rss": 139554816,
+        "heapTotal": 54566912,
+        "heapUsed": 18423864,
+        "external": 18500080,
+        "arrayBuffers": 8538903
+      },
+      "memory_parsed": {
+        "rss": 179662848,
+        "heapTotal": 97144832,
+        "heapUsed": 41082704,
+        "external": 18597432,
+        "arrayBuffers": 8604455
+      },
+      "memory_after": {
+        "rss": 183676928,
+        "heapTotal": 100794368,
+        "heapUsed": 45284088,
+        "external": 18614715,
+        "arrayBuffers": 8622026
+      },
+      "limitations": [],
+      "phase": "before",
+      "repeat": 2,
+      "label": "before-2-complete-8192-reader"
+    },
+    {
+      "scenario": "absent",
+      "mode": "decoder",
+      "count": 8,
+      "node": "v24.22.1",
+      "input_bytes": 4096,
+      "input_sha256": "59e6fd857439b51ff6101ae18d9442bf07bd5a06b9b432eeb54cf4764944fef5",
+      "source_sha256": "e99d4d18a9064f1b3b33f21c42ce51e2c0a6940f17c335c5b4b4957e4b46a233",
+      "result_sha256": "7e37451be0b08ace2b22c09c06fa96fbd2d712dbaa632ece5ef0783541db09ef",
+      "result_bytes": 2135,
+      "parse_ms": 1.8061539999999923,
+      "total_ms": 2.2700270000000273,
+      "parse_cpu": {
+        "user": 1961,
+        "system": 0
+      },
+      "total_cpu": {
+        "user": 2408,
+        "system": 0
+      },
+      "peak_rss_kib_before": 121696,
+      "parse_peak_rss_kib": 121696,
+      "peak_rss_kib": 121696,
+      "memory_before": {
+        "rss": 124616704,
+        "heapTotal": 36478976,
+        "heapUsed": 18355952,
+        "external": 10115568,
+        "arrayBuffers": 154391
+      },
+      "memory_parsed": {
+        "rss": 124616704,
+        "heapTotal": 36478976,
+        "heapUsed": 18505288,
+        "external": 10151416,
+        "arrayBuffers": 158727
+      },
+      "memory_after": {
+        "rss": 124616704,
+        "heapTotal": 36478976,
+        "heapUsed": 18538064,
+        "external": 10169353,
+        "arrayBuffers": 176664
+      },
+      "limitations": [
+        "UF2 numbering declares 8 block(s) that are absent: family 0x00000001 with 2 numbered blocks has 1 of them; family 0x00000002 with 2 numbered blocks has 1 of them; family 0x00000003 with 2 numbered blocks has 1 of them; family 0x00000004 with 2 numbered blocks has 1 of them; and 4 more."
+      ],
+      "phase": "after",
+      "repeat": 2,
+      "label": "after-2-absent-8-decoder"
+    },
+    {
+      "scenario": "absent",
+      "mode": "reader",
+      "count": 8,
+      "node": "v24.22.1",
+      "input_bytes": 4096,
+      "input_sha256": "59e6fd857439b51ff6101ae18d9442bf07bd5a06b9b432eeb54cf4764944fef5",
+      "source_sha256": "e99d4d18a9064f1b3b33f21c42ce51e2c0a6940f17c335c5b4b4957e4b46a233",
+      "result_sha256": "2c75d0647ae87dbaa027f15c9c7836a48e45a8f6206513738b590627bd2a010b",
+      "result_bytes": 4436,
+      "parse_ms": 7.862806000000035,
+      "total_ms": 8.283547999999996,
+      "parse_cpu": {
+        "user": 10703,
+        "system": 989
+      },
+      "total_cpu": {
+        "user": 11107,
+        "system": 1012
+      },
+      "peak_rss_kib_before": 121240,
+      "parse_peak_rss_kib": 121624,
+      "peak_rss_kib": 121624,
+      "memory_before": {
+        "rss": 124149760,
+        "heapTotal": 36741120,
+        "heapUsed": 18359128,
+        "external": 10115568,
+        "arrayBuffers": 154391
+      },
+      "memory_parsed": {
+        "rss": 124542976,
+        "heapTotal": 37003264,
+        "heapUsed": 19234824,
+        "external": 10284536,
+        "arrayBuffers": 291847
+      },
+      "memory_after": {
+        "rss": 124542976,
+        "heapTotal": 37003264,
+        "heapUsed": 19267080,
+        "external": 10302473,
+        "arrayBuffers": 309784
+      },
+      "limitations": [
+        "UF2 numbering declares 8 block(s) that are absent: family 0x00000001 with 2 numbered blocks has 1 of them; family 0x00000002 with 2 numbered blocks has 1 of them; family 0x00000003 with 2 numbered blocks has 1 of them; family 0x00000004 with 2 numbered blocks has 1 of them; and 4 more."
+      ],
+      "phase": "after",
+      "repeat": 2,
+      "label": "after-2-absent-8-reader"
+    },
+    {
+      "scenario": "absent",
+      "mode": "decoder",
+      "count": 65536,
+      "node": "v24.22.1",
+      "input_bytes": 33554432,
+      "input_sha256": "cb5f32e998574b3a8a925befd25eaeb6a9670c08d58a4118f7be147320912624",
+      "source_sha256": "e99d4d18a9064f1b3b33f21c42ce51e2c0a6940f17c335c5b4b4957e4b46a233",
+      "result_sha256": "daabf2dac1818bf963cdbb03ac84c0569ea83970f6c47feadc570895b683cc0e",
+      "result_bytes": 11108701,
+      "parse_ms": 140.18826800000005,
+      "total_ms": 226.64108300000004,
+      "parse_cpu": {
+        "user": 221828,
+        "system": 40627
+      },
+      "total_cpu": {
+        "user": 284550,
+        "system": 63792
+      },
+      "peak_rss_kib_before": 161284,
+      "parse_peak_rss_kib": 270592,
+      "peak_rss_kib": 303344,
+      "memory_before": {
+        "rss": 165154816,
+        "heapTotal": 54042624,
+        "heapUsed": 18429600,
+        "external": 43665904,
+        "arrayBuffers": 33704727
+      },
+      "memory_parsed": {
+        "rss": 277086208,
+        "heapTotal": 205578240,
+        "heapUsed": 114217648,
+        "external": 74893080,
+        "arrayBuffers": 64900391
+      },
+      "memory_after": {
+        "rss": 299573248,
+        "heapTotal": 216952832,
+        "heapUsed": 128525304,
+        "external": 74911017,
+        "arrayBuffers": 64918328
+      },
+      "limitations": [
+        "UF2 numbering declares 65536 block(s) that are absent: family 0x00000001 with 2 numbered blocks has 1 of them; family 0x00000002 with 2 numbered blocks has 1 of them; family 0x00000003 with 2 numbered blocks has 1 of them; family 0x00000004 with 2 numbered blocks has 1 of them; and 65532 more."
+      ],
+      "phase": "after",
+      "repeat": 2,
+      "label": "after-2-absent-65536-decoder"
+    },
+    {
+      "scenario": "absent",
+      "mode": "reader",
+      "count": 65536,
+      "node": "v24.22.1",
+      "input_bytes": 33554432,
+      "input_sha256": "cb5f32e998574b3a8a925befd25eaeb6a9670c08d58a4118f7be147320912624",
+      "source_sha256": "e99d4d18a9064f1b3b33f21c42ce51e2c0a6940f17c335c5b4b4957e4b46a233",
+      "result_sha256": "1861de7fc25f3bf1f76cbe1ce759e82f3570026375ef9a3d0b99a582426f10b7",
+      "result_bytes": 29382174,
+      "parse_ms": 442.912582,
+      "total_ms": 575.934373,
+      "parse_cpu": {
+        "user": 779655,
+        "system": 103843
+      },
+      "total_cpu": {
+        "user": 878541,
+        "system": 138098
+      },
+      "peak_rss_kib_before": 160924,
+      "parse_peak_rss_kib": 380968,
+      "peak_rss_kib": 456184,
+      "memory_before": {
+        "rss": 164786176,
+        "heapTotal": 55091200,
+        "heapUsed": 18427936,
+        "external": 43665904,
+        "arrayBuffers": 33704727
+      },
+      "memory_parsed": {
+        "rss": 384245760,
+        "heapTotal": 228696064,
+        "heapUsed": 136695384,
+        "external": 75871201,
+        "arrayBuffers": 33704743
+      },
+      "memory_after": {
+        "rss": 437751808,
+        "heapTotal": 258080768,
+        "heapUsed": 170327704,
+        "external": 43710450,
+        "arrayBuffers": 33722680
+      },
+      "limitations": [
+        "UF2 numbering declares 65536 block(s) that are absent: family 0x00000001 with 2 numbered blocks has 1 of them; family 0x00000002 with 2 numbered blocks has 1 of them; family 0x00000003 with 2 numbered blocks has 1 of them; family 0x00000004 with 2 numbered blocks has 1 of them; and 65532 more."
+      ],
+      "phase": "after",
+      "repeat": 2,
+      "label": "after-2-absent-65536-reader"
+    },
+    {
+      "scenario": "ambiguous",
+      "mode": "decoder",
+      "count": 21845,
+      "node": "v24.22.1",
+      "input_bytes": 33553920,
+      "input_sha256": "011d7ee1b601ca24e5d2dba16fa01a8cd829edb109403658134b874de594905b",
+      "source_sha256": "e99d4d18a9064f1b3b33f21c42ce51e2c0a6940f17c335c5b4b4957e4b46a233",
+      "result_sha256": "1fbd1f386f85153851fd17b9665bd2338c28c3949c0a07bce9066a5b64373068",
+      "result_bytes": 5006915,
+      "parse_ms": 88.18435199999999,
+      "total_ms": 138.415441,
+      "parse_cpu": {
+        "user": 142169,
+        "system": 19833
+      },
+      "total_cpu": {
+        "user": 187090,
+        "system": 27818
+      },
+      "peak_rss_kib_before": 161876,
+      "parse_peak_rss_kib": 215360,
+      "peak_rss_kib": 235604,
+      "memory_before": {
+        "rss": 165761024,
+        "heapTotal": 54829056,
+        "heapUsed": 18429440,
+        "external": 43665392,
+        "arrayBuffers": 33704215
+      },
+      "memory_parsed": {
+        "rss": 220528640,
+        "heapTotal": 107761664,
+        "heapUsed": 59569328,
+        "external": 74892092,
+        "arrayBuffers": 64899403
+      },
+      "memory_after": {
+        "rss": 236281856,
+        "heapTotal": 112771072,
+        "heapUsed": 67118200,
+        "external": 74910029,
+        "arrayBuffers": 64917340
+      },
+      "limitations": [
+        "UF2 numbering cannot show that every copy of a block sequence is complete: family 0x00000001 with 2 numbered blocks has some numbers at 1 address(es) and others at 2; family 0x00000002 with 2 numbered blocks has some numbers at 1 address(es) and others at 2; family 0x00000003 with 2 numbered blocks has some numbers at 1 address(es) and others at 2; family 0x00000004 with 2 numbered blocks has some numbers at 1 address(es) and others at 2; and 21841 more."
+      ],
+      "phase": "after",
+      "repeat": 2,
+      "label": "after-2-ambiguous-21845-decoder"
+    },
+    {
+      "scenario": "ambiguous",
+      "mode": "reader",
+      "count": 21845,
+      "node": "v24.22.1",
+      "input_bytes": 33553920,
+      "input_sha256": "011d7ee1b601ca24e5d2dba16fa01a8cd829edb109403658134b874de594905b",
+      "source_sha256": "e99d4d18a9064f1b3b33f21c42ce51e2c0a6940f17c335c5b4b4957e4b46a233",
+      "result_sha256": "537062c665d928efa52152b797c831140405722a5abd7062f2e16ef08deb6216",
+      "result_bytes": 9823589,
+      "parse_ms": 243.03946299999996,
+      "total_ms": 295.710284,
+      "parse_cpu": {
+        "user": 441465,
+        "system": 58266
+      },
+      "total_cpu": {
+        "user": 486183,
+        "system": 66260
+      },
+      "peak_rss_kib_before": 161124,
+      "parse_peak_rss_kib": 259020,
+      "peak_rss_kib": 278688,
+      "memory_before": {
+        "rss": 164990976,
+        "heapTotal": 54566912,
+        "heapUsed": 18425832,
+        "external": 43665392,
+        "arrayBuffers": 33704215
+      },
+      "memory_parsed": {
+        "rss": 260997120,
+        "heapTotal": 183488512,
+        "heapUsed": 47286792,
+        "external": 75149317,
+        "arrayBuffers": 33704231
+      },
+      "memory_after": {
+        "rss": 285376512,
+        "heapTotal": 193314816,
+        "heapUsed": 58564176,
+        "external": 43709938,
+        "arrayBuffers": 33722168
+      },
+      "limitations": [
+        "UF2 numbering cannot show that every copy of a block sequence is complete: family 0x00000001 with 2 numbered blocks has some numbers at 1 address(es) and others at 2; family 0x00000002 with 2 numbered blocks has some numbers at 1 address(es) and others at 2; family 0x00000003 with 2 numbered blocks has some numbers at 1 address(es) and others at 2; family 0x00000004 with 2 numbered blocks has some numbers at 1 address(es) and others at 2; and 21841 more."
+      ],
+      "phase": "after",
+      "repeat": 2,
+      "label": "after-2-ambiguous-21845-reader"
+    },
+    {
+      "scenario": "complete",
+      "mode": "decoder",
+      "count": 8192,
+      "node": "v24.22.1",
+      "input_bytes": 8388608,
+      "input_sha256": "79ebdf7f8453c576a4143bb86d2fa2d22a74ad7cc2cb02297c38ee35bb5e53b0",
+      "source_sha256": "e99d4d18a9064f1b3b33f21c42ce51e2c0a6940f17c335c5b4b4957e4b46a233",
+      "result_sha256": "17563f612a1d94974bd00eec98fc2d309045f65d77adc7f03f16393e1a7c94b1",
+      "result_bytes": 1610401,
+      "parse_ms": 25.099751999999967,
+      "total_ms": 41.04123099999998,
+      "parse_cpu": {
+        "user": 49425,
+        "system": 2936
+      },
+      "total_cpu": {
+        "user": 65403,
+        "system": 8765
+      },
+      "peak_rss_kib_before": 136188,
+      "parse_peak_rss_kib": 149500,
+      "peak_rss_kib": 158736,
+      "memory_before": {
+        "rss": 139456512,
+        "heapTotal": 53780480,
+        "heapUsed": 18432160,
+        "external": 18500080,
+        "arrayBuffers": 8538903
+      },
+      "memory_parsed": {
+        "rss": 153088000,
+        "heapTotal": 54968320,
+        "heapUsed": 32622088,
+        "external": 26330904,
+        "arrayBuffers": 16338215
+      },
+      "memory_after": {
+        "rss": 162545664,
+        "heapTotal": 62349312,
+        "heapUsed": 27881544,
+        "external": 18549545,
+        "arrayBuffers": 8556856
+      },
+      "limitations": [],
+      "phase": "after",
+      "repeat": 2,
+      "label": "after-2-complete-8192-decoder"
+    },
+    {
+      "scenario": "complete",
+      "mode": "reader",
+      "count": 8192,
+      "node": "v24.22.1",
+      "input_bytes": 8388608,
+      "input_sha256": "79ebdf7f8453c576a4143bb86d2fa2d22a74ad7cc2cb02297c38ee35bb5e53b0",
+      "source_sha256": "e99d4d18a9064f1b3b33f21c42ce51e2c0a6940f17c335c5b4b4957e4b46a233",
+      "result_sha256": "b4cb54aaa29affc6844b8f0822492bf18943c7533c715f2af045cac1d35725b8",
+      "result_bytes": 3649140,
+      "parse_ms": 73.433739,
+      "total_ms": 90.56188199999997,
+      "parse_cpu": {
+        "user": 97455,
+        "system": 23478
+      },
+      "total_cpu": {
+        "user": 111413,
+        "system": 26463
+      },
+      "peak_rss_kib_before": 136680,
+      "parse_peak_rss_kib": 178152,
+      "peak_rss_kib": 185832,
+      "memory_before": {
+        "rss": 139960320,
+        "heapTotal": 54566912,
+        "heapUsed": 18431384,
+        "external": 18500080,
+        "arrayBuffers": 8538903
+      },
+      "memory_parsed": {
+        "rss": 182427648,
+        "heapTotal": 94261248,
+        "heapUsed": 47623360,
+        "external": 18597432,
+        "arrayBuffers": 8604743
+      },
+      "memory_after": {
+        "rss": 186662912,
+        "heapTotal": 97910784,
+        "heapUsed": 51824768,
+        "external": 18615369,
+        "arrayBuffers": 8622680
+      },
+      "limitations": [],
+      "phase": "after",
+      "repeat": 2,
+      "label": "after-2-complete-8192-reader"
+    }
+  ],
+  "commands": [
+    {
+      "name": "candidate-format",
+      "exit_code": 0,
+      "seconds": 0.06460452079772949
+    },
+    {
+      "name": "before-source-tests",
+      "exit_code": 0,
+      "seconds": 2.42509126663208
+    },
+    {
+      "name": "before-0-absent-8-decoder",
+      "exit_code": 0,
+      "seconds": 0.41555166244506836
+    },
+    {
+      "name": "before-0-absent-8-reader",
+      "exit_code": 0,
+      "seconds": 0.41616392135620117
+    },
+    {
+      "name": "before-0-absent-65536-decoder",
+      "exit_code": 0,
+      "seconds": 0.7677476406097412
+    },
+    {
+      "name": "before-0-absent-65536-reader",
+      "exit_code": 0,
+      "seconds": 1.1685032844543457
+    },
+    {
+      "name": "before-0-ambiguous-21845-decoder",
+      "exit_code": 0,
+      "seconds": 0.6663484573364258
+    },
+    {
+      "name": "before-0-ambiguous-21845-reader",
+      "exit_code": 0,
+      "seconds": 0.7686238288879395
+    },
+    {
+      "name": "before-0-complete-8192-decoder",
+      "exit_code": 0,
+      "seconds": 0.46503305435180664
+    },
+    {
+      "name": "before-0-complete-8192-reader",
+      "exit_code": 0,
+      "seconds": 0.5199530124664307
+    },
+    {
+      "name": "after-0-absent-8-decoder",
+      "exit_code": 0,
+      "seconds": 0.4152534008026123
+    },
+    {
+      "name": "after-0-absent-8-reader",
+      "exit_code": 0,
+      "seconds": 0.4151914119720459
+    },
+    {
+      "name": "after-0-absent-65536-decoder",
+      "exit_code": 0,
+      "seconds": 0.7176806926727295
+    },
+    {
+      "name": "after-0-absent-65536-reader",
+      "exit_code": 0,
+      "seconds": 1.1201534271240234
+    },
+    {
+      "name": "after-0-ambiguous-21845-decoder",
+      "exit_code": 0,
+      "seconds": 0.6156108379364014
+    },
+    {
+      "name": "after-0-ambiguous-21845-reader",
+      "exit_code": 0,
+      "seconds": 0.7676715850830078
+    },
+    {
+      "name": "after-0-complete-8192-decoder",
+      "exit_code": 0,
+      "seconds": 0.4652700424194336
+    },
+    {
+      "name": "after-0-complete-8192-reader",
+      "exit_code": 0,
+      "seconds": 0.517573356628418
+    },
+    {
+      "name": "after-1-absent-8-decoder",
+      "exit_code": 0,
+      "seconds": 0.4223918914794922
+    },
+    {
+      "name": "after-1-absent-8-reader",
+      "exit_code": 0,
+      "seconds": 0.4181404113769531
+    },
+    {
+      "name": "after-1-absent-65536-decoder",
+      "exit_code": 0,
+      "seconds": 0.7687301635742188
+    },
+    {
+      "name": "after-1-absent-65536-reader",
+      "exit_code": 0,
+      "seconds": 1.1738719940185547
+    },
+    {
+      "name": "after-1-ambiguous-21845-decoder",
+      "exit_code": 0,
+      "seconds": 0.6167798042297363
+    },
+    {
+      "name": "after-1-ambiguous-21845-reader",
+      "exit_code": 0,
+      "seconds": 0.7662920951843262
+    },
+    {
+      "name": "after-1-complete-8192-decoder",
+      "exit_code": 0,
+      "seconds": 0.46648478507995605
+    },
+    {
+      "name": "after-1-complete-8192-reader",
+      "exit_code": 0,
+      "seconds": 0.5165681838989258
+    },
+    {
+      "name": "before-1-absent-8-decoder",
+      "exit_code": 0,
+      "seconds": 0.4155571460723877
+    },
+    {
+      "name": "before-1-absent-8-reader",
+      "exit_code": 0,
+      "seconds": 0.41492486000061035
+    },
+    {
+      "name": "before-1-absent-65536-decoder",
+      "exit_code": 0,
+      "seconds": 0.717095136642456
+    },
+    {
+      "name": "before-1-absent-65536-reader",
+      "exit_code": 0,
+      "seconds": 1.1742770671844482
+    },
+    {
+      "name": "before-1-ambiguous-21845-decoder",
+      "exit_code": 0,
+      "seconds": 0.6176438331604004
+    },
+    {
+      "name": "before-1-ambiguous-21845-reader",
+      "exit_code": 0,
+      "seconds": 0.820547342300415
+    },
+    {
+      "name": "before-1-complete-8192-decoder",
+      "exit_code": 0,
+      "seconds": 0.467073917388916
+    },
+    {
+      "name": "before-1-complete-8192-reader",
+      "exit_code": 0,
+      "seconds": 0.5178608894348145
+    },
+    {
+      "name": "before-2-absent-8-decoder",
+      "exit_code": 0,
+      "seconds": 0.41545796394348145
+    },
+    {
+      "name": "before-2-absent-8-reader",
+      "exit_code": 0,
+      "seconds": 0.41664552688598633
+    },
+    {
+      "name": "before-2-absent-65536-decoder",
+      "exit_code": 0,
+      "seconds": 0.7664763927459717
+    },
+    {
+      "name": "before-2-absent-65536-reader",
+      "exit_code": 0,
+      "seconds": 1.1196110248565674
+    },
+    {
+      "name": "before-2-ambiguous-21845-decoder",
+      "exit_code": 0,
+      "seconds": 0.6169676780700684
+    },
+    {
+      "name": "before-2-ambiguous-21845-reader",
+      "exit_code": 0,
+      "seconds": 0.8204224109649658
+    },
+    {
+      "name": "before-2-complete-8192-decoder",
+      "exit_code": 0,
+      "seconds": 0.46617555618286133
+    },
+    {
+      "name": "before-2-complete-8192-reader",
+      "exit_code": 0,
+      "seconds": 0.5182547569274902
+    },
+    {
+      "name": "after-2-absent-8-decoder",
+      "exit_code": 0,
+      "seconds": 0.41850757598876953
+    },
+    {
+      "name": "after-2-absent-8-reader",
+      "exit_code": 0,
+      "seconds": 0.4152662754058838
+    },
+    {
+      "name": "after-2-absent-65536-decoder",
+      "exit_code": 0,
+      "seconds": 0.7202591896057129
+    },
+    {
+      "name": "after-2-absent-65536-reader",
+      "exit_code": 0,
+      "seconds": 1.1678547859191895
+    },
+    {
+      "name": "after-2-ambiguous-21845-decoder",
+      "exit_code": 0,
+      "seconds": 0.6196553707122803
+    },
+    {
+      "name": "after-2-ambiguous-21845-reader",
+      "exit_code": 0,
+      "seconds": 0.7686574459075928
+    },
+    {
+      "name": "after-2-complete-8192-decoder",
+      "exit_code": 0,
+      "seconds": 0.46933627128601074
+    },
+    {
+      "name": "after-2-complete-8192-reader",
+      "exit_code": 0,
+      "seconds": 0.5187537670135498
+    },
+    {
+      "name": "after-source-tests",
+      "exit_code": 0,
+      "seconds": 2.373464345932007
+    },
+    {
+      "name": "after-public-cli-mcp",
+      "exit_code": 0,
+      "seconds": 25.310683250427246
+    },
+    {
+      "name": "after-required-check",
+      "exit_code": 0,
+      "seconds": 229.97312545776367
+    },
+    {
+      "name": "diff-check",
+      "exit_code": 0,
+      "seconds": 0.9209067821502686
+    }
+  ],
+  "history": {
+    "schema": 1,
+    "baseline": "d5a942177fad030d3caf0f8d39856c116e3e5cda",
+    "executed_checkout": "7bf54f334db2c13fbabf195d9ad541dd100a37c5",
+    "ref_count": 7585,
+    "commit_count": 38068,
+    "candidate_paths": [
+      "scripts/verify/firmware/uf2-esptool.mjs",
+      "src/artifacts/DfuSeArtifactReader.test.ts",
+      "src/artifacts/DfuSeArtifactReader.ts",
+      "src/artifacts/Uf2ArtifactReader.test.ts",
+      "src/artifacts/Uf2ArtifactReader.ts",
+      "src/domain/firmware/dfuse.fixture.ts",
+      "src/domain/firmware/dfuse.test.ts",
+      "src/domain/firmware/dfuse.ts",
+      "src/domain/firmware/uf2.fixture.ts",
+      "src/domain/firmware/uf2.test.ts",
+      "src/domain/firmware/uf2.ts",
+      "src/domain/firmware/uf2Families.ts",
+      "tests/process-global/uf2VerifierCleanup.test.ts"
+    ],
+    "related_blob_count": 54,
+    "owner_variant_count": 12,
+    "complete_git_fetch": true,
+    "history_scope": "All reachable upstream heads/tags/PR heads and fork heads/tags; intermediate/reverted commits and merge parents; rename closure. Manual semantic review still required."
+  },
+  "earlier_dfuse_run": 44032525389,
+  "performance_limits": "Native Linux Node24.22.1, synthetic fixed-layout input, one runner, three fresh processes/phase/case. Public absent-number peak unchanged; complete-group control +2.89 MiB. No general CPU/latency/token claim; no third-party firmware or hardware qualification."
+}
