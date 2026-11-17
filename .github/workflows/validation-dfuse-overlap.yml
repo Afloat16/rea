@@ -1,4 +1,4 @@
-name: Validate DfuSe overlap retention
+name: Validate firmware diagnostic retention
 
 on:
   push:

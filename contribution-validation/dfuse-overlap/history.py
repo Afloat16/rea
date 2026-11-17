@@ -11,7 +11,7 @@ for label, url, specs in [
         subprocess.run(["git","fetch","--no-tags",url,*specs],check=True,stdout=log,stderr=subprocess.STDOUT)
 refs=git("for-each-ref","--format=%(refname) %(objectname)","refs/audit-upstream","refs/audit-fork").splitlines()
 objects=git("rev-list","--objects","--all").splitlines()
-paths=sorted({line.partition(" ")[2] for line in objects if re.search(r"dfuse",line.partition(" ")[2],re.I) and line.partition(" ")[2].endswith((".ts",".js",".mjs",".py")) and "contribution-validation/" not in line})
+paths=sorted({line.partition(" ")[2] for line in objects if re.search(r"dfuse|uf2",line.partition(" ")[2],re.I) and line.partition(" ")[2].endswith((".ts",".js",".mjs",".py")) and "contribution-validation/" not in line})
 # Follow both sides of historical renames. The file-name seed is supplemented
 # with each path's full-history -m log so reverted and merge-parent variants survive.
 changed=True
@@ -34,20 +34,24 @@ variants=[]
 for sha, names in sorted(variant_objects.items()):
     if git("cat-file","-t",sha).strip()!="blob": continue
     source=git("cat-file","blob",sha)
-    if "overlappingElements" not in source and "overlapping_element_count" not in source: continue
-    where=source.find("const overlappingElements")
-    if where<0: where=source.find("function overlappingElements")
-    if where<0: where=0
-    # Keep full sources as well; extracted owner makes review logs manageable.
-    owner=source[where:]
-    metadata="\n".join(line for line in source.splitlines() if re.search(r"overlap|NAMED_ELEMENTS|const named",line,re.I))
-    variants.append({"blob":sha,"paths":sorted(names),"overlap_owner":owner,"related_lines":metadata})
     (root/f"blob-{sha}.txt").write_text(source)
+    owners={}
+    for name in ["overlappingElements", "numberingFacts"]:
+        where=source.find("const "+name+" =")
+        if where<0: where=source.find("function "+name+"(")
+        if where<0: continue
+        tail=source[where:]
+        finish=tail.find("\nclass ")
+        if finish>=0: tail=tail[:finish]
+        owners[name]=tail
+    if not owners: continue
+    metadata="\n".join(line for line in source.splitlines() if re.search(r"overlap|absent|ambiguous|NAMED_|const named|groupText",line,re.I))
+    variants.append({"blob":sha,"paths":sorted(names),"owners":owners,"related_lines":metadata})
 summary={"schema":1,"baseline":"d5a942177fad030d3caf0f8d39856c116e3e5cda","executed_checkout":git("rev-parse","HEAD").strip(),
  "refs":refs,"ref_count":len(refs),"commit_count":int(git("rev-list","--all","--count")),
- "candidate_paths":paths,"related_blob_count":len(variant_objects),"overlap_variant_count":len(variants),
+ "candidate_paths":paths,"related_blob_count":len(variant_objects),"owner_variant_count":len(variants),
  "variants":variants,"complete_git_fetch":True,"history_scope":"All reachable upstream heads/tags/PR heads and fork heads/tags; intermediate/reverted commits and merge parents; rename closure. Manual semantic review still required."}
 (root/"history.json").write_text(json.dumps(summary,indent=2))
-print("REA_DFUSE_HISTORY_SUMMARY",json.dumps({k:v for k,v in summary.items() if k not in ("refs","variants")}))
-for variant in variants: print("REA_DFUSE_HISTORY_VARIANT",json.dumps(variant))
-print("REA_DFUSE_HISTORY_REF_COUNTS",json.dumps({"upstream":sum(r.startswith("refs/audit-upstream/") for r in refs),"fork":sum(r.startswith("refs/audit-fork/") for r in refs),"ref_manifest_sha256":hashlib.sha256("\n".join(refs).encode()).hexdigest()}))
+print("REA_FIRMWARE_HISTORY_SUMMARY",json.dumps({k:v for k,v in summary.items() if k not in ("refs","variants")}))
+for variant in variants: print("REA_FIRMWARE_HISTORY_VARIANT",json.dumps(variant))
+print("REA_FIRMWARE_HISTORY_REF_COUNTS",json.dumps({"upstream":sum(r.startswith("refs/audit-upstream/") for r in refs),"fork":sum(r.startswith("refs/audit-fork/") for r in refs),"ref_manifest_sha256":hashlib.sha256("\n".join(refs).encode()).hexdigest()}))
