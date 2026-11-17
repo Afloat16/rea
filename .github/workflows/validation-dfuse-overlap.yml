@@ -17,9 +17,6 @@ jobs:
     timeout-minutes: 55
     env:
       HUSKY: "0"
-      REA_SOURCE_ROOT: ${{ runner.temp }}/rea-dfuse-source
-      REA_VALIDATION_OUTPUT: ${{ runner.temp }}/rea-dfuse-results
-      REA_NPM_CLI: ${{ runner.temp }}/rea-dfuse-toolchain/node_modules/npm/bin/npm-cli.js
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -28,6 +25,11 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version-file: .nvmrc
+      - name: Define isolated validation paths
+        run: |
+          echo "REA_SOURCE_ROOT=$RUNNER_TEMP/rea-dfuse-source" >> "$GITHUB_ENV"
+          echo "REA_VALIDATION_OUTPUT=$RUNNER_TEMP/rea-dfuse-results" >> "$GITHUB_ENV"
+          echo "REA_NPM_CLI=$RUNNER_TEMP/rea-dfuse-toolchain/node_modules/npm/bin/npm-cli.js" >> "$GITHUB_ENV"
       - name: Audit all upstream and fork source histories
         run: python3 contribution-validation/dfuse-overlap/history.py
       - name: Prepare the isolated pinned source and toolchain
