@@ -1,0 +1,85 @@
+name: Validate ELF export integration 9083
+on:
+  push:
+    branches: [validation-elf-exports-9083-integration-20261119]
+permissions:
+  contents: read
+jobs:
+  exact-candidate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      REA_VALIDATION_DIR: ${{ runner.temp }}/rea-9083-validation
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: 65ca65cdea5327df9a4c442b9a1f57b62652a5a4
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Verify exact candidate identity
+        run: |
+          set -euo pipefail
+          mkdir -p "$REA_VALIDATION_DIR"
+          test "$(git rev-parse HEAD)" = "65ca65cdea5327df9a4c442b9a1f57b62652a5a4"
+          test "$(git rev-parse 'HEAD^{tree}')" = "e265e1549a95d40ac76a241c871512821d0bc9f5"
+          test "$(git show -s --format=%P HEAD)" = "413834e46df01d9a690c5a054214dfa057047d65 acc3fbb12ab3779fb84101362083b8365731ee90"
+          git show -s --format=fuller HEAD | tee "$REA_VALIDATION_DIR/candidate.txt"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version-file: .nvmrc
+      - name: Install pinned npm and locked dependencies
+        run: |
+          set -euo pipefail
+          npm install --global npm@11.16.0
+          node --version | tee "$REA_VALIDATION_DIR/node-version.txt"
+          npm --version | tee "$REA_VALIDATION_DIR/npm-version.txt"
+          npm ci 2>&1 | tee "$REA_VALIDATION_DIR/install.log"
+      - name: Build runtime and packaged skill
+        run: |
+          set -euo pipefail
+          npm run build:cached 2>&1 | tee "$REA_VALIDATION_DIR/build.log"
+      - name: Verify affected parser and filesystem boundaries
+        run: |
+          set -euo pipefail
+          npm run test:focused -- \
+            src/domain/native/nativeExportParser.test.ts \
+            src/domain/native/elfDynamicExportTables.test.ts \
+            src/native/exports/NativeExportsView.test.ts \
+            tests/boundary/filesystem/nativeExports.test.ts \
+            tests/boundary/filesystem/nativeExportsSectionless.test.ts \
+            src/native/metadata/BinaryContainer.test.ts \
+            src/native/metadata/NativeSectionDirectory.test.ts \
+            src/domain/elfSymbol.test.ts \
+            tests/boundary/filesystem/elfDeclaredRanges.test.ts \
+            2>&1 | tee "$REA_VALIDATION_DIR/focused.log"
+      - name: Check types, lint and architecture
+        run: |
+          set -euo pipefail
+          npm run check:fast 2>&1 | tee "$REA_VALIDATION_DIR/check-fast.log"
+      - name: Check generated documentation
+        run: |
+          set -euo pipefail
+          npm run docs:check 2>&1 | tee "$REA_VALIDATION_DIR/docs-check.log"
+      - name: Check changed-file formatting and tracked source
+        run: |
+          set -euo pipefail
+          npx --no-install oxfmt --check \
+            docs/guides/native/binary-diagnostics.md \
+            src/contracts/native/binaryDiagnosticsToolContracts.ts \
+            src/domain/native/elfDynamicExportTables.test.ts \
+            src/domain/native/elfDynamicExportTables.ts \
+            src/domain/native/elfImage.ts \
+            src/domain/native/nativeExportParser.ts \
+            tests/boundary/filesystem/nativeExportsSectionless.test.ts \
+            tests/fixtures/binaryDiagnostics/elfDynamicExports.ts \
+            2>&1 | tee "$REA_VALIDATION_DIR/format.log"
+          git diff --check
+          git diff --exit-code
+          git diff --cached --exit-code
+      - name: Retain complete validation logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: elf-exports-9083-exact-candidate
+          path: ${{ env.REA_VALIDATION_DIR }}
+          if-no-files-found: error
