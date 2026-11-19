@@ -9,7 +9,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     env:
-      REA_VALIDATION_DIR: ${{ runner.temp }}/rea-9083-validation
+      REA_VALIDATION_DIR: /tmp/rea-9083-validation
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
