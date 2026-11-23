@@ -382,7 +382,43 @@ Regression coverage uses authored metadata in a generated PE shell; it does
 not establish naturally emitted application PEs, CLR loadability or a real
 Edit-and-Continue execution.
 
-### Selected member inspection
+#### Explicit method implementation declarations
+
+`inspect_managed_members` retains `MethodImpl` rows in the independent
+`method_implementations` facet. They associate a returned TypeDef's declared
+implementation method (`body`) with a method contract (`declaration`), including
+explicit interface implementations and metadata overrides whose method names
+differ. Both targets may be MethodDef or MemberRef coordinates.
+
+Each row keeps its token and offset, raw `class_raw`, checked `class_token` and
+`class_name`, and both targets' raw coded indexes, tokens, table kinds, row
+offsets, readable names, declaring-type displays and member kinds. MethodDef identifies a method by its
+table; MemberRef uses the existing signature reader's kind. Target
+names come from the existing member-name readers. A target outside the returned
+MethodDef page can be named without decoding its method body. The facet follows
+the returned type selection, not the method-page interval.
+
+Malformed Class coordinates remain unattributed because their selection
+membership is unknown. Invalid targets, unreadable names, non-method MemberRef
+signatures and duplicate Class/MethodDeclaration pairs remain explicit in the
+facet's `state` and `issues`; independent member coverage is preserved. These
+are encoded associations, not verification of matching signatures, inheritance,
+CLI conformance or actual runtime dispatch. TypeSpec declaring-type names stay
+nominal displays, and member comparison does not compare these declarations.
+
+Summary detail retains declarations and returns their count and coverage.
+Use `inspect_analysis_view` with `kind: "managed-members"` and
+`collection: "method_implementations"` to read original rows. `names` matches
+exact `class_name` values. `fields: ["body", "declaration"]` projects the two
+references while preserving the MethodImpl identity and original class
+coordinate. Historical omission and null mean unexamined; an examined empty
+list is distinct. Members and requested #US literals are admitted before this
+facet; insufficient remaining capacity leaves them available. Valid unselected
+classes are skipped before decoded-row or target-name allocation.
+
+The table layout follows [ECMA-335, Partition II, section 22.27](https://ecma-international.org/publications-and-standards/standards/ecma-335/).
+
+## Selected member inspection
 
 Member inspection admits type names, tokens, list ranges/counts, nesting facts,
 module identity and their output representation before decoding members. If

@@ -98,6 +98,17 @@ const collectionPage = (
 ) => {
   const { collection } = view;
   switch (collection) {
+    case "method_implementations":
+      return selectRows(
+        {
+          collection,
+          rows: report.method_implementations?.declarations,
+          identity: ["token", "row_offset", "class_raw", "class_token"],
+          name: "class_name",
+          cacheOwner: report,
+        },
+        view,
+      );
     case "types":
       return selectRows(
         {
@@ -382,10 +393,22 @@ const summarizeMembers = (
     field_accesses,
     user_strings,
     unresolved_definitions,
+    method_implementations,
     ...identity
   } = report;
   return {
     ...identity,
+    ...(method_implementations === undefined
+      ? {}
+      : {
+          method_implementations:
+            method_implementations === null
+              ? null
+              : {
+                  state: method_implementations.state,
+                  issues: method_implementations.issues,
+                },
+        }),
     ...(unresolved_definitions === undefined
       ? {}
       : {
@@ -405,6 +428,12 @@ const summarizeMembers = (
       call_edges: call_edges.length,
       field_accesses: field_accesses.length,
       user_strings: user_strings?.literals.length ?? null,
+      ...(method_implementations === undefined
+        ? {}
+        : {
+            method_implementations:
+              method_implementations?.declarations.length ?? null,
+          }),
       ...(unresolved_definitions === undefined
         ? {}
         : { unresolved_definitions: unresolved_definitions.rows.length }),
@@ -455,6 +484,12 @@ export const projectManagedMemberView = (
     limitations: uniqueSorted([...parent.limitations, ...report.limitations]),
     unknowns: [
       "Collection counts and pages cover producer-returned rows; member completeness remains the original coverage, not an absence claim about unreturned rows.",
+      ...(view.kind === "managed-members" &&
+      view.collection === "method_implementations"
+        ? [
+            "MethodImpl declarations cover returned TypeDefs; malformed Class coordinates have unknown membership. Referenced methods may be outside the MethodDef page. Encoded links and names do not establish signature agreement, valid inheritance or runtime dispatch.",
+          ]
+        : []),
       ...(report.selection === null
         ? []
         : [MANAGED_MEMBER_SCOPE_GUIDANCE.selectedNominalRows]),
@@ -533,12 +568,18 @@ export const projectManagedMemberView = (
           unresolved_module_name: report.metadata.unresolved_module_name,
         }),
     source_coverage:
-      view.collection === "user_strings" && report.user_strings !== null
+      view.collection === "method_implementations" &&
+      report.method_implementations != null
         ? {
-            state: report.user_strings.state,
-            issues: report.user_strings.issues,
+            state: report.method_implementations.state,
+            issues: report.method_implementations.issues,
           }
-        : report.coverage,
+        : view.collection === "user_strings" && report.user_strings !== null
+          ? {
+              state: report.user_strings.state,
+              issues: report.user_strings.issues,
+            }
+          : report.coverage,
     coverage: pageViewCoverage(view.offset, page.rows.length, total),
   });
 };

@@ -362,7 +362,11 @@ export const managedNativeImportSchema = z.object({
   mapping_flags: z.int().min(0).max(0xffff),
   mapping_flags_hex: z.string().regex(/^0x[0-9a-f]{4}$/u),
   member_token: managedMetadataTokenSchema.nullable(),
-  member_kind: z.enum(["method", "field", "unknown"]),
+  member_kind: z
+    .enum(["method", "field", "unknown"])
+    .describe(
+      "MethodDef identifies a method by table; MemberRef uses its decoded signature kind. This does not attest that a MethodDef signature was decoded or validated.",
+    ),
   member_name: z.string().nullable(),
   import_name: z.string(),
   import_scope_token: managedMetadataTokenSchema.nullable(),
@@ -577,6 +581,29 @@ const UNEXAMINED_MEMBER_COLLECTIONS = [
   "field_accesses",
 ] as const;
 
+const managedMethodImplementationReferenceSchema = z.object({
+  raw: z.int().min(0).max(0xffff_ffff),
+  token: managedMetadataTokenSchema.nullable(),
+  kind: z.enum(["method-def", "member-ref", "unknown"]),
+  row_offset: offsetSchema.nullable(),
+  name: z.string().nullable(),
+  declaring_type: z.string().nullable(),
+  member_kind: z
+    .enum(["method", "field", "unknown"])
+    .describe(
+      "MethodDef identifies a method by table; MemberRef uses its decoded signature kind. This does not attest that a MethodDef signature was decoded or validated.",
+    ),
+});
+const managedMethodImplementationSchema = z.object({
+  token: managedMetadataTokenSchema,
+  row_offset: offsetSchema,
+  class_raw: z.int().min(0).max(0xffff_ffff),
+  class_token: managedMetadataTokenSchema.nullable(),
+  class_name: z.string().nullable(),
+  body: managedMethodImplementationReferenceSchema,
+  declaration: managedMethodImplementationReferenceSchema,
+});
+
 /** Provider-neutral, execution-free metadata/signature/IL member inspection. */
 export const managedMemberInspectionSchema = z
   .object({
@@ -604,6 +631,17 @@ export const managedMemberInspectionSchema = z
     exported_types: z.array(managedExportedTypeSchema).nullable(),
     fields: z.array(managedFieldSchema),
     methods: z.array(managedMethodSchema),
+    method_implementations: z
+      .object({
+        state: knownCoverageStatusSchema,
+        declarations: z.array(managedMethodImplementationSchema),
+        issues: z.array(managedParseIssueSchema),
+      })
+      .nullable()
+      .exactOptional()
+      .describe(
+        "MethodImpl declarations for returned TypeDefs; malformed Class coordinates retain unknown membership. Targets may be outside the MethodDef page. These are metadata associations, not validation of overrides or runtime dispatch. Historical omission and null mean unexamined.",
+      ),
     member_refs: z.array(managedMemberReferenceSchema),
     call_edges: z.array(managedCallEdgeSchema),
     field_accesses: z.array(managedFieldAccessSchema),

@@ -1310,6 +1310,122 @@ export const buildManagedPeFixture = (
     buildManagedFixtureMetadata(options, methodRva),
   );
 
+/** MethodImpl targets span physical MethodDef and MemberRef rows. */
+export const buildManagedMethodImplFixture = (
+  options: {
+    readonly declarations?: readonly (readonly [number, number, number])[];
+    readonly methodPointers?: readonly number[];
+    readonly methodName?: string;
+    readonly memberRefSignature?: Buffer;
+    readonly methodCount?: number;
+  } = {},
+): Buffer =>
+  buildManagedFixtureImage({}, () => {
+    const strings = new StringHeap();
+    const blobs = new BlobHeap();
+    const moduleName = strings.add("Implementations.dll");
+    const namespace = strings.add("Example");
+    const typeNames = [
+      "<Module>",
+      "Implementation",
+      "Contract",
+      "Unrelated",
+    ].map((name) => strings.add(name));
+    const remoteName = strings.add("IRemote");
+    const memberName = strings.add("Run");
+    const methodNames = [
+      options.methodName ?? "Execute",
+      "Required",
+      "Elsewhere",
+      "Extra",
+    ].map((name) => strings.add(name));
+    const methodSignature = blobs.add(Buffer.from([0x20, 0, 1]));
+    const memberSignature = blobs.add(
+      options.memberRefSignature ?? Buffer.from([0x20, 0, 1]),
+    );
+    const methodCount = options.methodCount ?? 3;
+    const methodWidth = indexSize(methodCount);
+    const methodReferenceWidth = codedIndexSize([methodCount, 1], 1);
+    const parentWidth = codedIndexSize([4, 1, 0, methodCount, 0], 3);
+    const rows = new Map<number, readonly Buffer[]>([
+      [0, [moduleRow(moduleName, 2, 2)]],
+      [1, [typeRefRow(remoteName, namespace, 2, u16(0))]],
+      [
+        2,
+        typeNames.map((name, index) =>
+          typeDefRow({
+            name,
+            namespace: index === 0 ? 0 : namespace,
+            fieldList: 1,
+            methodList: index <= 1 ? 1 : index,
+            stringSize: 2,
+            typeDefOrRefSize: 2,
+            fieldListSize: 2,
+            methodListSize: methodWidth,
+            extendsRaw: 0,
+            flags: index === 0 ? 0 : 1,
+          }),
+        ),
+      ],
+      [
+        6,
+        Array.from({ length: methodCount }, (_, index) =>
+          methodDefRow({
+            name: methodNames[Math.min(index, 3)]!,
+            signature: methodSignature,
+            stringSize: 2,
+            blobSize: 2,
+            parameterSize: 2,
+            parameterList: 1,
+            flags: 0x0186,
+            implFlags: 3,
+          }),
+        ),
+      ],
+      [
+        10,
+        [
+          memberRefRow({
+            name: memberName,
+            signature: memberSignature,
+            stringSize: 2,
+            blobSize: 2,
+            parentSize: parentWidth,
+          }),
+        ],
+      ],
+      [
+        25,
+        (
+          options.declarations ?? [
+            [2, 2, 3],
+            [4, 6, 4],
+          ]
+        ).map(([owner, body, declaration]) =>
+          Buffer.concat([
+            u16(owner),
+            metadataIndex(body, methodReferenceWidth),
+            metadataIndex(declaration, methodReferenceWidth),
+          ]),
+        ),
+      ],
+    ]);
+    if (options.methodPointers !== undefined)
+      rows.set(
+        5,
+        options.methodPointers.map((row) => metadataIndex(row, methodWidth)),
+      );
+    return metadataRoot(
+      {
+        tables: tablesStream(rows, 0n, 0),
+        strings: strings.toBuffer(),
+        guid: guidHeap(),
+        blob: blobs.toBuffer(),
+      },
+      options.methodPointers === undefined ? "#~" : "#-",
+    );
+  });
+
 /** Two attribute classes whose pointer-table slots can reorder physical members. */
 export const buildManagedMemberPointerFixture = (
   options: {

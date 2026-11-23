@@ -42,6 +42,7 @@ import { managedSignatureTypeNames } from "../domain/managed/managedSignatureTyp
 import { typeNameLookup } from "./ManagedTypeNames.js";
 import { managedTypeReferences } from "../domain/managed/managedTypeReferences.js";
 import { parseUserStrings } from "./ManagedUserStrings.js";
+import { withManagedMethodImplementations } from "./ManagedMethodImplementations.js";
 import { readTypeMemberListFacts } from "../domain/managed/managedTypeMemberLists.js";
 import { prepareManagedMemberRecovery } from "./ManagedMemberRecovery.js";
 import {
@@ -468,6 +469,7 @@ export const inspectManagedMembersBytes = (
         exported_types: exportedTypes.exportedTypes,
         fields: fields.fields,
         methods: resolvedMethods,
+        method_implementations: null,
         member_refs: memberRefs.refs,
         call_edges: related.callEdges,
         field_accesses: related.fieldAccesses,
@@ -492,14 +494,25 @@ export const inspectManagedMembersBytes = (
           "Field constants are file-backed Constant-table declarations, not runtime field values. Parameter and property defaults and enum-name mappings are not decoded.",
           "Exported types are reported from ExportedType rows as declared; forwarded types are not resolved in their implementing assemblies.",
           "User strings are the #US literals loaded by ldstr in the inspected method bodies, with their own coverage; instruction anchors and normalized CIL digests keep their build-local tokens.",
+          "Method implementations are MethodImpl declarations for returned TypeDefs, with separate coverage and source coordinates. Target names may come from outside the MethodDef page; this does not establish matching signatures, valid inheritance, CLI conformance or runtime dispatch. Null means this facet was not examined within remaining capacity.",
           "Member signatures decode ECMA-335 primitive, class, valuetype, generic instantiation, generic variable, pointer, byref, single-dimension and general array, function pointer including VARARG sentinels, custom modifier, and typed reference forms; type operands keep their encoded TypeDefOrRefOrSpec values and append readable TypeDef/TypeRef names when resolved.",
           ...selectionLimitations,
         ],
       },
       budget,
     );
-    if (!readUserStrings)
-      return managedMemberInspectionSchema.parse(baseInspection);
+    const finish = (value: unknown): ManagedMemberInspection =>
+      managedMemberInspectionSchema.parse(
+        withManagedMethodImplementations({
+          bytes,
+          layout,
+          ranges,
+          memberLists,
+          cores: [methods.core, memberRefs.core, referencedCores.core],
+          report: managedMemberInspectionSchema.parse(value),
+        }),
+      );
+    if (!readUserStrings) return finish(baseInspection);
     let userStrings: ManagedMemberInspection["user_strings"];
     try {
       // #US literals sit beside the member inventory and carry their own
@@ -520,8 +533,8 @@ export const inspectManagedMembersBytes = (
             code === cause.issue.code && scope === cause.issue.scope,
         )
       )
-        return managedMemberInspectionSchema.parse(baseInspection);
-      return managedMemberInspectionSchema.parse({
+        return finish(baseInspection);
+      return finish({
         ...baseInspection,
         user_strings: {
           state: "partial",
@@ -534,7 +547,7 @@ export const inspectManagedMembersBytes = (
         ],
       });
     }
-    return managedMemberInspectionSchema.parse({
+    return finish({
       ...baseInspection,
       user_strings: userStrings,
     });
