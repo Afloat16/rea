@@ -58,6 +58,17 @@ interface ManagedPeFixtureOptions {
   readonly standaloneSignatures?: readonly Buffer[];
   /** TypeSpec signature blobs, one TypeSpec row each. */
   readonly typeSpecSignatures?: readonly Buffer[];
+  readonly genericParameters?: readonly {
+    readonly number: number;
+    readonly flags: number;
+    readonly owner: number;
+    readonly name: string;
+    readonly nameIndex?: number;
+  }[];
+  readonly genericConstraints?: readonly {
+    readonly owner: number;
+    readonly constraint: number;
+  }[];
   /** Raw ResolutionScope coded value of the TypeRef row; null by default. */
   readonly typeRefScopeRaw?: number;
   readonly mvid?: Buffer;
@@ -652,6 +663,7 @@ interface FixtureMetadataRowContext {
     readonly typeSpecSignatures: readonly number[];
     readonly methodSpecInstantiation: number;
     readonly standaloneSignatures: readonly number[];
+    readonly genericParameterNames: readonly number[];
   };
   readonly heapSizes: {
     readonly strings: MetadataIndexSize;
@@ -815,6 +827,39 @@ const specTables = (
           ),
         ],
       ] as const)),
+  ...(options.genericParameters === undefined
+    ? []
+    : ([
+        [
+          42,
+          options.genericParameters.map((parameter, index) =>
+            Buffer.concat([
+              u16(parameter.number),
+              u16(parameter.flags),
+              metadataIndex(parameter.owner, widths.coded([2, 6], 1)),
+              metadataIndex(
+                parameter.nameIndex ??
+                  indexes.genericParameterNames[index] ??
+                  0,
+                heapSizes.strings,
+              ),
+            ]),
+          ),
+        ],
+      ] as const)),
+  ...(options.genericConstraints === undefined
+    ? []
+    : ([
+        [
+          44,
+          options.genericConstraints.map((constraint) =>
+            Buffer.concat([
+              metadataIndex(constraint.owner, widths.table(42)),
+              metadataIndex(constraint.constraint, widths.typeDefOrRef),
+            ]),
+          ),
+        ],
+      ] as const)),
 ];
 
 const fixtureIndexWidths = ({
@@ -845,7 +890,9 @@ const fixtureIndexWidths = ({
     [39, indexes.exportedTypes.length],
     [40, 1],
     [41, options.nestedTypes?.length ?? 0],
+    [42, options.genericParameters?.length ?? 0],
     [43, options.methodSpecMethods?.length ?? 0],
+    [44, options.genericConstraints?.length ?? 0],
   ]);
   const count = (table: number): number => rowCounts.get(table) ?? 0;
   const table = (index: number): MetadataIndexSize => indexSize(count(index));
@@ -1118,6 +1165,9 @@ const buildManagedFixtureMetadata = (
     }),
   );
   const referenceNames = options.references ?? ["System.Runtime"];
+  const genericParameterNames = (options.genericParameters ?? []).map(
+    ({ name }) => strings.add(name),
+  );
   const referenceStringIndexes = referenceNames.map((name) =>
     strings.add(name),
   );
@@ -1170,6 +1220,7 @@ const buildManagedFixtureMetadata = (
       fieldSignature,
       methodSignature,
       standaloneSignatures,
+      genericParameterNames,
       attributeBlob,
       ...referenceBlobs,
     },

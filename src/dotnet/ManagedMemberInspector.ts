@@ -42,6 +42,7 @@ import { managedSignatureTypeNames } from "../domain/managed/managedSignatureTyp
 import { typeNameLookup } from "./ManagedTypeNames.js";
 import { managedTypeReferences } from "../domain/managed/managedTypeReferences.js";
 import { parseUserStrings } from "./ManagedUserStrings.js";
+import { parseManagedGenericParameters } from "./ManagedGenericParameters.js";
 import { readTypeMemberListFacts } from "../domain/managed/managedTypeMemberLists.js";
 import { prepareManagedMemberRecovery } from "./ManagedMemberRecovery.js";
 import {
@@ -92,6 +93,7 @@ const unavailable = (
       nesting_read: false,
       exported_types: null,
       user_strings: null,
+      generic_parameters: null,
       fields: [],
       methods: [],
       member_refs: [],
@@ -472,6 +474,7 @@ export const inspectManagedMembersBytes = (
         call_edges: related.callEdges,
         field_accesses: related.fieldAccesses,
         user_strings: null,
+        generic_parameters: null,
         selection,
         method_rows: methodRows,
         unresolved_definitions: {
@@ -492,14 +495,69 @@ export const inspectManagedMembersBytes = (
           "Field constants are file-backed Constant-table declarations, not runtime field values. Parameter and property defaults and enum-name mappings are not decoded.",
           "Exported types are reported from ExportedType rows as declared; forwarded types are not resolved in their implementing assemblies.",
           "User strings are the #US literals loaded by ldstr in the inspected method bodies, with their own coverage; instruction anchors and normalized CIL digests keep their build-local tokens.",
+          "Generic parameters and constraints describe returned TypeDef and MethodDef owners only; malformed owner coordinates remain unattributed. Raw flags and type tokens do not establish runtime constraint validity or satisfaction. Constraint display names do not identify constructed type arguments or cross-assembly bindings. Null means unexamined; empty collections under partial generic coverage do not establish absence. A generic capacity failure preserves admitted member and requested #US facts.",
           "Member signatures decode ECMA-335 primitive, class, valuetype, generic instantiation, generic variable, pointer, byref, single-dimension and general array, function pointer including VARARG sentinels, custom modifier, and typed reference forms; type operands keep their encoded TypeDefOrRefOrSpec values and append readable TypeDef/TypeRef names when resolved.",
           ...selectionLimitations,
         ],
       },
       budget,
     );
+    const withGenericParameters = (
+      report: ManagedMemberInspection,
+    ): ManagedMemberInspection => {
+      let recovery: NonNullable<ManagedMemberInspection["generic_parameters"]>;
+      try {
+        recovery = admitManagedProjection(
+          {
+            state: "partial",
+            rows: [],
+            constraints: [],
+            issues: [
+              {
+                ...new ManagedRepresentationFailure(
+                  Number.MAX_SAFE_INTEGER,
+                  budget.maximumBytes,
+                ).issue,
+                scope: "metadata.GenericParam",
+              },
+            ],
+          },
+          budget,
+        );
+      } catch (cause: unknown) {
+        if (!(cause instanceof ManagedRepresentationFailure)) throw cause;
+        // No room to record the independent attempt: keep its admitted null.
+        return report;
+      }
+      try {
+        return managedMemberInspectionSchema.parse({
+          ...report,
+          generic_parameters: admitManagedProjection(
+            parseManagedGenericParameters(
+              bytes,
+              layout,
+              ranges,
+              parsedTypes,
+              report,
+            ),
+            budget,
+          ),
+        });
+      } catch (cause: unknown) {
+        if (!(cause instanceof ManagedRepresentationFailure)) throw cause;
+        return managedMemberInspectionSchema.parse({
+          ...report,
+          generic_parameters: {
+            ...recovery,
+            issues: [{ ...recovery.issues[0]!, offset: cause.issue.offset }],
+          },
+        });
+      }
+    };
     if (!readUserStrings)
-      return managedMemberInspectionSchema.parse(baseInspection);
+      return withGenericParameters(
+        managedMemberInspectionSchema.parse(baseInspection),
+      );
     let userStrings: ManagedMemberInspection["user_strings"];
     try {
       // #US literals sit beside the member inventory and carry their own
@@ -520,24 +578,30 @@ export const inspectManagedMembersBytes = (
             code === cause.issue.code && scope === cause.issue.scope,
         )
       )
-        return managedMemberInspectionSchema.parse(baseInspection);
-      return managedMemberInspectionSchema.parse({
-        ...baseInspection,
-        user_strings: {
-          state: "partial",
-          literals: [],
-          issues: [{ ...cause.issue, scope: "metadata.#US" }],
-        },
-        limitations: [
-          ...baseInspection.limitations,
-          "User string decoding exceeded max_metadata_representation_bytes after the member facts were decoded; the members are kept and the #US literals are not examined. Select fewer type_names or raise max_metadata_representation_bytes to read them.",
-        ],
-      });
+        return withGenericParameters(
+          managedMemberInspectionSchema.parse(baseInspection),
+        );
+      return withGenericParameters(
+        managedMemberInspectionSchema.parse({
+          ...baseInspection,
+          user_strings: {
+            state: "partial",
+            literals: [],
+            issues: [{ ...cause.issue, scope: "metadata.#US" }],
+          },
+          limitations: [
+            ...baseInspection.limitations,
+            "User string decoding exceeded max_metadata_representation_bytes after the member facts were decoded; the members are kept and the #US literals are not examined. Select fewer type_names or raise max_metadata_representation_bytes to read them.",
+          ],
+        }),
+      );
     }
-    return managedMemberInspectionSchema.parse({
-      ...baseInspection,
-      user_strings: userStrings,
-    });
+    return withGenericParameters(
+      managedMemberInspectionSchema.parse({
+        ...baseInspection,
+        user_strings: userStrings,
+      }),
+    );
   } catch (cause: unknown) {
     if (cause instanceof ManagedReaderFailure) {
       if (

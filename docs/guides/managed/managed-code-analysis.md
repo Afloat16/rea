@@ -164,13 +164,42 @@ rejects selected summary before analysis; complete delivery remains available.
 
 ### Member summary and retained member rows
 
+`generic_parameters` records `GenericParam` declarations and their
+`GenericParamConstraint` rows for the TypeDefs and MethodDefs returned by the
+inspection. Type selection and the recorded MethodDef interval therefore
+restrict the known owners. A valid owner outside those returned collections
+does not expand the selection; malformed owner coordinates remain unattributed
+and make this facet partial.
+
+Each parameter keeps its physical token/offset, ordinal `number`, raw `flags`,
+raw `owner_coded_index`, checked `owner_token` and `owner_kind`, and the original
+`name_index` beside a readable name or null. Constraints keep their own row
+coordinates, `parameter_row`/`parameter_token`, the enclosing `owner_token`,
+and raw and checked constraint type coordinates. These declarations help relate
+generic API requirements to their exact owners without loading the assembly.
+They do not validate runtime constraint satisfaction, parameter arity, or all
+ECMA-335 validity rules. TypeSpec names are nominal displays: two constructed
+constraints can have the same display name and different tokens.
+
+The facet has independent `state`, `rows`, `constraints`, and `issues`.
+Unreadable names, invalid coordinates and duplicate associations retain their
+raw facts and uncertainty. Complete coverage describes the returned owner set,
+not every generic declaration in the assembly or successful runtime binding.
+Decoding follows members and requested #US literals, so capacity exhaustion
+preserves those earlier facts and reports partial generic coverage. The reader
+checks admitted row prefixes before spending decoded-row or heap capacity on
+unselected owners. If even the bounded recovery cannot be reserved, the facet
+stays null. Historical omission and null mean unexamined; neither
+becomes a complete empty inventory. Member comparison does not yet compare
+these generic declaration collections.
+
 Complete `inspect_managed_members` delivery always includes the assembly-wide
 `member_refs` and `exported_types`, which `type_names` does not narrow, so even
 one selected or unmatched type can return megabytes. In MCP, select
 `{"path":"/absolute/path/Assembly.dll","type_names":["Namespace.Type"],"detail":"summary"}`
 to keep the complete source in the session and receive identity, metadata
 status, the selection with its unmatched names, coverage/issues, the separate
-user-string coverage, limitations and per-collection counts. Then page original
+user-string and generic-declaration coverage, limitations and per-collection counts. Then page original
 rows with view kind `managed-members`:
 
 ```json
@@ -189,10 +218,13 @@ rows with view kind `managed-members`:
 ```
 
 Collections are `types`, `exported_types`, `fields`, `methods`, `member_refs`,
-`call_edges`, `field_accesses` and `user_strings` (the literals). Each page names
+`call_edges`, `field_accesses`, `user_strings` (the literals),
+`generic_parameters` and `generic_constraints`. Each page names
 its collection, retains original rows, order, tokens, signatures and body facts,
 and carries the source selection and coverage; `user_strings` pages carry the
-literal pool's own coverage. Evidence whose member decoding exceeded capacity
+literal pool's own coverage, and both generic collections share their facet's
+coverage. Generic summaries retain both counts and issues without copying rows.
+Evidence whose member decoding exceeded capacity
 never examined exported types or user strings; it reports a null count and
 refuses those pages rather than returning an empty one.
 
@@ -220,10 +252,11 @@ exact names and defining types, then project columns:
 Filters are exact and case-sensitive; lists are alternatives and filters
 intersect. An empty list matches nothing. Names select `name` in types,
 exported types, fields, methods and member references; in call edges they select
-`target_name`, and in field accesses `field_name`. Declaring-type filters select
+`target_name`, in field accesses `field_name`, and in generic constraints
+`constraint_name`; generic parameters use `name`. Declaring-type filters select
 `declaring_type` in fields/methods, `parent_name` in member references,
 `target_declaring_type` in call edges and `field_declaring_type` in field accesses.
-Types, exported types and user strings do not accept a declaring-type filter;
+Types, exported types, generic collections and user strings do not accept a declaring-type filter;
 user strings do not accept a name filter. No display strings are reparsed.
 
 `fields` accepts only columns of that collection. Omitting it preserves full

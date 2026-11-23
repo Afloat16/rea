@@ -60,6 +60,7 @@ export const prepareManagedMemberRecovery = (
     call_edges: [],
     field_accesses: [],
     user_strings: null,
+    generic_parameters: null,
     coverage: { state: "partial", issues: [...issues, capacityIssue] },
     limitations: [
       ...inventory.limitations,

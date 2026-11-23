@@ -6,6 +6,7 @@ import type { AnalysisViewParent } from "./analysisViewParent.js";
 import {
   managedMembersViewRequestSchema,
   managedMembersViewPageSchema,
+  managedMemberSummarySchema,
 } from "./managedMemberViewSchemas.js";
 import { projectManagedMemberView } from "./managedMemberView.js";
 
@@ -16,6 +17,187 @@ const parent = (normalizedResult: unknown): AnalysisViewParent => ({
   normalizedResult,
   sealedResult: true,
   limitations: [],
+});
+
+const genericFacts = () => {
+  const report = managedMemberInspectionSchema.parse(
+    MANAGED_RECONSTRUCTION_IMPORT_EXAMPLE.static_members.normalized_result,
+  );
+  report.generic_parameters = {
+    state: "partial",
+    issues: [
+      {
+        code: "invalid-row",
+        scope: "metadata.GenericParam:0x2a000002",
+        offset: 136,
+        detail: "Name unavailable",
+      },
+    ],
+    rows: ["T", null, "T"].map((name, index) => ({
+      token: `0x2a00000${index + 1}`,
+      row_offset: 128 + index * 8,
+      number: index,
+      flags: 0,
+      owner_coded_index: 2,
+      owner_token: "0x02000001",
+      owner_kind: "type" as const,
+      name_index: 10 + index,
+      name,
+    })),
+    constraints: [
+      {
+        token: "0x2c000001",
+        row_offset: 152,
+        parameter_row: 1,
+        parameter_token: "0x2a000001",
+        owner_token: "0x02000001",
+        constraint_coded_index: 9,
+        constraint_token: "0x01000002",
+        constraint_name: "System.IDisposable",
+      },
+    ],
+  };
+  return report;
+};
+
+it("pages generic names before offsets while preserving original owner coordinates and uncertainty", () => {
+  const report = genericFacts();
+  const before = JSON.stringify(report);
+  const source = parent(freezeOwnedJsonTreeSnapshot(report));
+  const request = managedMembersViewRequestSchema.parse({
+    kind: "managed-members",
+    collection: "generic_parameters",
+    names: ["T"],
+    fields: ["flags"],
+    offset: 1,
+    limit: 1,
+  });
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const result = projectManagedMemberView(source, request);
+    if (!result.ok) throw result.error;
+    if (!("page" in result.value)) throw new Error("Wrong view");
+    expect(result.value).toMatchObject({
+      source_coverage: {
+        state: "partial",
+        issues: report.generic_parameters?.issues,
+      },
+      coverage: { total: 2, examined: 1 },
+      page: {
+        source_count: 3,
+        unresolved_filter_rows: 1,
+        rows: [
+          {
+            token: "0x2a000003",
+            row_offset: 144,
+            owner_coded_index: 2,
+            owner_token: "0x02000001",
+            flags: 0,
+            source_index: 2,
+          },
+        ],
+      },
+    });
+    expect(result.value.page.rows[0]).not.toHaveProperty("name");
+    expect(managedMembersViewPageSchema.parse(result.value.page)).toEqual(
+      result.value.page,
+    );
+  }
+  expect(JSON.stringify(report)).toBe(before);
+});
+
+it("keeps both sides of a generic constraint association when every optional column is omitted", () => {
+  const report = genericFacts();
+  const result = projectManagedMemberView(
+    parent(report),
+    managedMembersViewRequestSchema.parse({
+      kind: "managed-members",
+      collection: "generic_constraints",
+      names: ["System.IDisposable"],
+      fields: [],
+    }),
+  );
+  if (!result.ok) throw result.error;
+  if (!("page" in result.value)) throw new Error("Wrong view");
+  expect(result.value.page.rows).toEqual([
+    {
+      token: "0x2c000001",
+      row_offset: 152,
+      parameter_row: 1,
+      parameter_token: "0x2a000001",
+      owner_token: "0x02000001",
+      constraint_coded_index: 9,
+      constraint_token: "0x01000002",
+      source_index: 0,
+    },
+  ]);
+  expect(managedMembersViewPageSchema.parse(result.value.page)).toEqual(
+    result.value.page,
+  );
+  expect(result.value).toMatchObject({
+    source_coverage: { state: "partial" },
+    coverage: { total: 1 },
+  });
+});
+
+it("summarizes generic coverage and counts without copying the declaration collections", () => {
+  const report = genericFacts();
+  const result = projectManagedMemberView(parent(report), { kind: "summary" });
+  if (!result.ok) throw result.error;
+  if (!("summary" in result.value)) throw new Error("Wrong view");
+  expect(result.value.summary).toMatchObject({
+    generic_parameters: {
+      state: "partial",
+      issues: report.generic_parameters?.issues,
+    },
+    reported_counts: { generic_parameters: 3, generic_constraints: 1 },
+  });
+  expect(result.value.summary).not.toHaveProperty("generic_parameters.rows");
+  expect(result.value.summary).not.toHaveProperty(
+    "generic_parameters.constraints",
+  );
+  expect(managedMemberSummarySchema.parse(result.value.summary)).toEqual(
+    result.value.summary,
+  );
+});
+
+it("keeps historical omitted and unexamined null generic inventories distinct from empty declarations", () => {
+  const { generic_parameters: _omitted, ...historical } = genericFacts();
+  for (const report of [
+    historical,
+    { ...historical, generic_parameters: null },
+  ]) {
+    const source = parent(report);
+    for (const collection of ["generic_parameters", "generic_constraints"]) {
+      const result = projectManagedMemberView(
+        source,
+        managedMembersViewRequestSchema.parse({
+          kind: "managed-members",
+          collection,
+        }),
+      );
+      expect(result).toMatchObject({
+        ok: false,
+        error: { _tag: "AnalysisInputError" },
+      });
+    }
+    const result = projectManagedMemberView(source, { kind: "summary" });
+    if (!result.ok) throw result.error;
+    if (!("summary" in result.value)) throw new Error("Wrong view");
+    if ("generic_parameters" in report)
+      expect(result.value.summary).toMatchObject({
+        generic_parameters: null,
+        reported_counts: {
+          generic_parameters: null,
+          generic_constraints: null,
+        },
+      });
+    else {
+      expect(result.value.summary).not.toHaveProperty("generic_parameters");
+      expect(result.value.summary).not.toHaveProperty(
+        "reported_counts.generic_parameters",
+      );
+    }
+  }
 });
 
 it("revalidates mutable managed facts despite a sealed flag and shallow freeze", () => {

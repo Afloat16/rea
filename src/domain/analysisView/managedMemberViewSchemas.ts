@@ -3,6 +3,7 @@ import { managedMemberInspectionSchema } from "../managed/managedArtifact.js";
 import { unresolvedDefinitionSchema } from "../managed/managedUnresolvedDefinitions.js";
 
 const member = managedMemberInspectionSchema.shape;
+const generic = member.generic_parameters.unwrap().unwrap().shape;
 
 const rows = {
   types: member.types.element,
@@ -14,6 +15,8 @@ const rows = {
   field_accesses: member.field_accesses.element,
   user_strings: member.user_strings.unwrap().shape.literals.element,
   unresolved_definitions: unresolvedDefinitionSchema,
+  generic_parameters: generic.rows.element,
+  generic_constraints: generic.constraints.element,
 };
 const pageRequest = {
   kind: z.literal("managed-members"),
@@ -26,7 +29,7 @@ const namedRequest = {
     .array(z.string())
     .exactOptional()
     .describe(
-      "Exact name, called-method target_name or accessed field_name; empty matches nothing.",
+      "Exact name, called-method target_name, accessed field_name or generic constraint_name; empty matches nothing.",
     ),
 };
 const declaredRequest = {
@@ -95,6 +98,16 @@ export const managedMembersViewRequestSchema = z.discriminatedUnion(
       ...pageRequest,
       collection: z.literal("unresolved_definitions"),
     }),
+    z.strictObject({
+      ...namedRequest,
+      collection: z.literal("generic_parameters"),
+      fields: fieldsOf(rows.generic_parameters.keyof()),
+    }),
+    z.strictObject({
+      ...namedRequest,
+      collection: z.literal("generic_constraints"),
+      fields: fieldsOf(rows.generic_constraints.keyof()),
+    }),
   ],
 );
 
@@ -161,6 +174,27 @@ export const managedMembersViewPageSchema = z.discriminatedUnion("collection", [
     "user_strings",
     rows.user_strings.partial().required({ token: true, offset: true }),
   ),
+  rowsOf(
+    "generic_parameters",
+    rows.generic_parameters.partial().required({
+      token: true,
+      row_offset: true,
+      owner_coded_index: true,
+      owner_token: true,
+    }),
+  ),
+  rowsOf(
+    "generic_constraints",
+    rows.generic_constraints.partial().required({
+      token: true,
+      row_offset: true,
+      parameter_row: true,
+      parameter_token: true,
+      owner_token: true,
+      constraint_coded_index: true,
+      constraint_token: true,
+    }),
+  ),
   z.strictObject({
     collection: z.literal("unresolved_definitions"),
     rows: z.array(rows.unresolved_definitions),
@@ -190,6 +224,10 @@ export const managedMemberSummarySchema = z.strictObject({
       issues: member.user_strings.unwrap().shape.issues,
     })
     .nullable(),
+  generic_parameters: z
+    .strictObject({ state: generic.state, issues: generic.issues })
+    .nullable()
+    .exactOptional(),
   limitations: member.limitations,
   reported_counts: z.strictObject({
     types: z.int().nonnegative(),
@@ -201,6 +239,8 @@ export const managedMemberSummarySchema = z.strictObject({
     field_accesses: z.int().nonnegative(),
     user_strings: nullableCount,
     unresolved_definitions: z.int().nonnegative().exactOptional(),
+    generic_parameters: nullableCount.exactOptional(),
+    generic_constraints: nullableCount.exactOptional(),
   }),
 });
 

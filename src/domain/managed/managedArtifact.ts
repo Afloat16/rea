@@ -577,6 +577,29 @@ const UNEXAMINED_MEMBER_COLLECTIONS = [
   "field_accesses",
 ] as const;
 
+const managedGenericParameterSchema = z.object({
+  token: managedMetadataTokenSchema,
+  row_offset: offsetSchema,
+  number: z.int().min(0).max(0xffff),
+  flags: z.int().min(0).max(0xffff),
+  owner_coded_index: z.int().min(0).max(0xffff_ffff),
+  owner_token: managedMetadataTokenSchema.nullable(),
+  owner_kind: z.enum(["type", "method", "unknown"]),
+  name_index: z.int().min(0).max(0xffff_ffff),
+  name: z.string().nullable(),
+});
+
+const managedGenericConstraintSchema = z.object({
+  token: managedMetadataTokenSchema,
+  row_offset: offsetSchema,
+  parameter_row: z.int().min(0).max(0xffff_ffff),
+  parameter_token: managedMetadataTokenSchema.nullable(),
+  owner_token: managedMetadataTokenSchema.nullable(),
+  constraint_coded_index: z.int().min(0).max(0xffff_ffff),
+  constraint_token: managedMetadataTokenSchema.nullable(),
+  constraint_name: z.string().nullable(),
+});
+
 /** Provider-neutral, execution-free metadata/signature/IL member inspection. */
 export const managedMemberInspectionSchema = z
   .object({
@@ -607,6 +630,18 @@ export const managedMemberInspectionSchema = z
     member_refs: z.array(managedMemberReferenceSchema),
     call_edges: z.array(managedCallEdgeSchema),
     field_accesses: z.array(managedFieldAccessSchema),
+    generic_parameters: z
+      .object({
+        state: knownCoverageStatusSchema,
+        rows: z.array(managedGenericParameterSchema),
+        constraints: z.array(managedGenericConstraintSchema),
+        issues: z.array(managedParseIssueSchema),
+      })
+      .nullable()
+      .exactOptional()
+      .describe(
+        "GenericParam declarations and GenericParamConstraint rows belonging to returned TypeDef/MethodDef owners, with malformed owner coordinates retained as unknown. Raw flags and target tokens are declarations, not runtime constraint validation. Null or historical omission means unexamined.",
+      ),
     // Distinct #US literals loaded by ldstr in the inspected method bodies, in
     // token order, with their own coverage: #US issues never enter the member
     // coverage. null means they were not examined, not that there were none.

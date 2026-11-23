@@ -41,6 +41,8 @@ export const MANAGED_MEMBER_SCOPE_GUIDANCE = {
     "Unresolved MethodDef coordinates follow the recorded source method interval and any declaring-type selection.",
   unexaminedMethodRows:
     "MethodDef name coordinates are unavailable in this capacity recovery.",
+  genericRows:
+    "Generic declarations cover returned TypeDef and MethodDef owners; valid owners outside that set are excluded and malformed owner coordinates remain unattributed. Constraint names are nominal displays, not constructed-type identities or runtime constraint checks.",
 } as const;
 
 type Selection<C extends MemberCollection, T extends Row, K extends keyof T> = {
@@ -186,6 +188,36 @@ const collectionPage = (
           collection,
           rows: report.user_strings?.literals,
           identity: ["token", "offset"],
+        },
+        view,
+      );
+    case "generic_parameters":
+      return selectRows(
+        {
+          collection,
+          rows: report.generic_parameters?.rows,
+          identity: ["token", "row_offset", "owner_coded_index", "owner_token"],
+          name: "name",
+          cacheOwner: report,
+        },
+        view,
+      );
+    case "generic_constraints":
+      return selectRows(
+        {
+          collection,
+          rows: report.generic_parameters?.constraints,
+          identity: [
+            "token",
+            "row_offset",
+            "parameter_row",
+            "parameter_token",
+            "owner_token",
+            "constraint_coded_index",
+            "constraint_token",
+          ],
+          name: "constraint_name",
+          cacheOwner: report,
         },
         view,
       );
@@ -382,6 +414,7 @@ const summarizeMembers = (
     field_accesses,
     user_strings,
     unresolved_definitions,
+    generic_parameters,
     ...identity
   } = report;
   return {
@@ -396,6 +429,17 @@ const summarizeMembers = (
       user_strings === null
         ? null
         : { state: user_strings.state, issues: user_strings.issues },
+    ...(generic_parameters === undefined
+      ? {}
+      : {
+          generic_parameters:
+            generic_parameters === null
+              ? null
+              : {
+                  state: generic_parameters.state,
+                  issues: generic_parameters.issues,
+                },
+        }),
     reported_counts: {
       types: types.length,
       exported_types: exported_types?.length ?? null,
@@ -408,6 +452,12 @@ const summarizeMembers = (
       ...(unresolved_definitions === undefined
         ? {}
         : { unresolved_definitions: unresolved_definitions.rows.length }),
+      ...(generic_parameters === undefined
+        ? {}
+        : {
+            generic_parameters: generic_parameters?.rows.length ?? null,
+            generic_constraints: generic_parameters?.constraints.length ?? null,
+          }),
     },
   };
 };
@@ -458,6 +508,9 @@ export const projectManagedMemberView = (
       ...(report.selection === null
         ? []
         : [MANAGED_MEMBER_SCOPE_GUIDANCE.selectedNominalRows]),
+      ...(report.generic_parameters === undefined
+        ? []
+        : [MANAGED_MEMBER_SCOPE_GUIDANCE.genericRows]),
       ...(coordinates === undefined
         ? []
         : [
@@ -533,12 +586,19 @@ export const projectManagedMemberView = (
           unresolved_module_name: report.metadata.unresolved_module_name,
         }),
     source_coverage:
-      view.collection === "user_strings" && report.user_strings !== null
+      (view.collection === "generic_parameters" ||
+        view.collection === "generic_constraints") &&
+      report.generic_parameters != null
         ? {
-            state: report.user_strings.state,
-            issues: report.user_strings.issues,
+            state: report.generic_parameters.state,
+            issues: report.generic_parameters.issues,
           }
-        : report.coverage,
+        : view.collection === "user_strings" && report.user_strings !== null
+          ? {
+              state: report.user_strings.state,
+              issues: report.user_strings.issues,
+            }
+          : report.coverage,
     coverage: pageViewCoverage(view.offset, page.rows.length, total),
   });
 };
