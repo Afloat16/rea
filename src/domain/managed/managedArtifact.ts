@@ -604,6 +604,51 @@ export const managedMemberInspectionSchema = z
     exported_types: z.array(managedExportedTypeSchema).nullable(),
     fields: z.array(managedFieldSchema),
     methods: z.array(managedMethodSchema),
+    marshalling: z
+      .object({
+        state: knownCoverageStatusSchema,
+        declarations: z.array(
+          z.object({
+            token: managedMetadataTokenSchema,
+            row_offset: offsetSchema,
+            parent_raw: z.int().min(0).max(0xffff_ffff),
+            parent_kind: z.enum(["field", "parameter", "unknown"]),
+            parent_token: managedMetadataTokenSchema.nullable(),
+            parent_row_offset: offsetSchema.nullable(),
+            parent_name: z.string().nullable(),
+            parent_flags: z.int().min(0).max(0xffff).nullable(),
+            parameter_sequence: z
+              .int()
+              .min(0)
+              .max(0xffff)
+              .nullable()
+              .describe(
+                "Raw Param.Sequence: zero denotes a return value; null for a field or unknown parent.",
+              ),
+            method_token: managedMetadataTokenSchema.nullable(),
+            method_name: z.string().nullable(),
+            declaring_type: z.string().nullable(),
+            native_type: z.object({
+              blob_index: z.int().min(0).max(0xffff_ffff),
+              blob_offset: offsetSchema.nullable(),
+              data_offset: offsetSchema.nullable(),
+              byte_length: z.int().nonnegative().nullable(),
+              raw_hex: z
+                .string()
+                .regex(/^(?:[0-9a-f]{2})*$/u)
+                .nullable(),
+              root_code: z.int().min(0).max(0xff).nullable(),
+              root_name: z.string().nullable(),
+            }),
+          }),
+        ),
+        issues: z.array(managedParseIssueSchema),
+      })
+      .nullable()
+      .exactOptional()
+      .describe(
+        "FieldMarshal rows for returned fields and parameters/return values of returned methods. Unknown parent ownership is retained. NativeType bytes and recognized root tags are observed; trailing descriptor grammar, ABI sizes and runtime marshalling are not validated. Historical omission and null mean unexamined.",
+      ),
     member_refs: z.array(managedMemberReferenceSchema),
     call_edges: z.array(managedCallEdgeSchema),
     field_accesses: z.array(managedFieldAccessSchema),

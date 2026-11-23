@@ -170,7 +170,7 @@ one selected or unmatched type can return megabytes. In MCP, select
 `{"path":"/absolute/path/Assembly.dll","type_names":["Namespace.Type"],"detail":"summary"}`
 to keep the complete source in the session and receive identity, metadata
 status, the selection with its unmatched names, coverage/issues, the separate
-user-string coverage, limitations and per-collection counts. Then page original
+user-string and marshalling coverage, limitations and per-collection counts. Then page original
 rows with view kind `managed-members`:
 
 ```json
@@ -189,10 +189,10 @@ rows with view kind `managed-members`:
 ```
 
 Collections are `types`, `exported_types`, `fields`, `methods`, `member_refs`,
-`call_edges`, `field_accesses` and `user_strings` (the literals). Each page names
+`call_edges`, `field_accesses`, `user_strings` (the literals), and `marshalling` (FieldMarshal declarations). Each page names
 its collection, retains original rows, order, tokens, signatures and body facts,
 and carries the source selection and coverage; `user_strings` pages carry the
-literal pool's own coverage. Evidence whose member decoding exceeded capacity
+literal pool's own coverage. Marshalling pages carry that facet's independent coverage. Evidence whose member decoding exceeded capacity
 never examined exported types or user strings; it reports a null count and
 refuses those pages rather than returning an empty one.
 
@@ -220,8 +220,8 @@ exact names and defining types, then project columns:
 Filters are exact and case-sensitive; lists are alternatives and filters
 intersect. An empty list matches nothing. Names select `name` in types,
 exported types, fields, methods and member references; in call edges they select
-`target_name`, and in field accesses `field_name`. Declaring-type filters select
-`declaring_type` in fields/methods, `parent_name` in member references,
+`target_name`, in field accesses `field_name`, and in marshalling declarations `parent_name`. Declaring-type filters select
+`declaring_type` in fields/methods/marshalling, `parent_name` in member references,
 `target_declaring_type` in call edges and `field_declaring_type` in field accesses.
 Types, exported types and user strings do not accept a declaring-type filter;
 user strings do not accept a name filter. No display strings are reparsed.
@@ -460,6 +460,39 @@ not a guarantee: a single type or the assembly-wide member references can still
 exhaust the representation budget. A successful command exit means the Evidence
 was returned; inspect `coverage.state` and `coverage.issues` before treating any
 collection as complete.
+
+### Native marshalling declarations
+
+`inspect_managed_members` includes a separate `marshalling` facet for
+FieldMarshal metadata. It retains declarations attached to returned fields and
+parameters or return values of returned methods. Each row preserves its table
+token and file offset, raw Parent coordinate, physical Field or Param identity,
+name, flags, and declaring type. Param rows also retain the owning MethodDef and
+raw sequence number; zero denotes the return value. Optional ParamPtr and
+MethodPtr tables preserve physical token identity when list positions differ.
+Unresolved parent ownership remains visible with unknown selection membership.
+
+`native_type` retains the original blob index, heap-item and data offsets,
+byte length, exact `raw_hex`, and recognized root tag name. For example, `14`
+is the LPStr tag, and `2a04000401` begins with LPArray. The complete trailing
+bytes remain available; the result does not validate nested descriptor grammar,
+flag consistency, parameter/signature agreement, platform ABI sizes, or runtime
+marshalling. Target code is never loaded or executed by this inspection.
+
+Empty or unreadable descriptors, unknown root tags, duplicate parents and
+unresolved parameter ownership make this facet partial while preserving its
+readable facts. These issues do not change the separate member coverage.
+Capacity is checked after the existing member and user-string facts: a budget
+failure preserves those facts and reports marshalling as partial or unexamined.
+Omitted historical facets and `null` mean unexamined, while an examined empty
+facet has an empty `declarations` array.
+
+Summary delivery retains these rows with their own count and coverage. Use
+`inspect_analysis_view` with `kind: "managed-members"` and
+`collection: "marshalling"` to page them. Exact `names` filters match the parent
+field/parameter name, including an allowed empty parameter name;
+`declaring_types` matches its owning type. Projecting `fields: ["native_type"]`
+keeps the original FieldMarshal token, row offset and parent coordinates.
 
 ### User strings
 

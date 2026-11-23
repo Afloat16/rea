@@ -9,14 +9,14 @@ import {
   ManagedReaderFailure,
 } from "./managedReaderFailure.js";
 
-type MemberTable = 4 | 6;
+type MemberTable = 4 | 6 | 8;
 type ListRowLookup = (definitionRow: number) => number;
 const lookups = new WeakMap<
   ManagedMetadataLayout,
   Map<MemberTable, ListRowLookup | ManagedReaderFailure>
 >();
 
-/** TypeDef list coordinates refer to the nonempty pointer table when present. */
+/** TypeDef/MethodDef list coordinates use the nonempty pointer table when present. */
 export const memberListTable = (
   layout: ManagedMetadataLayout,
   table: MemberTable,
@@ -36,7 +36,7 @@ export const memberListIndexSize = (
     ? 4
     : 2;
 
-/** Normalize a TypeDef list coordinate once for parsing and owner lookup. */
+/** Normalize a metadata list coordinate once for parsing and owner lookup. */
 export const validatedMemberListStart = (
   start: number,
   table: MetadataTableLayout | undefined,
@@ -72,6 +72,7 @@ export const memberListRowLookup = (
     lookups.set(layout, byTable);
   }
   const positions = new Uint32Array(definitionCount + 1);
+  const owner = table === 8 ? "declaring method" : "declaring type";
   try {
     const width = layout.tableIndexSize(table);
     // The pointer table's index width is a property of the layout, not of the row, so one
@@ -91,7 +92,7 @@ export const memberListRowLookup = (
         throw managedFailure(
           "invalid-row",
           `metadata.${pointers.name}`,
-          `Definition row ${String(definition)} has more than one pointer row; its declaring type is ambiguous`,
+          `Definition row ${String(definition)} has more than one pointer row; its ${owner} is ambiguous`,
           offset,
         );
       positions[definition] = row;
@@ -102,7 +103,7 @@ export const memberListRowLookup = (
         throw managedFailure(
           "invalid-row",
           `metadata.${pointers.name}`,
-          `Definition row ${String(definition)} has no pointer row identifying its declaring type`,
+          `Definition row ${String(definition)} has no pointer row identifying its ${owner}`,
           pointers.offset,
         );
       return position;

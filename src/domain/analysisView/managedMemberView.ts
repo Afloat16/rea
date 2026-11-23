@@ -98,6 +98,18 @@ const collectionPage = (
 ) => {
   const { collection } = view;
   switch (collection) {
+    case "marshalling":
+      return selectRows(
+        {
+          collection,
+          rows: report.marshalling?.declarations,
+          identity: ["token", "row_offset", "parent_raw", "parent_token"],
+          name: "parent_name",
+          declaringType: "declaring_type",
+          cacheOwner: report,
+        },
+        view,
+      );
     case "types":
       return selectRows(
         {
@@ -382,10 +394,22 @@ const summarizeMembers = (
     field_accesses,
     user_strings,
     unresolved_definitions,
+    marshalling,
     ...identity
   } = report;
   return {
     ...identity,
+    ...(marshalling === undefined
+      ? {}
+      : {
+          marshalling:
+            marshalling === null
+              ? null
+              : {
+                  state: marshalling.state,
+                  issues: marshalling.issues,
+                },
+        }),
     ...(unresolved_definitions === undefined
       ? {}
       : {
@@ -405,6 +429,9 @@ const summarizeMembers = (
       call_edges: call_edges.length,
       field_accesses: field_accesses.length,
       user_strings: user_strings?.literals.length ?? null,
+      ...(marshalling === undefined
+        ? {}
+        : { marshalling: marshalling?.declarations.length ?? null }),
       ...(unresolved_definitions === undefined
         ? {}
         : { unresolved_definitions: unresolved_definitions.rows.length }),
@@ -455,6 +482,11 @@ export const projectManagedMemberView = (
     limitations: uniqueSorted([...parent.limitations, ...report.limitations]),
     unknowns: [
       "Collection counts and pages cover producer-returned rows; member completeness remains the original coverage, not an absence claim about unreturned rows.",
+      ...(view.kind === "managed-members" && view.collection === "marshalling"
+        ? [
+            "FieldMarshal declarations cover returned fields and parameters/return values of returned methods. Malformed ownership retains unknown membership. Exact NativeType bytes and root tag labels do not validate descriptor grammar, ABI sizes or runtime marshalling.",
+          ]
+        : []),
       ...(report.selection === null
         ? []
         : [MANAGED_MEMBER_SCOPE_GUIDANCE.selectedNominalRows]),
@@ -533,12 +565,14 @@ export const projectManagedMemberView = (
           unresolved_module_name: report.metadata.unresolved_module_name,
         }),
     source_coverage:
-      view.collection === "user_strings" && report.user_strings !== null
-        ? {
-            state: report.user_strings.state,
-            issues: report.user_strings.issues,
-          }
-        : report.coverage,
+      view.collection === "marshalling" && report.marshalling != null
+        ? { state: report.marshalling.state, issues: report.marshalling.issues }
+        : view.collection === "user_strings" && report.user_strings !== null
+          ? {
+              state: report.user_strings.state,
+              issues: report.user_strings.issues,
+            }
+          : report.coverage,
     coverage: pageViewCoverage(view.offset, page.rows.length, total),
   });
 };

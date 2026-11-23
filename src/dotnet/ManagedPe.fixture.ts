@@ -1310,6 +1310,156 @@ export const buildManagedPeFixture = (
     buildManagedFixtureMetadata(options, methodRva),
   );
 
+/** FieldMarshal rows retain Field/Param coordinates and exact native descriptors. */
+export const buildManagedMarshallingFixture = (
+  options: {
+    readonly declarations?: readonly {
+      readonly parent: number;
+      readonly descriptor?: Buffer;
+      readonly blobIndex?: number;
+    }[];
+    readonly parameterPointers?: readonly number[];
+    readonly methodPointers?: readonly number[];
+    readonly parameterStarts?: readonly number[];
+    readonly parameterCount?: number;
+    readonly methodCount?: number;
+    readonly parameterName?: string;
+    readonly parameterNameIndex?: number;
+  } = {},
+): Buffer =>
+  buildManagedFixtureImage({}, () => {
+    const strings = new StringHeap();
+    const blobs = new BlobHeap();
+    const moduleName = strings.add("Marshalling.dll");
+    const namespace = strings.add("Example");
+    const typeNames = ["<Module>", "Native", "Other"].map((name) =>
+      strings.add(name),
+    );
+    const fieldNames = ["Text", "OtherText"].map((name) => strings.add(name));
+    const methodNames = ["Invoke", "Elsewhere"].map((name) =>
+      strings.add(name),
+    );
+    const parameterName = strings.add(options.parameterName ?? "value");
+    const fieldSignature = blobs.add(Buffer.from([0x06, 0x0e]));
+    const methodSignature = blobs.add(Buffer.from([0x00, 1, 0x0e, 0x0e]));
+    const declarations = (
+      options.declarations ?? [
+        { parent: 2, descriptor: Buffer.from([0x14]) },
+        { parent: 3, descriptor: Buffer.from([0x15]) },
+        { parent: 5, descriptor: Buffer.from([0x2a, 0x04, 0, 4, 1]) },
+        { parent: 7, descriptor: Buffer.from([0x02]) },
+        { parent: 4, descriptor: Buffer.from([0x1f]) },
+      ]
+    ).map(({ parent, descriptor, blobIndex }) => ({
+      parent,
+      blobIndex: blobIndex ?? blobs.add(descriptor ?? Buffer.from([0x14])),
+    }));
+    const blobWidth = indexSize(blobs.size);
+    const parameterCount = options.parameterCount ?? 3;
+    const methodCount = options.methodCount ?? 2;
+    const parameterWidth = indexSize(
+      Math.max(parameterCount, options.parameterPointers?.length ?? 0),
+    );
+    const methodWidth = indexSize(
+      Math.max(methodCount, options.methodPointers?.length ?? 0),
+    );
+    const parentWidth = codedIndexSize([2, parameterCount], 1);
+    const rows = new Map<number, readonly Buffer[]>([
+      [0, [moduleRow(moduleName, 2, 2)]],
+      [
+        2,
+        typeNames.map((name, index) =>
+          typeDefRow({
+            name,
+            namespace: index === 0 ? 0 : namespace,
+            fieldList: index <= 1 ? 1 : 2,
+            methodList: index <= 1 ? 1 : 2,
+            stringSize: 2,
+            typeDefOrRefSize: 2,
+            fieldListSize: 2,
+            methodListSize: methodWidth,
+            extendsRaw: 0,
+            flags: index === 0 ? 0 : 1,
+          }),
+        ),
+      ],
+      [
+        4,
+        fieldNames.map((name) =>
+          Buffer.concat([
+            u16(0x1001),
+            u16(name),
+            metadataIndex(fieldSignature, blobWidth),
+          ]),
+        ),
+      ],
+      [
+        6,
+        Array.from({ length: methodCount }, (_, index) =>
+          methodDefRow({
+            name: methodNames[Math.min(index, 1)]!,
+            signature: methodSignature,
+            stringSize: 2,
+            blobSize: blobWidth,
+            parameterSize: parameterWidth,
+            parameterList:
+              options.parameterStarts?.[index] ??
+              (index === 0 ? 1 : index === 1 ? 3 : parameterCount + 1),
+            flags: 0x0186,
+            implFlags: 3,
+          }),
+        ),
+      ],
+      [
+        8,
+        Array.from({ length: parameterCount }, (_, index) =>
+          Buffer.concat([
+            u16(0x2000),
+            u16(index === 0 ? 0 : 1),
+            u16(
+              index === 0 ? 0 : (options.parameterNameIndex ?? parameterName),
+            ),
+          ]),
+        ),
+      ],
+      [
+        13,
+        declarations.map(({ parent, blobIndex }) =>
+          Buffer.concat([
+            metadataIndex(parent, parentWidth),
+            metadataIndex(blobIndex, blobWidth),
+          ]),
+        ),
+      ],
+    ]);
+    if (options.parameterPointers !== undefined)
+      rows.set(
+        7,
+        options.parameterPointers.map((row) =>
+          metadataIndex(row, indexSize(parameterCount)),
+        ),
+      );
+    if (options.methodPointers !== undefined)
+      rows.set(
+        5,
+        options.methodPointers.map((row) =>
+          metadataIndex(row, indexSize(methodCount)),
+        ),
+      );
+    return metadataRoot(
+      {
+        tables: tablesStream(rows, 0n, blobWidth === 4 ? 4 : 0),
+        strings: strings.toBuffer(),
+        guid: guidHeap(),
+        blob: blobs.toBuffer(),
+      },
+      options.parameterPointers === undefined &&
+        options.methodPointers === undefined
+        ? "#~"
+        : "#-",
+    );
+  });
+
 /** Two attribute classes whose pointer-table slots can reorder physical members. */
 export const buildManagedMemberPointerFixture = (
   options: {
