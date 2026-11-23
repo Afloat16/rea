@@ -108,6 +108,8 @@ export interface LocatedDwarfImage {
   readonly str: Buffer | null;
   readonly lineStr: Buffer | null;
   readonly strOffsets: Buffer | null;
+  /** The selected sections belong to one standalone ELF split-unit family. */
+  readonly splitDwarf: boolean;
   /** Null when `.debug_info` is absent or compressed. */
   readonly infoFileOffset: number | null;
   readonly infoCompressed: boolean;
@@ -368,6 +370,7 @@ interface ImageIdentity {
   readonly machine: number | null;
   readonly architecture: BinaryArchitecture | null;
   readonly candidates: readonly Candidate[];
+  readonly splitDwarf: boolean;
   readonly gnuDebugLink: boolean;
   readonly unappliedDebugRelocations: readonly string[];
 }
@@ -469,6 +472,7 @@ const finish = (image: ImageIdentity): LocatedDwarfImage => {
     str: chosen.get(".debug_str")?.bytes ?? null,
     lineStr: chosen.get(".debug_line_str")?.bytes ?? null,
     strOffsets: chosen.get(".debug_str_offsets")?.bytes ?? null,
+    splitDwarf: image.splitDwarf,
     infoFileOffset:
       info === undefined || info.compression !== "none" ? null : info.offset,
     infoCompressed: info !== undefined && info.compression !== "none",
@@ -496,6 +500,18 @@ const locateElf = async (
   const relocations = new Set<string>();
   const satisfied = new Set<DwarfSectionRole>();
   const readStored = storedDwarfSections(source);
+  // Select a family by its declarations, before decoding any bytes. A missing
+  // or malformed split section must never borrow from the ordinary namespace.
+  const names = new Set(
+    directory.sections.flatMap(({ name, name_state }) =>
+      name_state === "known" && name !== null
+        ? [normalizeObjectSectionName(name)]
+        : [],
+    ),
+  );
+  const packaged = names.has(".debug_cu_index") || names.has(".debug_tu_index");
+  const splitDwarf =
+    names.has(SPLIT_DEBUG_INFO) && !names.has(".debug_info") && !packaged;
   for (const section of directory.sections) {
     if (section.name_state !== "known" || section.name === null)
       throw new BinaryFormatFailure(
@@ -509,21 +525,28 @@ const locateElf = async (
       ELF_RELOCATION_TYPES.has(section.type) &&
       relocationTarget?.name_state === "known" &&
       relocationTarget.name !== null &&
-      normalizeObjectSectionName(relocationTarget.name).startsWith(".debug_")
+      normalizeObjectSectionName(relocationTarget.name).startsWith(".debug_") &&
+      relocationTarget.name.endsWith(".dwo") === splitDwarf
     )
       relocations.add(section.name);
-    if (normalizeObjectSectionName(section.name) === SPLIT_DEBUG_INFO) {
+    const normalized = normalizeObjectSectionName(section.name);
+    if (normalized === SPLIT_DEBUG_INFO && !splitDwarf) {
       candidates.push(
         unread(
           section.name,
           ".debug_info",
           "unreadable",
-          `Split DWARF section ${section.name} is not read`,
+          packaged
+            ? `Split DWARF package indexes are not read (${section.name})`
+            : `Split DWARF section ${section.name} is not read alongside ordinary .debug_info`,
         ),
       );
       continue;
     }
-    const role = objectSectionRole(section.name);
+    if (normalized.endsWith(".dwo") !== splitDwarf) continue;
+    const role = objectSectionRole(
+      splitDwarf ? normalized.slice(0, -4) : normalized,
+    );
     if (role === null) continue;
     const name = section.name;
     if (section.type === SHT_NOBITS) {
@@ -598,6 +621,7 @@ const locateElf = async (
     machine: directory.machine,
     architecture: elfArchitecture(directory.machine) ?? null,
     candidates,
+    splitDwarf,
     gnuDebugLink,
     unappliedDebugRelocations: [...relocations],
   };
@@ -678,6 +702,7 @@ const locatePe = async (
         directory.bits === 64 ? "pe32-plus" : "pe32",
       ) ?? null,
     candidates,
+    splitDwarf: false,
     gnuDebugLink: [...names.values()].includes(".gnu_debuglink"),
     unappliedDebugRelocations: [],
   };
@@ -843,6 +868,7 @@ const locateMacho = async (
     machine: image.macho_cpu_type,
     architecture: binaryMetadataArchitecture(image.architecture) ?? null,
     candidates,
+    splitDwarf: false,
     gnuDebugLink: false,
     unappliedDebugRelocations: [],
   };

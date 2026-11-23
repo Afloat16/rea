@@ -53,8 +53,15 @@ fact resolved. `partial` means a later length could not frame the next unit, the
 walk cap was reached, a declared `.debug_info` could not be decoded, a further
 `.debug_info` section was not read, or attribute decoding used up its shared
 work allowance. Each form read and each `DW_FORM_indirect` hop costs one step
-of that allowance; units read after it runs out report `decode_budget`. A `.dwo` object is `partial` because its
-`.debug_info.dwo` is not read. `debug_info` is `absent` when this file declares
+of that allowance; units read after it runs out report `decode_budget`.
+Standalone ELF `.dwo` files are read when explicitly selected. Their `.dwo`
+info, abbreviation, string, and string-offset sections form one namespace;
+missing split sections never borrow ordinary sections. If the file declares
+ordinary `.debug_info` too, only the ordinary family is decoded and the unread
+split info makes coverage `partial`. DWP packages declaring `.debug_cu_index`
+or `.debug_tu_index` remain unread because their contribution indexes are not
+resolved. File names and `dwo_name` never cause another file to be opened.
+`debug_info` is `absent` when this file declares
 no `.debug_info`, or declares one that stores no bytes; coverage is then
 `complete` with no units. That does not establish that a separate debug file
 is absent. For ELF and PE, the limitations then name
@@ -64,7 +71,11 @@ notes are not decoded here.
 Child DIEs, types, functions, line tables, and location expressions are not
 read. An unknown DWARF form becomes a unit issue that names the form code.
 `DW_AT_str_offsets_base` is applied to `strx` indexes in the same DIE
-regardless of attribute order. `dwo_name` reads `DW_AT_dwo_name` and the GNU
+regardless of attribute order. Standalone DWARF 5 split units use the first
+`.debug_str_offsets.dwo` contribution's header to determine its implicit base
+and entry width; that width can differ from the unit's DWARF32/DWARF64 format.
+DWARF 4 GNU split indexes use their headerless offset table.
+`dwo_name` reads `DW_AT_dwo_name` and the GNU
 `DW_AT_GNU_dwo_name`.
 
 An ET_REL image whose debug relocations are unapplied holds placeholders in its

@@ -10,6 +10,8 @@ import {
   macho64,
   namedUnit,
   peImage,
+  splitDwarfSections,
+  splitDwarfUnit,
 } from "../../src/native/dwarf/DwarfUnits.fixture.js";
 import {
   CPU_ARM64,
@@ -22,6 +24,71 @@ import { cliTest } from "../support/cli/cliFixture.js";
 const dwarfUnitsContract = contractNamed(
   BINARY_DIAGNOSTICS_TOOL_CONTRACTS,
   "inspect_dwarf_units",
+);
+
+cliTest(
+  "CLI and stdio MCP page explicit split-debug files with matching provenance",
+  async ({ cli }) => {
+    const root = await createTestTempDirectory("rea-split-dwarf-cli-");
+    const call = await cli.sharedMcpCall?.();
+    if (call === undefined)
+      throw new Error("Compiled MCP fixture is unavailable");
+    for (const version of [4, 5] as const) {
+      const parts = splitDwarfUnit({ version });
+      const path = join(root, `split-${String(version)}.dwo`);
+      await writeFile(
+        path,
+        elfImage({
+          sections: splitDwarfSections({
+            ...parts,
+            info: Buffer.concat([parts.info, parts.info]),
+          }),
+        }),
+      );
+      const output = await cli.run({
+        arguments: [
+          "inspect-dwarf-units",
+          path,
+          "--offset",
+          "1",
+          "--limit",
+          "1",
+          "--json",
+        ],
+      });
+      expect(output.exitCode, output.stderr).toBe(0);
+      const cliEvidence = dwarfUnitsContract.outputSchema.parse(output.json);
+      const response = await call("inspect_dwarf_units", {
+        path,
+        offset: 1,
+        limit: 1,
+      });
+      expect(response.isError, JSON.stringify(response)).not.toBe(true);
+      const mcpEvidence = dwarfUnitsContract.outputSchema.parse(
+        response.structuredContent,
+      );
+      expect(mcpEvidence.normalized_result).toEqual(
+        cliEvidence.normalized_result,
+      );
+      expect(mcpEvidence.subject?.identity).toEqual(
+        cliEvidence.subject?.identity,
+      );
+      expect(mcpEvidence.parameters).toEqual({ path, offset: 1, limit: 1 });
+      expect(cliEvidence.normalized_result).toMatchObject({
+        coverage: { status: "complete", reason: null },
+        total_units: 2,
+        page: { offset: 1, limit: 1 },
+        units: [
+          {
+            version,
+            offset: parts.info.length,
+            name: { state: "present", value: "split.c" },
+            issues: [],
+          },
+        ],
+      });
+    }
+  },
 );
 
 cliTest("reports a compile unit through the public CLI", async ({ cli }) => {

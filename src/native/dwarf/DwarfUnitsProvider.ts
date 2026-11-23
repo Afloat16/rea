@@ -160,6 +160,7 @@ const buildReport = (
           str: located.str,
           lineStr: located.lineStr,
           strOffsets: located.strOffsets,
+          splitDwarf: located.splitDwarf,
           little: located.byte_order === "little",
           infoFileOffset,
           pageOffset: input.offset,
@@ -233,6 +234,10 @@ const limitationsFor = (
   absence: string | null,
 ): string[] => {
   const limitations = [CHILD_DIES];
+  if (located.splitDwarf)
+    limitations.push(
+      "Only the explicitly selected standalone .dwo file is read. Skeleton files, supplementary files, and DWP package indexes are not followed.",
+    );
   if (located.format === "macho")
     limitations.push(
       "A .dSYM bundle is not opened. Pass the DWARF file inside the bundle.",

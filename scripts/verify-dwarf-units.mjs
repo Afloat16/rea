@@ -382,7 +382,7 @@ const writeFixture = async (directory) => {
 
 const issueCodes = (unit) => unit.issues.map(({ code }) => code);
 
-/** Files the dumper reads and `inspect_dwarf_units` must not claim to resolve. */
+/** Relocation limits and an explicitly selected standalone split-debug file. */
 const checkBoundaries = async (commands, root) => {
   const directory = join(root, "boundaries");
   await mkdir(directory);
@@ -445,12 +445,20 @@ const checkBoundaries = async (commands, root) => {
   });
 
   const dwo = (await inspectUnits(join(directory, "split.dwo"))).report;
+  const [splitUnit] = dwo.units;
   if (
-    dwo.coverage.status !== "partial" ||
-    dwo.coverage.reason !== "Split DWARF section .debug_info.dwo is not read"
+    dwo.coverage.status !== "complete" ||
+    dwo.total_units !== 1 ||
+    splitUnit?.version !== 5 ||
+    splitUnit.name.value !== "alpha.c" ||
+    splitUnit.comp_dir.value !== directory ||
+    splitUnit.producer.state !== "present" ||
+    splitUnit.issues.length !== 0
   )
     throw new Error(`Split DWARF object: ${JSON.stringify(dwo)}`);
-  rows.push({ id: "elf-dwo-object", units: 0, coverage: dwo.coverage.status });
+  // These facts come from the compiler invocation. Older readelf releases
+  // incorrectly resolve DWARF 5 .dwo strx values at a headerless base of zero.
+  rows.push({ id: "elf-dwo-object", units: 1, coverage: dwo.coverage.status });
   return rows;
 };
 

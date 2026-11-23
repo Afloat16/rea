@@ -44,6 +44,8 @@ export interface DwarfInfoInput {
   readonly str: Buffer | null;
   readonly lineStr: Buffer | null;
   readonly strOffsets: Buffer | null;
+  /** The section owner selected a standalone ELF .dwo section family. */
+  readonly splitDwarf?: boolean;
   readonly little: boolean;
   /** Artifact file offset of `.debug_info`, or null when that section is compressed. */
   readonly infoFileOffset: number | null;
@@ -658,21 +660,22 @@ const resolveIndexedString = (
   baseAvailability: "absent" | "unknown" | "present" | "invalid",
   issue: (code: DwarfUnitIssueCode, detail: string) => void,
 ): DwarfStringFact => {
-  if (baseAvailability === "invalid") {
+  const implicitContribution = input.splitDwarf === true && draft.version === 5;
+  if (!implicitContribution && baseAvailability === "invalid") {
     issue(
       "value_out_of_range",
       "DW_AT_str_offsets_base cannot select a string",
     );
     return UNRESOLVED_STRING;
   }
-  if (baseAvailability === "unknown") {
+  if (!implicitContribution && baseAvailability === "unknown") {
     issue("string_unresolved", "DW_AT_str_offsets_base was not decoded");
     return UNKNOWN_STRING;
   }
   const gnu = fact.kind === "gnu-str-index";
   const origin =
     base !== null ? base : gnu && (draft.version ?? 5) < 5 ? 0 : null;
-  if (origin === null) {
+  if (!implicitContribution && origin === null) {
     issue(
       "str_offsets_base_absent",
       gnu
@@ -683,11 +686,15 @@ const resolveIndexedString = (
   }
   const strOffset = indexedDebugStrOffset(
     input.strOffsets,
-    origin,
     fact.index,
-    draft.offset_size,
     input.little,
-    gnu && (draft.version ?? 5) < 5,
+    implicitContribution
+      ? { kind: "split" }
+      : {
+          kind: gnu && (draft.version ?? 5) < 5 ? "headerless" : "explicit",
+          base: origin!,
+          offsetSize: draft.offset_size,
+        },
   );
   if (typeof strOffset !== "number") {
     issue(
@@ -745,32 +752,47 @@ const lookupString = (
 
 const indexedDebugStrOffset = (
   section: Buffer | null,
-  base: number,
   index: number,
-  offsetSize: 4 | 8,
   little: boolean,
-  headerless: boolean,
+  origin:
+    | { readonly kind: "split" }
+    | {
+        readonly kind: "headerless" | "explicit";
+        readonly base: number;
+        readonly offsetSize: 4 | 8;
+      },
 ): number | "missing" | "out-of-range" => {
   if (section === null) return "missing";
+  let base = origin.kind === "split" ? 0 : origin.base;
+  let offsetSize = origin.kind === "split" ? 4 : origin.offsetSize;
   let end = section.length;
-  if (!headerless) {
+  if (origin.kind !== "headerless") {
     // DW_AT_str_offsets_base selects the first entry after this contribution's
     // initial length, version and padding, not an arbitrary section offset.
     const headerSize = offsetSize === 4 ? 8 : 16;
-    if (base < headerSize || base > section.length) return "out-of-range";
-    const start = base - headerSize;
-    const header = new DwarfCursor(section.subarray(start, base), little);
+    if (
+      origin.kind === "explicit" &&
+      (base < headerSize || base > section.length)
+    )
+      return "out-of-range";
+    // A standalone DWARF 5 .dwo has its contribution at section offset zero.
+    // The contribution's format, independently of the unit format, owns its
+    // entry width. DWP indexed contribution selection is not admitted here.
+    const start = origin.kind === "split" ? 0 : base - headerSize;
+    const header = new DwarfCursor(section.subarray(start), little);
     const framed = readInitialLength(header);
     if (
       !framed.ok ||
-      framed.offsetSize !== offsetSize ||
+      (origin.kind === "explicit" && framed.offsetSize !== offsetSize) ||
       framed.payloadLength < 4 ||
-      (framed.payloadLength - 4) % offsetSize !== 0 ||
+      (framed.payloadLength - 4) % framed.offsetSize !== 0 ||
       framed.totalLength > section.length - start ||
       header.u16() !== 5 ||
       header.u16() !== 0
     )
       return "out-of-range";
+    offsetSize = framed.offsetSize;
+    base = start + header.offset;
     end = start + framed.totalLength;
   }
   if (index > Math.floor((Number.MAX_SAFE_INTEGER - base) / offsetSize))

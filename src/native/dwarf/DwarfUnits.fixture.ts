@@ -273,6 +273,75 @@ export const strxBeforeBase = (): {
   };
 };
 
+/** A standalone split unit with indexed root strings and no explicit offsets base. */
+export const splitDwarfUnit = (
+  options: {
+    readonly version?: 4 | 5;
+    readonly little?: boolean;
+    readonly offsetSize?: 4 | 8;
+    readonly tableOffsetSize?: 4 | 8;
+    readonly nameIndex?: number;
+  } = {},
+) => {
+  const version = options.version ?? 5;
+  const little = options.little ?? true;
+  const offsetSize = options.offsetSize ?? 4;
+  const tableOffsetSize = options.tableOffsetSize ?? offsetSize;
+  const strings = ["split.c", "/build/source", "fixture compiler"];
+  let offset = 0;
+  const entries = strings.map((value) => {
+    const entry = putOffset(offset, tableOffsetSize, little);
+    offset += Buffer.byteLength(value) + 1;
+    return entry;
+  });
+  const offsets = Buffer.concat(entries);
+  return {
+    info: compileUnit({
+      version,
+      ...(version === 5 ? { unitType: 5 } : {}),
+      little,
+      offsetSize,
+      attributes: [
+        uleb(options.nameIndex ?? 0),
+        uleb(1),
+        uleb(2),
+        put16(0x000c, little),
+      ],
+    }),
+    abbrev: abbrevTable([
+      {
+        code: 1,
+        tag: 0x11,
+        children: false,
+        attributes: [
+          { name: 0x03, form: version === 4 ? 0x1f02 : 0x1a },
+          { name: 0x1b, form: version === 4 ? 0x1f02 : 0x1a },
+          { name: 0x25, form: version === 4 ? 0x1f02 : 0x1a },
+          { name: 0x13, form: 0x05 },
+        ],
+      },
+    ]),
+    str: Buffer.from(`${strings.join("\0")}\0`),
+    strOffsets:
+      version === 4
+        ? offsets
+        : frameUnit(
+            Buffer.concat([put16(5, little), put16(0, little), offsets]),
+            little,
+            tableOffsetSize === 8,
+          ),
+  };
+};
+
+export const splitDwarfSections = (
+  parts: ReturnType<typeof splitDwarfUnit>,
+) => [
+  { name: ".debug_info.dwo", body: parts.info },
+  { name: ".debug_abbrev.dwo", body: parts.abbrev },
+  { name: ".debug_str.dwo", body: parts.str },
+  { name: ".debug_str_offsets.dwo", body: parts.strOffsets },
+];
+
 export interface ElfSectionSpec {
   readonly name: string;
   readonly body: Buffer;

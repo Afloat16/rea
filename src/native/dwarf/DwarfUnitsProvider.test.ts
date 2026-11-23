@@ -733,16 +733,24 @@ it("reports a declared .debug_info that was not decoded as partial, never absent
   truncated.writeBigUInt64LE(BigInt(truncated.length + 1), 64 + 64 + 24);
   await expectPartial(truncated, ".debug_info", "outside the file");
   await expectPartial(
-    elfImage({ sections: [{ name: ".debug_info.dwo", body: named.info }] }),
+    elfImage({
+      sections: [
+        { name: ".debug_info.dwo", body: named.info },
+        { name: ".debug_cu_index", body: Buffer.alloc(0) },
+      ],
+    }),
     ".debug_info.dwo",
-    "Split DWARF section .debug_info.dwo is not read",
+    "Split DWARF package indexes are not read",
   );
   await expectPartial(
     elfImage({
-      sections: [{ name: ".zdebug_info.dwo", body: gnuZdebugBody(named.info) }],
+      sections: [
+        { name: ".zdebug_info.dwo", body: gnuZdebugBody(named.info) },
+        { name: ".debug_tu_index", body: Buffer.alloc(0) },
+      ],
     }),
     ".zdebug_info.dwo",
-    "Split DWARF section .zdebug_info.dwo is not read",
+    "Split DWARF package indexes are not read",
   );
 });
 
