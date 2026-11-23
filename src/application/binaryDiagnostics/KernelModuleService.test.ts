@@ -1,7 +1,10 @@
 import { expect, it } from "vitest";
 import { KernelModuleService } from "./KernelModuleService.js";
 import { KERNEL_MODULE_PROVIDER } from "../../domain/investigationProviders.js";
-import type { KernelModule } from "../../domain/native/kernelModule.js";
+import {
+  kernelModuleVersionNameLimit,
+  type KernelModule,
+} from "../../domain/native/kernelModule.js";
 import { ok } from "../../domain/result.js";
 import { parseEvidence } from "../../domain/evidence.js";
 import {
@@ -85,7 +88,11 @@ it("rejects relative paths, extra arguments and invalid field budgets before rea
   expect(extra.ok).toBe(false);
   if (!relative.ok) expect(relative.error).toBeInstanceOf(AnalysisInputError);
   if (!extra.ok) expect(extra.error).toBeInstanceOf(AnalysisInputError);
-  for (const budget of ["max_modinfo_key_bytes", "max_modinfo_value_bytes"]) {
+  for (const budget of [
+    "max_modinfo_key_bytes",
+    "max_modinfo_value_bytes",
+    "max_version_name_bytes",
+  ]) {
     for (const value of [0, 536870913]) {
       const invalid = await service.inspect({
         path: report.artifact.path,
@@ -227,4 +234,164 @@ it("retains a completed observation if the caller cancels while the provider com
     subject: { identity: { format: "elf", architecture: "x86_64" } },
     normalized_result: report,
   });
+});
+
+const extended: NonNullable<KernelModule["extended_versions"]> = {
+  status: "present",
+  reason: null,
+  crcs: { location: { offset: 100, bytes: 4 }, sha256: digest },
+  names: { location: { offset: 120, bytes: 5 }, sha256: digest },
+  entries: [
+    {
+      index: 0,
+      crc_location: { offset: 100, bytes: 4 },
+      crc_hex: "12345678",
+      name_location: { offset: 120, bytes: 4 },
+      name_sha256: digest,
+      name: "foo",
+      status: "observed",
+      reason: null,
+      omitted_fields: [],
+    },
+  ],
+  trailing_names: {
+    location: { offset: 124, bytes: 1 },
+    sha256: digest,
+    zero_padding: true,
+  },
+};
+
+const inspectExtended = (
+  extended_versions: typeof extended,
+  status: "complete" | "partial" = "complete",
+  max_version_name_bytes = 4096,
+) =>
+  new KernelModuleService({
+    identity,
+    inspect: () =>
+      Promise.resolve(
+        ok({
+          ...report,
+          extended_versions,
+          coverage: {
+            status,
+            examined_entries: extended_versions.entries.length,
+          },
+        }),
+      ),
+  }).inspect({ path: report.artifact.path, max_version_name_bytes });
+
+it("validates physical extended-version pairing and includes its ranges in Evidence", async () => {
+  const valid = await inspectExtended(extended);
+  expect(valid.ok).toBe(true);
+  if (!valid.ok) throw valid.error;
+  expect(valid.value.locations).toEqual(
+    expect.arrayContaining([
+      { kind: "file-offset-range", start: 100, end: 104 },
+      { kind: "file-offset-range", start: 120, end: 124 },
+    ]),
+  );
+  for (const changed of [
+    { ...extended, entries: [{ ...extended.entries[0]!, index: 1 }] },
+    {
+      ...extended,
+      entries: [
+        { ...extended.entries[0]!, crc_location: { offset: 104, bytes: 4 } },
+      ],
+    },
+    {
+      ...extended,
+      entries: [
+        { ...extended.entries[0]!, name_location: { offset: 121, bytes: 4 } },
+      ],
+    },
+    { ...extended, trailing_names: null },
+    { ...extended, entries: [{ ...extended.entries[0]!, name: null }] },
+  ]) {
+    const result = await inspectExtended(changed);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toBeInstanceOf(AnalysisOutputError);
+  }
+});
+
+it.each(["name_missing", "name_unterminated"] as const)(
+  "requires %s to end the physical extended-name stream",
+  async (reason) => {
+    const first = extended.entries[0]!;
+    const consumed = reason === "name_unterminated" ? 3 : 0;
+    const closed = {
+      ...first,
+      name: null,
+      name_location: consumed === 0 ? null : { offset: 120, bytes: consumed },
+      name_sha256: consumed === 0 ? null : digest,
+      status: "malformed" as const,
+      reason,
+    };
+    const invalid = {
+      ...extended,
+      crcs: { location: { offset: 100, bytes: 8 }, sha256: digest },
+      names: { location: { offset: 120, bytes: consumed + 5 }, sha256: digest },
+      entries: [
+        closed,
+        {
+          ...first,
+          index: 1,
+          crc_location: { offset: 104, bytes: 4 },
+          name_location: { offset: 120 + consumed, bytes: 4 },
+        },
+      ],
+      trailing_names: {
+        location: { offset: 124 + consumed, bytes: 1 },
+        sha256: digest,
+        zero_padding: true,
+      },
+    };
+    const rejected = await inspectExtended(invalid, "partial");
+    expect(rejected.ok).toBe(false);
+    if (!rejected.ok)
+      expect(rejected.error).toBeInstanceOf(AnalysisOutputError);
+    const suffix = {
+      ...invalid,
+      names: { location: { offset: 120, bytes: consumed }, sha256: digest },
+      entries: [
+        closed,
+        {
+          ...closed,
+          index: 1,
+          crc_location: { offset: 104, bytes: 4 },
+          name_location: null,
+          name_sha256: null,
+          reason: "name_missing" as const,
+        },
+      ],
+      trailing_names: null,
+    };
+    expect((await inspectExtended(suffix, "partial")).ok).toBe(true);
+  },
+);
+
+it("requires extended-name omission recovery to identify the selected retention budget", async () => {
+  const omitted: typeof extended = {
+    ...extended,
+    entries: [
+      { ...extended.entries[0]!, name: null, omitted_fields: ["name"] },
+    ],
+    omission_limits: [kernelModuleVersionNameLimit(2)],
+  };
+  expect((await inspectExtended(omitted, "partial", 2)).ok).toBe(true);
+  const { omission_limits: _limits, ...missing } = omitted;
+  const cases: [typeof extended, number][] = [
+    [missing, 2],
+    [{ ...omitted, omission_limits: [kernelModuleVersionNameLimit(3)] }, 2],
+    [
+      { ...extended, omission_limits: [kernelModuleVersionNameLimit(4096)] },
+      4096,
+    ],
+  ];
+  for (const [inconsistent, maximum] of cases) {
+    const rejected = await inspectExtended(inconsistent, "partial", maximum);
+    expect(rejected.ok).toBe(false);
+    if (!rejected.ok)
+      expect(rejected.error).toBeInstanceOf(AnalysisOutputError);
+  }
 });

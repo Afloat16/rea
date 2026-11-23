@@ -90,6 +90,9 @@ export interface KernelModuleFixtureOptions {
   /** Null omits the section. Undefined uses the synthetic default. */
   readonly modinfo?: Buffer | null;
   readonly versions?: Buffer | null;
+  /** Paired CONFIG_EXTENDED_MODVERSIONS sections; omitted by default. */
+  readonly extendedNames?: Buffer | null;
+  readonly extendedCrcs?: Buffer | null;
   readonly thisModule?: Buffer | null;
   readonly ksymtab?: Buffer | null;
   readonly initText?: Buffer | null;
@@ -144,6 +147,8 @@ export const kernelModuleFixture = (
     "__versions",
     chosen(options.versions, () => defaultVersions(bits, little)),
   );
+  add("__version_ext_names", options.extendedNames ?? null);
+  add("__version_ext_crcs", options.extendedCrcs ?? null);
   add(
     ".gnu.linkonce.this_module",
     chosen(options.thisModule, () => Buffer.alloc(8, 0x11)),

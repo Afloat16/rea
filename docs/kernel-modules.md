@@ -2,8 +2,8 @@
 
 `inspect_kernel_module` / `inspect-kernel-module` reads metadata from one
 selected local ELF32/ELF64 relocatable object (`.ko`) without executing it.
-That metadata is the `.modinfo` key/value strings, the `__versions` symbol
-CRCs, the presence of `.gnu.linkonce.this_module` and `__ksymtab*` sections,
+That metadata is the `.modinfo` key/value strings, classic and extended symbol
+version names/CRCs, the presence of `.gnu.linkonce.this_module` and `__ksymtab*` sections,
 the observed file sizes of `.init.text` and `.exit.text`, and an optional
 appended signature trailer. It does not require a Linux host or the `modinfo`
 program.
@@ -26,7 +26,7 @@ requires an absolute filesystem path and preserves that exact selection:
 
 The inline Evidence result contains the artifact path, SHA-256, and byte
 length. `applicability` is `applicable` only for `ET_REL`. Other ELF types are
-`not_applicable`: header facts are filled and `.modinfo`, `__versions`, and
+`not_applicable`: header facts are filled and `.modinfo`, symbol-version tables, and
 the signature trailer are not examined.
 
 `.modinfo` entries stay in file order. Duplicate keys such as `alias` and
@@ -44,11 +44,31 @@ stores a 32-bit CRC and a 60-byte name. ELF64 stores a 64-bit unsigned long
 and a 56-byte name. CRCs are zero-padded lowercase hex, 8 or 16 characters,
 not a JavaScript number. The layout is reported from the ELF class even when
 the section is absent. Names use the same byte-preserving Latin1 projection
-as `.modinfo` keys and values. Only this classic `__versions` layout is
-decoded. `versions.status: "absent"` means no `__versions` section was found
-when section names were complete; it does not establish the absence of version
-metadata in `__version_ext_names` and `__version_ext_crcs`, which Linux uses
-with `CONFIG_EXTENDED_MODVERSIONS` and this workflow does not decode.
+as `.modinfo` keys and values. `versions.status: "absent"` describes only this
+classic section.
+
+`extended_versions` reads Linux `CONFIG_EXTENDED_MODVERSIONS`: a separate
+`__version_ext_crcs` array of 32-bit CRC words, in the ELF byte order, paired by
+ordinal with NUL-terminated names in `__version_ext_names`. CRC words stay
+32-bit for both ELF classes. Long Rust symbol names and duplicate names keep
+their original order. Each entry records its CRC and name ranges; the name
+digest includes its terminating NUL when present. Each section also keeps its
+range and SHA-256. Names use the same byte-preserving Latin1 projection.
+
+The CRC count determines how many names are paired. Remaining name-section
+bytes keep a separate range, digest and `zero_padding` fact. This includes the
+implicit final NUL emitted by the C compiler; nonzero unmatched bytes make
+coverage partial. An empty, missing or unterminated name keeps the associated
+CRC and original ordinal with a malformed entry; later CRCs are not shifted.
+Missing halves, partial CRC words, compressed or non-file-backed sections keep
+an explicit section reason and do not produce invented pairs. Available stored
+section ranges and digests remain visible.
+
+Classic and extended inventories stay separate when both are declared. Their
+CRCs are source declarations, not verified compatibility with a running kernel.
+Historical omission or a null `extended_versions` means it was not examined.
+An `absent` extended inventory means neither section was found while section
+names were complete; incomplete section names leave missing data unknown.
 
 `.gnu.linkonce.this_module` is reported as present, absent, unknown, or
 unsupported. `unsupported` means the section is stored `SHF_COMPRESSED`; its
@@ -75,7 +95,7 @@ rather than `absent`. An empty file-backed section is present and empty.
 `coverage.status` is `partial` when supported facts cannot all be examined or
 interpreted, including incomplete section names, malformed or unsupported
 metadata, and omitted duplicate named sections. When multiple `.modinfo`,
-`__versions`, `.gnu.linkonce.this_module`, `.init.text`, or `.exit.text`
+`__versions`, either extended-version section, `.gnu.linkonce.this_module`, `.init.text`, or `.exit.text`
 sections exist, the first is examined and a limitation identifies the omission.
 `complete` covers the supported inspection described here; it does not claim
 that `struct module`, symbol-table records, or certificate chains were decoded.
@@ -83,9 +103,9 @@ that `struct module`, symbol-table records, or certificate chains were decoded.
 ## Limits and failures
 
 The selected file is limited to 64 MiB by default (512 MiB maximum). At most
-8192 `.modinfo` and `__versions` entries plus listed `__ksymtab*` sections are
+8192 `.modinfo`, classic and extended version entries plus listed `__ksymtab*` sections are
 examined by default (65536 maximum); `coverage.examined_entries` counts all
-three. Exceeding that budget fails with no partial success. `.modinfo` keys
+four collections. Exceeding that budget fails with no partial success. `.modinfo` keys
 retain at most 256 bytes and values at most 4096 bytes by default. A larger
 field becomes `null` and is named in the entry's `omitted_fields`; the field
 that fits is still copied. Structural `status` and `reason` remain independent:
@@ -101,6 +121,15 @@ CLI flags are `--max-modinfo-key-bytes` and `--max-modinfo-value-bytes`.
 Each accepts an integer from 1 through 536870912 bytes, matching the maximum
 input size. No restart is required; file, entry and raw-hex budgets do not
 change. These are per-call controls, not runtime settings.
+
+Extended symbol names retain at most 4096 bytes by default, selected with
+`max_version_name_bytes` in MCP or `--max-version-name-bytes` in CLI. A longer
+terminated name remains an observed declaration with `name: null` and
+`omitted_fields: ["name"]`; its CRC, source range and digest remain available.
+The overall coverage becomes partial and `extended_versions.omission_limits`
+names the control. Raise it on the next call, up to the maximum input size,
+to retain the text. Names are scanned in bounded windows; omitted text is
+hashed without retaining the entire name section.
 
 A `__ksymtab*` section name longer than
 256 bytes keeps its range with `name: null` and `ksymtab_name_exceeds_limit`. Inline raw hex stops at 4096 bytes and
@@ -142,7 +171,9 @@ The record layout follows Linux v6.12's
 [`modversion_info`](https://github.com/torvalds/linux/blob/v6.12/include/linux/module.h)
 and [`MAX_PARAM_PREFIX_LEN`](https://github.com/torvalds/linux/blob/v6.12/include/linux/moduleparam.h).
 The [Linux kbuild module versioning guide](https://docs.kernel.org/kbuild/modules.html#module-versioning)
-describes the separate extended version sections.
+describes the separate extended version sections. Their producer and ordinal
+pairing follow [`add_extended_versions`](https://github.com/torvalds/linux/blob/b6a9fa34ce4187cb69d3c588a4bbffc31ce5db8f/scripts/mod/modpost.c)
+and the [module version iterator](https://github.com/torvalds/linux/blob/b6a9fa34ce4187cb69d3c588a4bbffc31ce5db8f/kernel/module/version.c).
 Trailer fields and acceptance rules follow
 [`module_signature`](https://github.com/torvalds/linux/blob/v6.12/include/linux/module_signature.h)
 and [`mod_check_sig`](https://github.com/torvalds/linux/blob/v6.12/kernel/module_signature.c).

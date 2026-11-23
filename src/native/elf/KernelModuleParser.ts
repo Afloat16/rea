@@ -25,6 +25,7 @@ import {
 } from "../../domain/binaryContainer.js";
 import { readElfImageFromReader } from "../../domain/native/elfImage.js";
 import { kernelCompressionCodecAt } from "./KernelCompressionCodec.js";
+import { readKernelModuleExtendedVersions } from "./KernelModuleExtendedVersions.js";
 import { sha256Hex } from "../../kernel/sha256Hex.js";
 import type { ByteSource } from "../../domain/byteSource.js";
 
@@ -78,7 +79,7 @@ const baseLimitations = (): Limitations => [
   "This workflow does not execute the module, resolve imported symbols, or validate an appended signature.",
   "struct module in .gnu.linkonce.this_module is kernel-version specific and is not decoded.",
   "__ksymtab entry layout is kernel-version specific and is not decoded.",
-  "Only classic __versions records are decoded. Their absence does not establish the absence of CONFIG_EXTENDED_MODVERSIONS metadata in __version_ext_names and __version_ext_crcs.",
+  "Classic and extended symbol-version rows retain declared CRCs; they do not verify the current kernel ABI or resolve imported symbols. Both representations remain separate when both are present.",
   "Metadata strings use a byte-preserving Latin1 projection; their original text encoding is unobserved.",
 ];
 
@@ -113,6 +114,7 @@ const unsupportedCompression = (
   },
   modinfo: null,
   versions: null,
+  extended_versions: null,
   this_module: null,
   ksymtab: null,
   init_text: null,
@@ -148,6 +150,7 @@ const notApplicable = (
   next_probe: null,
   modinfo: null,
   versions: null,
+  extended_versions: null,
   this_module: null,
   ksymtab: null,
   init_text: null,
@@ -690,6 +693,7 @@ const finalizeKernelModule = (
   prepared: KernelModulePrepared,
   modinfo: NonNullable<Report["modinfo"]>,
   versions: NonNullable<Report["versions"]>,
+  extendedVersions: NonNullable<Report["extended_versions"]>,
   signature: Report["signature"],
 ): Report => {
   const {
@@ -735,7 +739,7 @@ const finalizeKernelModule = (
   exceeds(examined.count, input.max_entries);
   if (!namesComplete)
     limitations.push(
-      "Section names are incomplete, so a missing .modinfo, __versions, this_module, __ksymtab, .init.text, or .exit.text section is unknown rather than absent.",
+      "Section names are incomplete, so missing modinfo, classic or extended versions, this_module, __ksymtab, .init.text, or .exit.text metadata is unknown rather than absent.",
     );
   if (modinfo.status === "absent")
     limitations.push("No .modinfo section was declared.");
@@ -769,6 +773,12 @@ const finalizeKernelModule = (
     sectionIncomplete(modinfo) ||
     modinfo.entries.some((entry) => entry.omitted_fields.length > 0) ||
     sectionIncomplete(versions) ||
+    (extendedVersions.status !== "present" &&
+      extendedVersions.status !== "absent") ||
+    extendedVersions.entries.some(
+      (entry) => entry.status !== "observed" || entry.omitted_fields.length > 0,
+    ) ||
+    extendedVersions.trailing_names?.zero_padding === false ||
     modulePresence.status === "unsupported" ||
     (modulePresence.status === "present" && modulePresence.location === null) ||
     (initText?.status === "present" && initText.bytes === null) ||
@@ -783,6 +793,7 @@ const finalizeKernelModule = (
     next_probe: null,
     modinfo,
     versions,
+    extended_versions: extendedVersions,
     this_module: {
       status: modulePresence.status,
       location: modulePresence.location,
@@ -863,6 +874,17 @@ export const parseKernelModuleFromHandle = async (
       )
     : versionsLoc.result;
   const signature = await parseSignatureFromSource(source, signal);
+  const extendedVersions = await readKernelModuleExtendedVersions({
+    source,
+    crcs: prepared.firstNamedSection("__version_ext_crcs"),
+    names: prepared.firstNamedSection("__version_ext_names"),
+    namesComplete: prepared.namesComplete,
+    little: image.byte_order === "little",
+    input,
+    examined: prepared.examined,
+    limitations: prepared.limitations,
+    signal,
+  });
   return finalizeKernelModule(
     source.size,
     artifact,
@@ -870,6 +892,7 @@ export const parseKernelModuleFromHandle = async (
     prepared,
     modinfo,
     versions,
+    extendedVersions,
     signature,
   );
 };

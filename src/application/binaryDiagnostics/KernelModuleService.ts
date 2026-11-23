@@ -6,6 +6,7 @@ import { createEvidence, type Evidence } from "../../domain/evidence.js";
 import { elfObjectTypeName } from "../../domain/native/elfNotes.js";
 import {
   inspectKernelModuleInputSchema,
+  kernelModuleVersionNameLimit,
   kernelModuleSchema,
   KERNEL_MODULE_VERSION_ENTRY_BYTES,
   MAX_KERNEL_MODULE_RAW_BYTES,
@@ -93,6 +94,13 @@ const rangesOf = (report: KernelModule): Range[] => {
   for (const entry of report.modinfo?.entries ?? []) add(entry.location);
   add(report.versions?.location);
   for (const entry of report.versions?.entries ?? []) add(entry.location);
+  add(report.extended_versions?.crcs?.location);
+  add(report.extended_versions?.names?.location);
+  for (const entry of report.extended_versions?.entries ?? []) {
+    add(entry.crc_location);
+    add(entry.name_location);
+  }
+  add(report.extended_versions?.trailing_names?.location);
   add(report.this_module?.location);
   add(report.init_text?.location);
   add(report.exit_text?.location);
@@ -193,6 +201,122 @@ const versionsConsistent = (
   });
 };
 
+const versionNameLimitsConsistent = (
+  versions: NonNullable<KernelModule["extended_versions"]>,
+  input: InspectKernelModuleInput,
+): boolean => {
+  if (!versions.entries.some((entry) => entry.omitted_fields.length > 0))
+    return versions.omission_limits === undefined;
+  const actual = versions.omission_limits?.[0];
+  if (actual === undefined) return false;
+  const expected = kernelModuleVersionNameLimit(input.max_version_name_bytes);
+  return (
+    actual.control_kind === expected.control_kind &&
+    actual.parameter === expected.parameter &&
+    actual.effective_value === expected.effective_value &&
+    actual.unit === expected.unit &&
+    actual.minimum === expected.minimum &&
+    actual.maximum === expected.maximum &&
+    actual.default_value === expected.default_value &&
+    actual.applies_at === expected.applies_at
+  );
+};
+
+const extendedVersionsConsistent = (
+  versions: KernelModule["extended_versions"],
+  input: InspectKernelModuleInput,
+): boolean => {
+  if (versions == null) return true;
+  if (versions.status === "absent")
+    return (
+      versions.reason === null &&
+      versions.crcs === null &&
+      versions.names === null &&
+      versions.entries.length === 0 &&
+      versions.trailing_names === null &&
+      versions.omission_limits === undefined
+    );
+  if (versions.status !== "present")
+    return (
+      versions.entries.length === 0 &&
+      versions.trailing_names === null &&
+      versions.omission_limits === undefined &&
+      (versions.status === "unknown" || versions.reason !== null)
+    );
+  if (
+    versions.reason !== null ||
+    versions.crcs === null ||
+    versions.names === null ||
+    versions.crcs.location.bytes !== versions.entries.length * 4 ||
+    !versionNameLimitsConsistent(versions, input)
+  )
+    return false;
+  const namesEnd =
+    versions.names.location.offset + versions.names.location.bytes;
+  let nextNameOffset = versions.names.location.offset;
+  let ended = false;
+  for (const [index, entry] of versions.entries.entries()) {
+    if (
+      entry.index !== index ||
+      entry.crc_location.bytes !== 4 ||
+      entry.crc_location.offset !== versions.crcs.location.offset + index * 4
+    )
+      return false;
+    const location = entry.name_location;
+    if (location === null) {
+      if (
+        entry.reason !== "name_missing" ||
+        entry.name_sha256 !== null ||
+        entry.name !== null ||
+        entry.status !== "malformed" ||
+        entry.omitted_fields.length !== 0 ||
+        nextNameOffset !== namesEnd
+      )
+        return false;
+      ended = true;
+      continue;
+    }
+    if (
+      ended ||
+      location.offset !== nextNameOffset ||
+      location.bytes === 0 ||
+      location.offset + location.bytes > namesEnd ||
+      entry.name_sha256 === null
+    )
+      return false;
+    nextNameOffset += location.bytes;
+    if (entry.reason === "name_unterminated") {
+      if (nextNameOffset !== namesEnd) return false;
+      ended = true;
+    }
+    if (entry.status === "observed") {
+      if (entry.reason !== null || location.bytes < 2) return false;
+      const omitted = entry.omitted_fields.length === 1;
+      if (
+        omitted
+          ? entry.name !== null ||
+            location.bytes - 1 <= input.max_version_name_bytes
+          : entry.name === null ||
+            entry.name.length + 1 !== location.bytes ||
+            entry.name.length > input.max_version_name_bytes
+      )
+        return false;
+    } else if (
+      entry.name !== null ||
+      entry.omitted_fields.length !== 0 ||
+      (entry.reason !== "name_empty" && entry.reason !== "name_unterminated") ||
+      (entry.reason === "name_empty" && location.bytes !== 1)
+    )
+      return false;
+  }
+  const tail = versions.trailing_names;
+  return tail === null
+    ? nextNameOffset === namesEnd
+    : tail.location.offset === nextNameOffset &&
+        tail.location.bytes > 0 &&
+        tail.location.offset + tail.location.bytes === namesEnd;
+};
+
 const signatureConsistent = (
   signature: NonNullable<KernelModule["signature"]>,
   fileBytes: number,
@@ -259,6 +383,7 @@ const sizedConsistent = (
 const metadataAbsent = (report: KernelModule): boolean =>
   report.modinfo === null &&
   report.versions === null &&
+  report.extended_versions == null &&
   report.this_module === null &&
   report.ksymtab === null &&
   report.init_text === null &&
@@ -323,6 +448,7 @@ const validReport = (
     report.coverage.examined_entries !==
     report.modinfo.entries.length +
       report.versions.entries.length +
+      (report.extended_versions?.entries.length ?? 0) +
       report.ksymtab.sections.length
   )
     return false;
@@ -336,6 +462,7 @@ const validReport = (
   return (
     modinfoConsistent(report.modinfo, input) &&
     versionsConsistent(report.versions) &&
+    extendedVersionsConsistent(report.extended_versions, input) &&
     signatureConsistent(report.signature, report.artifact.bytes) &&
     sizedConsistent(report.init_text) &&
     sizedConsistent(report.exit_text)

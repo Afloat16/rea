@@ -16,13 +16,28 @@ const hex = z.string().regex(/^[0-9a-f]*$/u);
 /** Hard ceiling on the caller-selected input read budget. */
 export const MAX_INSPECT_KERNEL_MODULE_FILE_BYTES = 536870912;
 /**
- * Hard ceiling on decoded .modinfo and __versions entries plus listed
+ * Hard ceiling on decoded .modinfo, classic and extended version entries plus listed
  * file-backed __ksymtab* sections combined.
  */
 export const MAX_INSPECT_KERNEL_MODULE_ENTRIES = 65536;
 /** Default per-field retention budgets; omission does not establish malformed syntax. */
 export const DEFAULT_KERNEL_MODULE_KEY_BYTES = 256;
 export const DEFAULT_KERNEL_MODULE_VALUE_BYTES = 4096;
+export const DEFAULT_KERNEL_MODULE_VERSION_NAME_BYTES = 4096;
+
+/** Caller-selected retention for variable-length extended symbol names. */
+export const kernelModuleVersionNameLimit = (
+  selectedBytes: number,
+): AnalysisParameterLimit => ({
+  control_kind: "parameter",
+  parameter: "max_version_name_bytes",
+  effective_value: selectedBytes,
+  unit: "bytes",
+  minimum: 1,
+  maximum: MAX_INSPECT_KERNEL_MODULE_FILE_BYTES,
+  default_value: DEFAULT_KERNEL_MODULE_VERSION_NAME_BYTES,
+  applies_at: "next_call",
+});
 
 /**
  * The per-call control that omitted .modinfo key or value text, named by its
@@ -169,6 +184,55 @@ const versionsSchema = z.strictObject({
   reason: z.enum(KERNEL_MODULE_VERSION_SECTION_REASONS).nullable(),
 });
 
+const extendedVersionSectionSchema = z.strictObject({
+  location: range,
+  sha256: digestSchema,
+});
+
+const extendedVersionsSchema = z.strictObject({
+  status: sectionStatus,
+  crcs: extendedVersionSectionSchema.nullable(),
+  names: extendedVersionSectionSchema.nullable(),
+  entries: z.array(
+    z.strictObject({
+      index: uint,
+      crc_location: range,
+      crc_hex: z.string().regex(/^[0-9a-f]{8}$/u),
+      name_location: range.nullable(),
+      name_sha256: digestSchema.nullable(),
+      name: z.string().nullable(),
+      status: entryStatus,
+      reason: z
+        .enum(["name_missing", "name_empty", "name_unterminated"])
+        .nullable(),
+      omitted_fields: z.array(z.literal("name")).max(1),
+    }),
+  ),
+  trailing_names: z
+    .strictObject({
+      location: range,
+      sha256: digestSchema,
+      zero_padding: z.boolean(),
+    })
+    .nullable(),
+  reason: z
+    .enum([
+      "missing_names",
+      "missing_crcs",
+      "section_names_incomplete",
+      "names_not_file_backed",
+      "crcs_not_file_backed",
+      "names_compressed",
+      "crcs_compressed",
+      "crcs_size_not_multiple",
+    ])
+    .nullable(),
+  omission_limits: z
+    .array(analysisParameterLimitSchema)
+    .length(1)
+    .exactOptional(),
+});
+
 const thisModuleSchema = z.strictObject({
   status: z.enum(["present", "absent", "unknown", "unsupported"]),
   location: range.nullable(),
@@ -243,7 +307,7 @@ export const inspectKernelModuleInputSchema = z.strictObject({
     .max(MAX_INSPECT_KERNEL_MODULE_ENTRIES)
     .default(8192)
     .describe(
-      "Maximum .modinfo and __versions entries plus file-backed __ksymtab* sections to examine; exceeding the budget fails without partial success",
+      "Maximum .modinfo, classic and extended symbol-version entries plus file-backed __ksymtab* sections to examine; exceeding the budget fails without partial success",
     ),
   max_modinfo_key_bytes: z
     .int()
@@ -260,6 +324,14 @@ export const inspectKernelModuleInputSchema = z.strictObject({
     .default(DEFAULT_KERNEL_MODULE_VALUE_BYTES)
     .describe(
       "Maximum bytes retained per .modinfo value (default 4096). Larger values stay valid when their syntax is valid, with value null and omitted_fields naming value. Raise on the next call to retain them; no restart. Does not raise input, entry or raw-hex budgets.",
+    ),
+  max_version_name_bytes: z
+    .int()
+    .min(1)
+    .max(MAX_INSPECT_KERNEL_MODULE_FILE_BYTES)
+    .default(DEFAULT_KERNEL_MODULE_VERSION_NAME_BYTES)
+    .describe(
+      "Maximum retained bytes per extended module symbol name (default 4096). Larger terminated names keep their range, SHA-256 and CRC with name null and omitted_fields naming name. Raise on the next call to retain them; no restart. Does not raise file or entry budgets.",
     ),
 });
 
@@ -297,6 +369,12 @@ export const kernelModuleSchema = z.strictObject({
     .nullable(),
   modinfo: modinfoSchema.nullable(),
   versions: versionsSchema.nullable(),
+  extended_versions: extendedVersionsSchema
+    .nullable()
+    .exactOptional()
+    .describe(
+      "Paired __version_ext_crcs u32 words and NUL-terminated __version_ext_names in physical order. Historical omission or null means unexamined; these are declared CRCs, not verified ABI compatibility.",
+    ),
   this_module: thisModuleSchema.nullable(),
   ksymtab: ksymtabSchema.nullable(),
   init_text: sizedSectionSchema.nullable(),
