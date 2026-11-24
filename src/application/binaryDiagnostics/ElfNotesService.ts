@@ -89,7 +89,16 @@ const validReport = (
   return (
     report.tables.every((table) => inside(table.location)) &&
     report.entries.every(
-      (entry) => inside(entry.location) && inside(entry.descriptor.location),
+      (entry) =>
+        inside(entry.location) &&
+        inside(entry.descriptor.location) &&
+        (entry.gnu?.properties?.entries ?? []).every(
+          ({ data_location }) =>
+            data_location.offset >= entry.descriptor.location.offset &&
+            data_location.offset + data_location.bytes <=
+              entry.descriptor.location.offset +
+                entry.descriptor.location.bytes,
+        ),
     )
   );
 };

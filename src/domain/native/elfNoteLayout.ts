@@ -87,6 +87,34 @@ export const readElfNoteFrame = (
   return ok({ namesz, descsz, type, descriptor, next, framing });
 };
 
+/** Frame a GNU property record within its note descriptor, not the note table. */
+export const readElfGnuPropertyFrame = (
+  reader: BinaryReader,
+  offset: number,
+  remaining: number,
+  alignment: number,
+) => {
+  if (remaining < 8 || offset < 0 || reader.bytes.length - offset < 8)
+    return err({
+      kind: "truncated" as const,
+      message: "ELF GNU property record is truncated.",
+    });
+  const type = reader.u32(offset);
+  const dataSize = reader.u32(offset + 4);
+  if (dataSize > remaining - 8)
+    return err({
+      kind: "malformed" as const,
+      message: "ELF GNU property data extends outside the note descriptor.",
+    });
+  const next = Math.ceil((8 + dataSize) / alignment) * alignment;
+  if (next > remaining)
+    return err({
+      kind: "truncated" as const,
+      message: "ELF GNU property record is truncated.",
+    });
+  return ok({ type, dataSize, next });
+};
+
 /** A short remainder after the last aligned note may be zero padding. */
 export const isElfNotePadding = (bytes: Uint8Array): boolean => {
   for (let i = 0; i < bytes.byteLength; i += 1) {

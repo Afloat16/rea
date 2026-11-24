@@ -9,6 +9,7 @@ import {
   elfNote,
   elfNoteFixture,
   elfNoteWithUnreadableSectionNameFixture,
+  gnuPropertyNote,
 } from "../../src/native/elf/ElfNotes.fixture.js";
 import { createTestTempDirectory } from "../fixtures/temporaryDirectory.js";
 import { cliTest } from "../support/cli/cliFixture.js";
@@ -30,6 +31,53 @@ cliTest("reports a GNU build-id through the public CLI", async ({ cli }) => {
     )?.gnu?.build_id_hex,
   ).toBe("0123456789abcdef0123456789abcdef01234567");
 });
+
+cliTest(
+  "reports GNU ISA and feature declarations through the public CLI and stdio MCP",
+  async ({ cli }) => {
+    const root = await createTestTempDirectory("rea-elf-properties-cli-");
+    const path = join(root, "program");
+    const bytes = elfNoteFixture({
+      notes: gnuPropertyNote(),
+      ownership: "program",
+      alignment: 8,
+    });
+    await writeFile(path, bytes);
+    const result = await cli.run({
+      arguments: ["inspect-elf-notes", path, "--json"],
+    });
+    expect(result.exitCode, result.stderr).toBe(0);
+    const evidence = toolContract("inspect_elf_notes").outputSchema.parse(
+      result.json,
+    );
+    expect(
+      evidence.normalized_result.entries[0]?.gnu?.properties,
+    ).toMatchObject({
+      issue: null,
+      entries: [
+        {
+          type_name: "GNU_PROPERTY_X86_FEATURE_1_AND",
+          flags: ["IBT", "SHSTK"],
+        },
+        {
+          type_name: "GNU_PROPERTY_X86_ISA_1_NEEDED",
+          flags: ["x86-64-baseline"],
+        },
+      ],
+    });
+    expect(evidence.limitations.join(" ")).toMatch(
+      /do not establish host support or runtime enforcement/u,
+    );
+    const call = await cli.sharedMcpCall!();
+    const response = await call("inspect_elf_notes", { path });
+    expect(response.isError, JSON.stringify(response)).not.toBe(true);
+    const mcp = toolContract("inspect_elf_notes").outputSchema.parse(
+      response.structuredContent,
+    );
+    expect(mcp.normalized_result).toEqual(evidence.normalized_result);
+    expect((await readFile(path)).equals(bytes)).toBe(true);
+  },
+);
 
 cliTest(
   "reports FDO producer assertions in public ELF note Evidence",

@@ -214,6 +214,35 @@ const fdoNoteSchema = z.union([
 
 export type FdoNote = z.infer<typeof fdoNoteSchema>;
 
+const gnuPropertyEntrySchema = z.strictObject({
+  type: uint,
+  type_name: z.string().nullable(),
+  data_location: range,
+  data_sha256: digestSchema,
+  data_hex: z
+    .string()
+    .regex(/^[0-9a-f]*$/)
+    .nullable(),
+  value_hex: z
+    .string()
+    .regex(/^0x[0-9a-f]+$/)
+    .nullable(),
+  flags: z.array(z.string()).nullable(),
+  unknown_bits_hex: z
+    .string()
+    .regex(/^0x[0-9a-f]+$/)
+    .nullable(),
+  issue: z.string().nullable(),
+});
+
+const gnuPropertiesSchema = z.strictObject({
+  entries: z.array(gnuPropertyEntrySchema).nullable(),
+  issue: z.string().nullable(),
+});
+
+export type GnuProperties = z.infer<typeof gnuPropertiesSchema>;
+export type GnuPropertyEntry = z.infer<typeof gnuPropertyEntrySchema>;
+
 const noteEntrySchema = z.strictObject({
   index: uint,
   table_kind: z.enum(["program", "section"]),
@@ -242,6 +271,8 @@ const noteEntrySchema = z.strictObject({
         .nullable(),
       abi_tag: gnuAbiTagSchema.nullable(),
       gold_version: z.string().nullable(),
+      // Retained Evidence written before this facet remains readable.
+      properties: gnuPropertiesSchema.nullable().optional(),
     })
     .nullable(),
   core: coreNoteSchema.nullable(),

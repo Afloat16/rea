@@ -18,6 +18,7 @@ import {
   elfNoteSpanOverlapIndex,
   isElfNotePadding,
   readElfNoteFrame,
+  readElfGnuPropertyFrame,
   type ElfNoteAlignment,
   type ElfNoteSpan,
 } from "../../domain/native/elfNoteLayout.js";
@@ -51,6 +52,10 @@ import type { ZstandardFramePause } from "../../domain/compression/zstandardExac
 import { ZstandardFrameAllowanceError } from "../../domain/compression/zstandardFrameAllowance.js";
 import { sha256Hex } from "../../kernel/sha256Hex.js";
 import { decodeFdoNote, type FdoDecodeBudget } from "./ElfFdoNote.js";
+import {
+  decodeGnuProperties,
+  type GnuPropertyDecodeBudget,
+} from "./ElfGnuProperties.js";
 import type { PrefixedByteSource } from "../../domain/byteSource.js";
 
 const PT_NOTE = 4;
@@ -1084,6 +1089,11 @@ const projectElfNoteSteps = function* (
     retained: 0,
     descriptors: new Map(),
   };
+  const gnuProperties: GnuPropertyDecodeBudget = {
+    decoded: 0,
+    retained: 0,
+    descriptors: new Map(),
+  };
   const entries: ElfNotes["entries"] = [];
   const { header, tables, examinedEntries, sectionNameLimitations } =
     yield* parseElfNoteSteps(
@@ -1092,7 +1102,15 @@ const projectElfNoteSteps = function* (
       { retainReadableNotes: false },
       (note, table, header, text) =>
         entries.push({
-          ...toEntry(note, table.kind, table.index, header, text, fdo),
+          ...toEntry(
+            note,
+            table.kind,
+            table.index,
+            header,
+            text,
+            fdo,
+            gnuProperties,
+          ),
           index: entries.length,
         }),
     );
@@ -1114,6 +1132,11 @@ const projectElfNoteSteps = function* (
     limitations: [
       ...(tables.length === 0 ? ABSENT_LIMITATIONS : LIMITATIONS),
       ...sectionNameLimitations,
+      ...(entries.some(({ gnu }) => gnu?.properties != null)
+        ? [
+            "GNU properties are recorded producer declarations; they do not establish host support or runtime enforcement. Unknown property types and bits remain uninterpreted.",
+          ]
+        : []),
       ...(entries.some(
         ({ fdo: note }) => note !== null && note.metadata !== null,
       )
@@ -1308,6 +1331,7 @@ const toEntry = (
   header: ElfFixedHeader,
   text: TextBudget,
   fdo: FdoDecodeBudget,
+  gnuProperties: GnuPropertyDecodeBudget,
 ): ElfNoteEntry => {
   const little = header.byteOrder === "little";
   const linuxCore = isLinuxCoreProfile(header);
@@ -1320,6 +1344,14 @@ const toEntry = (
     digest = sha256Hex(note.descriptor);
     text.hashes.set(range, digest);
   }
+  const gnu = decodeGnu(
+    note.owner,
+    note.type,
+    note.descriptor,
+    note.descriptor_offset,
+    little,
+    text,
+  );
   return {
     table_kind: tableKind,
     table_index: tableIndex,
@@ -1339,14 +1371,23 @@ const toEntry = (
           ? note.descriptor.toString("hex")
           : null,
     },
-    gnu: decodeGnu(
-      note.owner,
-      note.type,
-      note.descriptor,
-      note.descriptor_offset,
-      little,
-      text,
-    ),
+    gnu:
+      gnu === null
+        ? null
+        : {
+            ...gnu,
+            properties:
+              typeName === "gnu_property"
+                ? decodeGnuProperties(
+                    note.descriptor,
+                    note.descriptor_offset,
+                    little,
+                    header.elfClass,
+                    header.machine,
+                    gnuProperties,
+                  )
+                : null,
+          },
     core: coreOwner
       ? decodeCore(
           note.owner,
@@ -1502,8 +1543,6 @@ export function* readGnuPropertyWordsSteps(
     let window = new BinaryReader(Buffer.alloc(0), little, "elf-notes");
     while (cursor < size) {
       assertArtifactReadActive(signal);
-      if (size - cursor < 8)
-        failTruncated("ELF GNU property record is truncated.");
       if (cursor + Math.min(12, size - cursor) > base + window.bytes.length) {
         base = cursor;
         window = new BinaryReader(
@@ -1516,13 +1555,18 @@ export function* readGnuPropertyWordsSteps(
         );
       }
       const local = cursor - base;
-      const type = window.u32(local);
-      const dataSize = window.u32(local + 4);
-      if (dataSize > size - cursor - 8)
-        fail("ELF GNU property data extends outside the note descriptor.");
-      const step = Math.ceil((8 + dataSize) / propertyAlign) * propertyAlign;
-      if (cursor + step > size)
-        failTruncated("ELF GNU property record is truncated.");
+      const frame = readElfGnuPropertyFrame(
+        window,
+        local,
+        size - cursor,
+        propertyAlign,
+      );
+      if (!frame.ok) {
+        if (frame.error.kind === "truncated")
+          failTruncated(frame.error.message);
+        return fail(frame.error.message);
+      }
+      const { type, dataSize, next: step } = frame.value;
       if (
         type === GNU_PROPERTY_X86_FEATURE_1_AND ||
         type === GNU_PROPERTY_AARCH64_FEATURE_1_AND

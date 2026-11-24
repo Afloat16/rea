@@ -12,6 +12,7 @@ import {
   elfNote,
   elfNoteFixture,
   elfNoteWithUnreadableSectionNameFixture,
+  gnuPropertyNote,
 } from "../../../src/native/elf/ElfNotes.fixture.js";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 import { mcpTest, type TestMcp } from "../../support/mcp/mcpFixture.js";
@@ -34,6 +35,44 @@ const connect = async (mcp: TestMcp) => {
   const client = await mcp.connect(createServer({ kind: "session", session }));
   return { client, session };
 };
+
+mcpTest(
+  "retains GNU property provenance through the advertised MCP result",
+  async ({ mcp }) => {
+    const { client, session } = await connect(mcp);
+    try {
+      const root = await createTestTempDirectory("rea-elf-properties-mcp-");
+      const path = join(root, "program");
+      const bytes = elfNoteFixture({
+        notes: gnuPropertyNote(),
+        alignment: 8,
+        ownership: "both",
+      });
+      await writeFile(path, bytes);
+      const response = await client.callTool({
+        name: "inspect_elf_notes",
+        arguments: { path },
+      });
+      expect(response.isError, JSON.stringify(response.content)).not.toBe(true);
+      const evidence = inspectElfNotesContract.outputSchema.parse(
+        response.structuredContent,
+      );
+      const entries = evidence.normalized_result.entries;
+      expect(entries).toHaveLength(2);
+      expect(entries[0]?.gnu?.properties?.entries).toHaveLength(2);
+      expect(entries[0]?.gnu?.properties).toEqual(entries[1]?.gnu?.properties);
+      expect(entries[0]?.gnu?.properties?.entries?.[1]).toMatchObject({
+        type: 0xc0008002,
+        value_hex: "0x1",
+        flags: ["x86-64-baseline"],
+        data_hex: "01000000",
+      });
+      expect((await readFile(path)).equals(bytes)).toBe(true);
+    } finally {
+      await session.close();
+    }
+  },
+);
 
 mcpTest(
   "advertises inspect_elf_notes and reads a GNU build-id",

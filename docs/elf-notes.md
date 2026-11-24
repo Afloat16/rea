@@ -38,6 +38,22 @@ were examined; an unavailable section name does not erase those note facts.
 For GNU notes, `gnu.build_id_hex`, `gnu.abi_tag`, or `gnu.gold_version` are
 filled when the descriptor matches that type. Other owners keep `gnu` null.
 
+`GNU/NT_GNU_PROPERTY_TYPE_0` notes also expose `gnu.properties.entries` in
+record order. Each record preserves its numeric type, physical data range,
+SHA-256 and a hex preview for payloads of at most 64 bytes. Known declarations
+include class-sized stack size, no-copy-on-protected, indirect external access,
+x86 ISA levels needed or used, x86 IBT/SHSTK, and AArch64 BTI/PAC/GCS.
+Processor-specific names and flags require the matching ELF machine. Values
+and unrecognized bits use exact hexadecimal strings; unknown types keep their
+raw evidence without a guessed interpretation. Duplicate records remain separate.
+
+These are producer declarations, not observations of host support or runtime
+enforcement. The inspector does not combine records into an effective loader
+policy. An invalid known payload keeps its raw facts and an entry `issue`.
+Truncated record framing retains any earlier entries and sets
+`gnu.properties.issue`; note-table coverage still describes framed notes, not
+successful interpretation of every descriptor.
+
 For Linux `CORE` notes, `core.prpsinfo`, `core.file`, `core.siginfo`, or
 `core.auxv` are decoded for process arguments and status (`NT_PRPSINFO`), mapped
 file memory regions and paths (`NT_FILE`), fault signal and code (`NT_SIGINFO`), and
@@ -117,6 +133,17 @@ FDO decoding separately admits up to 64 KiB of distinct recognized descriptor
 bytes and up to 64 KiB of projected metadata JSON per report. A repeated
 descriptor consumes projected bytes for each entry that includes it. Metadata
 that would exceed the Evidence JSON nesting allowance is also left undecoded.
+
+GNU property decoding has separate 64 KiB allowances for distinct descriptor
+bytes and projected record JSON. These bound interpretation work and structured
+expansion independently of the admitted file size, following the FDO metadata
+policy. Shared physical descriptors are decoded once, while repeated table
+declarations consume projected bytes for every emitted copy. If either
+allowance is exhausted, `gnu.properties.entries` is null and its `issue`
+identifies the unavailable decoding. The note's original range, byte count,
+SHA-256 and preview remain available. Read the original bytes at the descriptor
+range for the complete raw declaration. These interpretation allowances are
+fixed; raising `max_file_bytes` does not change them.
 
 Zstandard section-name tables also use a 128 MiB decoder window limit and the
 shared [`zstd.max_frames` work limit](reference/limits-and-recovery.md#runtime-settings-through-mcp).
