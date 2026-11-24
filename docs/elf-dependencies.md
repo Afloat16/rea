@@ -48,7 +48,21 @@ and its required version names, hashes, weak flags, and version indices.
 `NAME_x.y` requirement strings (for example the highest `GLIBC_x.y`) and is
 labelled `evidence_kind: "derived"`. Names that do not match that pattern stay
 out of the derived set. `version_definitions` summarizes the image's own
-`.gnu.version_d` names and the `VER_FLG_BASE` flag.
+`.gnu.version_d` names and the `VER_FLG_BASE` flag. Each definition also keeps
+its declared `parents` in auxiliary-chain order, including duplicates. The
+first `Verdaux` names the definition itself; only subsequent entries name its
+parents. These are declared version-node dependencies, not a transitive
+closure or a proof of runtime ABI compatibility.
+
+`parents_complete: true` means the declared auxiliary chain ended correctly
+and every parent name was readable. Only `parents: []` together with
+`parents_complete: true` establishes that this definition declared no parents.
+An unreadable parent string remains a null entry and sets
+`parents_complete: false`; readable later siblings remain available. A broken
+auxiliary link keeps the definition identity and already observed parent
+prefix, sets `parents_complete: false`, and marks the table unreadable with
+partial source coverage. Historical Evidence without both fields leaves
+parent observations unexamined; it is not normalized to an empty list.
 
 `imports[]` lists undefined `.dynsym` symbols. When `.gnu.version` is present,
 each import keeps its version index, hidden bit, and a resolved
@@ -84,6 +98,8 @@ string cannot be read. Complete coverage never retains issues.
 The selected file is limited to 64 MiB by default (512 MiB maximum). At most
 1024 `DT_NEEDED` entries, 4096 GNU version records, and 65536 undefined
 dynamic symbols are examined by default (65536 / 65536 / 262144 maximum).
+Every parent auxiliary record uses the same version-record budget, and each
+retained parent name uses the shared dynamic-string text budget.
 Omitted budgets use these defaults during analysis and stay omitted in
 Evidence parameters. Explicitly selecting a default value records that choice.
 GNU hash decoding has a fixed allowance of 262144 bucket, bloom, or symbol
@@ -122,6 +138,11 @@ pagination only; its rows are returned whole and have no name filter. Summaries 
 version-definition and derived-maximum counts; those rows are paged through
 their own collections. CLI summary
 requires `--evidence_output`.
+
+Select `fields: ["name", "parents", "parents_complete"]` in the `definitions`
+collection to retrieve inherited version declarations without paging imports.
+Name filters select the owning definition, not its parent names. Retained
+definition pages preserve these observations after the source file is removed.
 
 This workflow does not execute the image, invoke the dynamic loader, or resolve
 `DT_NEEDED` paths against the host filesystem.

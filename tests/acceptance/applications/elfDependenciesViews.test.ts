@@ -12,7 +12,11 @@ import { analysisViewResultSchema } from "../../../src/domain/analysisView/analy
 import { connectLocalToolsMcp } from "../../fixtures/localToolsMcp.js";
 import { elfDependencyFixture } from "../../../src/native/elf/ElfDependencies.fixture.js";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
-import { cliTest } from "../../support/cli/cliFixture.js";
+import {
+  cliTest,
+  type SharedMcpCall,
+  type TestCli,
+} from "../../support/cli/cliFixture.js";
 
 const dependenciesContract = contractNamed(
   BINARY_DIAGNOSTICS_TOOL_CONTRACTS,
@@ -22,6 +26,56 @@ const viewContract = contractNamed(
   ANALYSIS_VIEW_TOOL_CONTRACTS,
   "inspect_analysis_view",
 );
+
+const assertVersionParents = async (
+  call: SharedMcpCall,
+  run: TestCli["run"],
+  evidenceId: string,
+  bundle: string,
+): Promise<void> => {
+  const inheritanceRequest = {
+    source: { kind: "retained-evidence", evidence_id: evidenceId },
+    view: {
+      kind: "elf-dependencies",
+      collection: "definitions",
+      names: ["CHILD"],
+      fields: ["name", "parents", "parents_complete"],
+      offset: 1,
+      limit: 1,
+    },
+  };
+  const inherited = await call("inspect_analysis_view", inheritanceRequest);
+  expect(inherited.isError, JSON.stringify(inherited.content)).not.toBe(true);
+  const inheritedPage = viewContract.outputSchema.parse(
+    inherited.structuredContent,
+  );
+  expect(inheritedPage.evidence_links).toContain(evidenceId);
+  expect(inheritedPage.normalized_result).toMatchObject({
+    items: [
+      {
+        source_index: 2,
+        name: "CHILD",
+        parents: ["BASE", "OTHER"],
+        parents_complete: true,
+      },
+    ],
+    coverage: { total: 2, examined: 1, exhausted: true },
+    dependencies: { definition_count: 3, coverage: { status: "complete" } },
+  });
+  const inheritedOffline = await run({
+    arguments: [
+      "inspect-analysis-view",
+      JSON.stringify(inheritanceRequest),
+      "--evidence-bundle",
+      bundle,
+      "--json",
+    ],
+  });
+  expect(inheritedOffline.exitCode, inheritedOffline.stderr).toBe(0);
+  expect(viewContract.outputSchema.parse(inheritedOffline.json)).toEqual(
+    inheritedPage,
+  );
+};
 
 cliTest(
   "queries retained ELF dependencies through CLI and actual stdio MCP after the source is deleted",
@@ -33,6 +87,11 @@ cliTest(
       path,
       elfDependencyFixture({
         needed: ["libc.so.6", "libc.so.6", "libm.so.6"],
+        verdef: [
+          { name: "BASE", index: 1, flags: 1 },
+          { name: "CHILD", index: 2, parents: ["BASE"] },
+          { name: "CHILD", index: 3, parents: ["BASE", "OTHER"] },
+        ],
       }),
     );
     const run = cli.run.bind(cli);
@@ -122,6 +181,7 @@ cliTest(
     });
     expect(offline.exitCode, offline.stderr).toBe(0);
     expect(viewContract.outputSchema.parse(offline.json)).toEqual(page);
+    await assertVersionParents(call, run, parent.evidence_id, bundle);
     const projected = await call("inspect_analysis_view", {
       ...request,
       view: {

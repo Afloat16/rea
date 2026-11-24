@@ -285,6 +285,18 @@ const versionDefinitionSchema = z.strictObject({
   name: z.string().min(1).nullable(),
   index: z.number().int().min(0).max(0x7fff),
   base: z.boolean(),
+  parents: z
+    .array(z.string().min(1).nullable())
+    .optional()
+    .describe(
+      "Observed GNU version-parent names in auxiliary-chain order, including duplicates and null unreadable strings; absent in historical unexamined reports",
+    ),
+  parents_complete: z
+    .boolean()
+    .optional()
+    .describe(
+      "True only when the entire declared parent chain and all parent names were read; false preserves the observed prefix without claiming no further parents",
+    ),
 });
 
 const derivedMaximumSchema = z.strictObject({
@@ -375,6 +387,36 @@ export const elfDependenciesReportSchema = z.strictObject({
 
 export const elfDependenciesSchema = elfDependenciesReportSchema.superRefine(
   (value, context) => {
+    value.version_definitions.names.forEach((definition, index) => {
+      if (
+        (definition.parents === undefined) !==
+        (definition.parents_complete === undefined)
+      )
+        context.addIssue({
+          code: "custom",
+          path: ["version_definitions", "names", index],
+          message: "Observed version parents require their completeness fact.",
+        });
+      if (
+        definition.parents_complete === true &&
+        definition.parents?.some((name) => name === null)
+      )
+        context.addIssue({
+          code: "custom",
+          path: ["version_definitions", "names", index, "parents_complete"],
+          message: "Complete version parents cannot contain unreadable names.",
+        });
+      if (
+        definition.parents_complete === false &&
+        value.coverage.status === "complete"
+      )
+        context.addIssue({
+          code: "custom",
+          path: ["coverage", "status"],
+          message:
+            "Incomplete version parents require partial source coverage.",
+        });
+    });
     if (value.coverage.examined_needed !== value.needed.length)
       context.addIssue({
         code: "custom",

@@ -303,7 +303,13 @@ it.each([
       ],
     ]);
     expect(report.version_definitions.names).toEqual([
-      { name: "libdemo.so.1", index: 1, base: true },
+      {
+        name: "libdemo.so.1",
+        index: 1,
+        base: true,
+        parents: [],
+        parents_complete: true,
+      },
     ]);
     expect(report.derived_version_maxima).toEqual([
       { namespace: "GLIBC", maximum: "GLIBC_2.34", evidence_kind: "derived" },
@@ -769,7 +775,18 @@ it.each([
   expect(report.version_definitions).toMatchObject({
     status: "unreadable",
     location: healthy.version_definitions.location,
-    names: [],
+    names:
+      auxiliary.count === 0
+        ? []
+        : [
+            {
+              name: "libdemo.so.1",
+              index: 1,
+              base: true,
+              parents: [],
+              parents_complete: false,
+            },
+          ],
   });
   const unresolved = report.issues.filter(
     (entry) => entry.code === "version_unresolved",

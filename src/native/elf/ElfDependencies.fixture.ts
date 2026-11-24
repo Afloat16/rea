@@ -84,6 +84,7 @@ export interface ElfDependencyVerdefSpec {
   readonly name: string;
   readonly index: number;
   readonly flags?: number;
+  readonly parents?: readonly string[];
 }
 
 export interface ElfDependencyFixtureOptions {
@@ -267,25 +268,34 @@ const verneedRecord = (
 };
 
 const verdefRecord = (
-  nameOffset: number,
+  nameOffsets: readonly number[],
   index: number,
   flags: number,
   hash: number,
   next: number,
   little: boolean,
   revision = 1,
-  auxiliary = { count: 1, next: 0 },
+  auxiliary?: { readonly count: number; readonly next: number },
 ): Buffer => {
-  const bytes = Buffer.alloc(28);
+  const bytes = Buffer.alloc(20 + 8 * nameOffsets.length);
   write16(bytes, 0, revision, little);
   write16(bytes, 2, flags, little);
   write16(bytes, 4, index, little);
-  write16(bytes, 6, auxiliary.count, little);
+  write16(bytes, 6, auxiliary?.count ?? nameOffsets.length, little);
   write32(bytes, 8, hash, little);
   write32(bytes, 12, 20, little);
   write32(bytes, 16, next, little);
-  write32(bytes, 20, nameOffset, little);
-  write32(bytes, 24, auxiliary.next, little);
+  nameOffsets.forEach((nameOffset, item) => {
+    const at = 20 + item * 8;
+    write32(bytes, at, nameOffset, little);
+    const next = item + 1 < nameOffsets.length ? 8 : 0;
+    write32(
+      bytes,
+      at + 4,
+      item === 0 ? (auxiliary?.next ?? next) : next,
+      little,
+    );
+  });
   return bytes;
 };
 
@@ -553,7 +563,9 @@ const buildDependencyTables = (config: FixtureConfig): DependencyTables => {
   const verneedNameOffsets = verneed.map((entry) =>
     entry.versions.map((version) => dynstr.intern(version.name)),
   );
-  const verdefNameOffsets = verdef.map((entry) => dynstr.intern(entry.name));
+  const verdefNameOffsets = verdef.map((entry) =>
+    [entry.name, ...(entry.parents ?? [])].map((name) => dynstr.intern(name)),
+  );
   const symbols = [
     symbolBytes(0, 0, 0, bits, little),
     ...imports.map((entry, index) =>
@@ -621,12 +633,12 @@ const buildDependencyTables = (config: FixtureConfig): DependencyTables => {
     verdefBytes: concat(
       ...verdef.map((entry, index) =>
         verdefRecord(
-          verdefNameOffsets[index] ?? 0,
+          verdefNameOffsets[index] ?? [],
           entry.index,
           entry.flags ?? 0,
           elfHash(entry.name),
           index + 1 < verdef.length || config.danglingVersionLink === "verdef"
-            ? 28
+            ? 20 + 8 * (1 + (entry.parents?.length ?? 0))
             : 0,
           little,
           index === 0 && config.unsupportedVersionRevision === "verdef" ? 0 : 1,

@@ -1799,12 +1799,32 @@ const parseVerdef = function* (
         fail("GNU version definition name entry leaves its table");
       const nameOffset = yield* window.u32(table.offset + offset + aux);
       // The first auxiliary record names the definition; the rest name its
-      // parents. Walk them all so a count and link mismatch is reported.
+      // parents. Retain observed identity and parent prefixes if a later link
+      // fails; an incomplete empty prefix must not claim absence of parents.
+      const parents: (string | null)[] = [];
+      const definition: ElfVersionDefinition = {
+        name: yield* namedString(dynstr, nameOffset, issues, "vda_name"),
+        index,
+        base: (flags & VER_FLG_BASE) !== 0,
+        parents,
+        parents_complete: false,
+      };
+      names.push(definition);
       let auxiliary = offset + aux;
       for (let item = 0; item < auxiliaryCount; item += 1) {
         if (auxiliary + 8 > table.size)
           fail("GNU version definition auxiliary chain leaves its table");
-        if (item > 0) chargeVersion();
+        if (item > 0) {
+          chargeVersion();
+          parents.push(
+            yield* namedString(
+              dynstr,
+              yield* window.u32(table.offset + auxiliary),
+              issues,
+              "vda_name",
+            ),
+          );
+        }
         auxiliary = followVersionLink(
           "GNU version definition auxiliary",
           auxiliary,
@@ -1813,11 +1833,7 @@ const parseVerdef = function* (
           item + 1 < auxiliaryCount,
         );
       }
-      names.push({
-        name: yield* namedString(dynstr, nameOffset, issues, "vda_name"),
-        index,
-        base: (flags & VER_FLG_BASE) !== 0,
-      });
+      definition.parents_complete = parents.every((name) => name !== null);
       offset = followVersionLink(
         "GNU version definition",
         offset,

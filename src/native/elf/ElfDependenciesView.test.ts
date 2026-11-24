@@ -4,7 +4,10 @@ import {
   elfDependencyByteSource,
   elfDependencyFixture,
 } from "./ElfDependencies.fixture.js";
-import { inspectElfDependenciesInputSchema } from "../../domain/native/elfDependencies.js";
+import {
+  elfDependenciesSchema,
+  inspectElfDependenciesInputSchema,
+} from "../../domain/native/elfDependencies.js";
 import { digestCanonicalValue } from "../../domain/canonicalDigest.js";
 import { projectAnalysisView } from "../../domain/analysisView/analysisView.js";
 import type { AnalysisViewParent } from "../../domain/analysisView/analysisViewParent.js";
@@ -190,4 +193,103 @@ it("pages issues by original index and refuses name or field selection", async (
     expect(
       analysisViewRequestSchema.safeParse({ ...view, ...extra }).success,
     ).toBe(false);
+});
+
+it("pages observed version parents with the owning definition's original index", async () => {
+  const report = await decode(
+    elfDependencyFixture({
+      verdef: [
+        { name: "BASE", index: 2 },
+        { name: "CHILD", index: 3, parents: ["BASE"] },
+        { name: "CHILD", index: 4, parents: ["BASE", "OTHER"] },
+      ],
+    }),
+  );
+  expect(
+    project(report, {
+      kind: "elf-dependencies",
+      collection: "definitions",
+      names: ["CHILD"],
+      fields: ["name", "parents", "parents_complete"],
+      offset: 1,
+      limit: 1,
+    }),
+  ).toMatchObject({
+    items: [
+      {
+        source_index: 2,
+        name: "CHILD",
+        parents: ["BASE", "OTHER"],
+        parents_complete: true,
+      },
+    ],
+    dependencies: { definition_count: 3 },
+    coverage: { total: 2, examined: 1, exhausted: true },
+  });
+});
+
+it("keeps historical unexamined parents absent through retained field projection", () => {
+  const historical = structuredClone(report);
+  for (const definition of historical.version_definitions.names) {
+    delete definition.parents;
+    delete definition.parents_complete;
+  }
+  expect(elfDependenciesSchema.parse(historical)).toEqual(historical);
+  const viewed = project(historical, {
+    kind: "elf-dependencies",
+    collection: "definitions",
+    fields: ["name", "parents", "parents_complete"],
+  });
+  expect(viewed).toMatchObject({
+    items: [{ source_index: 0, name: "libdemo.so.1" }],
+  });
+  expect(viewed).not.toHaveProperty("items.0.parents");
+  expect(viewed).not.toHaveProperty("items.0.parents_complete");
+});
+
+it("keeps partial parent observations distinct from complete page coverage", async () => {
+  const report = await decode(
+    elfDependencyFixture({
+      verdef: [{ name: "CHILD", index: 2, parents: ["", "BASE"] }],
+    }),
+  );
+  expect(
+    project(report, {
+      kind: "elf-dependencies",
+      collection: "definitions",
+      fields: ["parents", "parents_complete"],
+    }),
+  ).toMatchObject({
+    items: [
+      { source_index: 0, parents: [null, "BASE"], parents_complete: false },
+    ],
+    dependencies: { coverage: { status: "partial" } },
+    coverage: { total: 1, exhausted: true },
+  });
+  const empty = project(report, {
+    kind: "elf-dependencies",
+    collection: "definitions",
+    names: ["missing"],
+  });
+  expect(empty).toMatchObject({
+    items: [],
+    dependencies: { coverage: { status: "partial" } },
+    coverage: { status: "empty" },
+  });
+  expect(empty.unknowns.length).toBeGreaterThan(0);
+});
+
+it("rejects orphan or contradictory version-parent completeness facts", () => {
+  for (const invalid of [
+    { parents: [] },
+    { parents_complete: true },
+    { parents: [null], parents_complete: true },
+    { parents: [], parents_complete: false },
+  ]) {
+    const changed = structuredClone(report);
+    changed.version_definitions.names = [
+      { name: "CHILD", index: 2, base: false, ...invalid },
+    ];
+    expect(elfDependenciesSchema.safeParse(changed).success).toBe(false);
+  }
 });
