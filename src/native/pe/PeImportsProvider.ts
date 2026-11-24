@@ -16,6 +16,7 @@ import {
 } from "../../domain/fixedAllowanceRemediation.js";
 import {
   MAX_INSPECT_PE_IMPORT_DLLS,
+  MAX_INSPECT_PE_BOUND_IMPORT_RECORDS,
   MAX_INSPECT_PE_IMPORT_FILE_BYTES,
   MAX_INSPECT_PE_IMPORT_FUNCTIONS,
   MAX_INSPECT_PE_IMPORT_RETAINED_TEXT_BYTES,
@@ -113,6 +114,14 @@ const limitRecovery = (
   switch (limit) {
     case "dlls":
       return { retryable: false, remediationAction: dllRemediation(input) };
+    case "bound_records":
+      return {
+        retryable: false,
+        remediationAction:
+          input.max_bound_records >= MAX_INSPECT_PE_BOUND_IMPORT_RECORDS
+            ? `The image exceeds the ${String(MAX_INSPECT_PE_BOUND_IMPORT_RECORDS)}-record bound-import ceiling; select a smaller artifact.`
+            : `Raise max_bound_records above ${String(input.max_bound_records)}, up to ${String(MAX_INSPECT_PE_BOUND_IMPORT_RECORDS)}, or select a smaller artifact.`,
+      };
     case "functions":
       return {
         retryable: false,

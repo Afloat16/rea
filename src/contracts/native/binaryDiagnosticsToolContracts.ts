@@ -395,7 +395,7 @@ export const BINARY_DIAGNOSTICS_TOOL_CONTRACTS = [
     ...toolContractMetadata("inspect_pe_imports", evidenceEffects),
     kind: "native-provider",
     description:
-      "Inspect local PE32/PE32+ standard and delay-load imports without execution. Returns DLL/named/ordinal imports, ILT/IAT RVAs, descriptors and a pefile-compatible standard-table import hash only when its row sequence is complete and comparable. Missing declarations do not establish no API use; loaded IAT, bound snapshots and forward resolution remain unknown. Unreadable names/thunks or missing tables yield partial coverage; malformed headers or exhausted budgets fail. No Windows SDK or disassembler required.",
+      "Inspect local PE32/PE32+ standard, delay-load and bound-import metadata without execution. Returns DLL/named/ordinal imports, ILT/IAT RVAs, bound DLL timestamps and forwarder references, and a pefile-compatible standard-table import hash only when its row sequence is complete and comparable. Missing declarations do not establish no API use; loaded IAT, current binding validity and forward resolution remain unknown. Unreadable names/thunks or missing tables yield partial coverage; malformed headers or exhausted budgets fail. No Windows SDK or disassembler required.",
     inputSchema: inspectPeImportsInputSchema,
     outputSchema: evidenceResultOf(peImportsSchema),
     examples: [

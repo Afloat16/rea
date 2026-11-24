@@ -60,6 +60,7 @@ export class PeImportsService {
                 { kind: "artifact-path" as const, path: value.artifact.path },
                 ...fileRange(value.import_directory),
                 ...fileRange(value.delay_import_directory),
+                ...fileRange(value.bound_import_directory ?? null),
               ],
             },
           );
@@ -90,12 +91,27 @@ const validReport = (
   report: PeImports,
   input: {
     readonly max_dlls: number;
+    readonly max_bound_records: number;
     readonly max_functions: number;
     readonly max_file_bytes: number;
   },
 ): boolean => {
   const inside = insideArtifact(report.artifact.bytes);
   const dllCount = report.imports.length + report.delay_imports.length;
+  const boundCount = report.bound_imports?.reduce(
+    (count, dll) => count + 1 + dll.forwarders.length,
+    0,
+  );
+  if (
+    boundCount !== report.coverage.examined_bound_records ||
+    (boundCount !== undefined && boundCount > input.max_bound_records) ||
+    (report.bound_imports === undefined) !==
+      (report.bound_import_directory === undefined) ||
+    (report.bound_import_directory === null &&
+      boundCount !== 0 &&
+      boundCount !== undefined)
+  )
+    return false;
   if (
     report.artifact.bytes > input.max_file_bytes ||
     report.coverage.examined_dlls > input.max_dlls ||
@@ -121,6 +137,7 @@ const validReport = (
   for (const directory of [
     report.import_directory,
     report.delay_import_directory,
+    report.bound_import_directory ?? null,
   ]) {
     if (
       directory !== null &&
@@ -133,5 +150,20 @@ const validReport = (
   const descriptorsFit = (
     rows: readonly { location: { offset: number; bytes: number } }[],
   ) => rows.every((row) => inside(row.location));
-  return descriptorsFit(report.imports) && descriptorsFit(report.delay_imports);
+  return (
+    descriptorsFit(report.imports) &&
+    descriptorsFit(report.delay_imports) &&
+    (report.bound_imports ?? []).every(
+      (dll) =>
+        inside(dll.location) &&
+        dll.location.bytes === 8 &&
+        dll.forwarders.length <= dll.number_of_forwarder_refs &&
+        (report.coverage.status !== "complete" ||
+          dll.forwarders.length === dll.number_of_forwarder_refs) &&
+        dll.forwarders.every(
+          (forwarder) =>
+            inside(forwarder.location) && forwarder.location.bytes === 8,
+        ),
+    )
+  );
 };

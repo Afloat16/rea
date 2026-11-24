@@ -312,7 +312,7 @@ export const registerBinaryDiagnosticsCommands = (
     contract("inspect_pe_imports"),
     {
       description:
-        "Inspect PE import and delay-load table identities without executing the image",
+        "Inspect PE import, delay-load and bound-import identities without executing the image",
       positionals: ["path"],
       callerPaths: ["path"],
       fields: { path: { description: "Local PE32/PE32+ image" } },

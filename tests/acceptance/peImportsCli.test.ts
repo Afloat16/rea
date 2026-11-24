@@ -15,6 +15,78 @@ import {
 import { createTestTempDirectory } from "../fixtures/temporaryDirectory.js";
 import { parseMcpToolError } from "../fixtures/mcpToolError.js";
 import { cliTest } from "../support/cli/cliFixture.js";
+import { peBoundImportsFixture } from "../fixtures/binaryDiagnostics/peBoundImports.js";
+
+cliTest(
+  "retains bound DLL timestamps, forwarders and budget recovery through CLI and stdio MCP",
+  async ({ cli }) => {
+    const root = await createTestTempDirectory("rea-pe-bound-cli-");
+    const call = await cli.sharedMcpCall!();
+    for (const bits of [32, 64] as const) {
+      const path = join(root, `bound${String(bits)}.exe`);
+      const { bytes } = peBoundImportsFixture({ bits, headers: true });
+      await writeFile(path, bytes);
+      const result = await cli.run({
+        arguments: [
+          "inspect-pe-imports",
+          path,
+          "--max-bound-records",
+          "3",
+          "--json",
+        ],
+      });
+      expect(result.exitCode, result.stderr).toBe(0);
+      const response = await call("inspect_pe_imports", {
+        path,
+        max_bound_records: 3,
+      });
+      expect(response.isError, JSON.stringify(response)).not.toBe(true);
+      const report = toolContract("inspect_pe_imports").outputSchema.parse(
+        result.json,
+      ).normalized_result;
+      expect(
+        toolContract("inspect_pe_imports").outputSchema.parse(
+          response.structuredContent,
+        ).normalized_result,
+      ).toEqual(report);
+      expect(report).toMatchObject({
+        bound_import_directory: {
+          rva: 0x300,
+          locations: [{ offset: 0x300, bytes: 32 }],
+        },
+        bound_imports: [
+          {
+            name: "KERNEL32.dll",
+            time_date_stamp: 0x12345678,
+            forwarders: [{ name: "NTDLL.dll", time_date_stamp: 0x23456789 }],
+          },
+          { name: "USER32.dll" },
+        ],
+        imphash: { md5: "92cef6cc91a85825f3c8a0516517c66f" },
+        coverage: { status: "complete", examined_bound_records: 3 },
+      });
+      const refused = await cli.run({
+        arguments: [
+          "inspect-pe-imports",
+          path,
+          "--max-bound-records",
+          "2",
+          "--json",
+        ],
+      });
+      expect(refused.exitCode).toBe(1);
+      const mcpRefused = await call("inspect_pe_imports", {
+        path,
+        max_bound_records: 2,
+      });
+      expect(mcpRefused.isError).toBe(true);
+      expect(parseMcpToolError(mcpRefused)).toEqual({ error: refused.json });
+      expect(JSON.stringify(refused.json)).toMatch(/max_bound_records/u);
+      expect(JSON.stringify(refused.json)).toMatch(/4096/u);
+      expect((await readFile(path)).equals(bytes)).toBe(true);
+    }
+  },
+);
 
 for (const bits of [32, 64] as const) {
   cliTest(

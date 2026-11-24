@@ -16,6 +16,7 @@ import {
   AnalysisInputError,
   AnalysisOutputError,
 } from "../../domain/analysisErrorCore.js";
+import { peBoundImportsFixture } from "../../../tests/fixtures/binaryDiagnostics/peBoundImports.js";
 
 const identity = PE_IMPORTS_PROVIDER;
 const path = "/artifacts/app.exe";
@@ -29,6 +30,33 @@ const report = await parsePeImports(
   },
   inspectPeImportsInputSchema.parse({ path }),
 );
+
+it("admits bound-import facts only with consistent coverage and physical spans", async () => {
+  const { bytes } = peBoundImportsFixture();
+  const bound = await parsePeImports(
+    bytes,
+    {
+      path,
+      bytes: bytes.length,
+      sha256: createHash("sha256").update(bytes).digest("hex"),
+    },
+    inspectPeImportsInputSchema.parse({ path }),
+  );
+  for (const kind of ["valid", "count", "range", "forwarder-count"] as const) {
+    const candidate = structuredClone(bound);
+    const dll = candidate.bound_imports?.[0];
+    if (dll === undefined) throw new Error("Expected a bound descriptor");
+    if (kind === "count") candidate.coverage.examined_bound_records = 1;
+    if (kind === "range") dll.location.offset = bytes.length;
+    if (kind === "forwarder-count") dll.number_of_forwarder_refs = 0;
+    const result = await new PeImportsService({
+      identity,
+      inspect: () => Promise.resolve(ok(candidate)),
+    }).inspect({ path });
+    expect(result.ok).toBe(kind === "valid");
+    if (!result.ok) expect(result.error).toBeInstanceOf(AnalysisOutputError);
+  }
+});
 
 it("rejects a relative path and extra arguments before reading", async () => {
   let calls = 0;

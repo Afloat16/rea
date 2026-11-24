@@ -13,6 +13,7 @@ import {
 import { advertisedMcpToolSchemas } from "../../fixtures/advertisedMcpTool.js";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 import { mcpTest, type TestMcp } from "../../support/mcp/mcpFixture.js";
+import { peBoundImportsFixture } from "../../fixtures/binaryDiagnostics/peBoundImports.js";
 
 const connect = async (mcp: TestMcp) => {
   const session = createTestBinarySession(() => {
@@ -51,6 +52,36 @@ mcpTest(
       expect(
         evidence.normalized_result.imports[0]?.functions.map((row) => row.name),
       ).toEqual(["GetProcAddress", "ExitProcess"]);
+      const boundPath = join(root, "bound.exe");
+      await writeFile(
+        boundPath,
+        peBoundImportsFixture({
+          rows: [
+            {
+              name: "FIRST.dll",
+              declaredForwarders: 2,
+              forwarders: [{ name: "FORWARD.dll" }],
+            },
+          ],
+          declaredSize: 16,
+        }).bytes,
+      );
+      const bound = await client.callTool(
+        { name: "inspect_pe_imports", arguments: { path: boundPath } },
+        { toolDefinition: advertised },
+      );
+      expect(bound.isError, JSON.stringify(bound.content)).not.toBe(true);
+      expect(
+        toolContract("inspect_pe_imports").outputSchema.parse(
+          bound.structuredContent,
+        ).normalized_result,
+      ).toMatchObject({
+        bound_imports: [
+          { number_of_forwarder_refs: 2, forwarders: [{ index: 0 }] },
+        ],
+        coverage: { status: "partial", examined_bound_records: 2 },
+        imphash: { md5: "92cef6cc91a85825f3c8a0516517c66f" },
+      });
       for (const [label, bytes, rva] of [
         ["rva", peImportDirectoryAtRva("standard", 0xfffffff0), 0xfffffff0],
         ["mapping", peImportDirectoryMappingStops("standard", 0), 0x40000000],

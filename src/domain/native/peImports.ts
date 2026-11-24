@@ -12,6 +12,8 @@ const md5Schema = z.string().regex(/^[a-f0-9]{32}$/u);
 export const MAX_INSPECT_PE_IMPORT_FILE_BYTES = 536870912;
 /** Hard ceiling on import and delay-load descriptors examined together. */
 export const MAX_INSPECT_PE_IMPORT_DLLS = 4096;
+/** Hard ceiling on bound DLL descriptors and forwarder references together. */
+export const MAX_INSPECT_PE_BOUND_IMPORT_RECORDS = 4096;
 /** Hard ceiling on named and ordinal functions across every table. */
 export const MAX_INSPECT_PE_IMPORT_FUNCTIONS = 262144;
 /** Fixed ceiling on decoded DLL and function name text retained in one report. */
@@ -37,6 +39,15 @@ export const inspectPeImportsInputSchema = z.strictObject({
     .default(256)
     .describe(
       "Maximum import and delay-load descriptors to examine; exceeding the budget fails without partial success",
+    ),
+  max_bound_records: z
+    .number()
+    .int()
+    .min(1)
+    .max(MAX_INSPECT_PE_BOUND_IMPORT_RECORDS)
+    .default(256)
+    .describe(
+      "Maximum bound DLL descriptors and forwarder references to examine together; exceeding the budget fails without partial success",
     ),
   max_functions: z
     .number()
@@ -86,6 +97,23 @@ const peDelayImportDllSchema = z.strictObject({
   functions: z.array(peImportFunctionSchema),
 });
 
+const boundModuleSchema = z.strictObject({
+  index: uint,
+  name: z.string().min(1).nullable(),
+  name_offset: z.number().int().min(0).max(0xffff),
+  time_date_stamp: uint,
+  location: range,
+});
+
+const boundForwarderSchema = boundModuleSchema.extend({
+  reserved: z.number().int().min(0).max(0xffff),
+});
+
+const boundImportSchema = boundModuleSchema.extend({
+  number_of_forwarder_refs: z.number().int().min(0).max(0xffff),
+  forwarders: z.array(boundForwarderSchema),
+});
+
 /**
  * `locations` are the file spans the parser actually consumed for the
  * descriptor array and its terminator, in RVA order. Consecutive descriptors
@@ -117,6 +145,7 @@ const coverageSchema = z.strictObject({
   status: knownCoverageStatusSchema,
   reason: z.string().min(1).nullable(),
   examined_dlls: uint,
+  examined_bound_records: uint.optional(),
   imports: uint,
   delay_imports: uint,
 });
@@ -140,8 +169,11 @@ export const peImportsSchema = z.strictObject({
   architecture: z.string().min(1),
   import_directory: directorySchema,
   delay_import_directory: directorySchema,
+  // Historical retained Evidence did not examine the bound-import directory.
+  bound_import_directory: directorySchema.optional(),
   imports: z.array(peImportDllSchema),
   delay_imports: z.array(peDelayImportDllSchema),
+  bound_imports: z.array(boundImportSchema).optional(),
   imphash: imphashSchema,
   coverage: coverageSchema,
   issues: z.array(peImportIssueSchema),
@@ -152,3 +184,4 @@ export type PeImportDll = z.infer<typeof peImportDllSchema>;
 export type PeDelayImportDll = z.infer<typeof peDelayImportDllSchema>;
 export type PeImportFunction = z.infer<typeof peImportFunctionSchema>;
 export type PeImportIssue = z.infer<typeof peImportIssueSchema>;
+export type PeBoundImport = z.infer<typeof boundImportSchema>;

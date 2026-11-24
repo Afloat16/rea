@@ -28,6 +28,7 @@ import {
   type PeImportFunction,
   type PeImportIssue,
   type PeImports,
+  type PeBoundImport,
 } from "../../domain/native/peImports.js";
 import {
   IMPORT_DESCRIPTOR_BYTES,
@@ -40,6 +41,8 @@ type Artifact = PeImports["artifact"];
 
 const PE_IMPORT_DIRECTORY = 1;
 const PE_DELAY_IMPORT_DIRECTORY = 13;
+const PE_BOUND_IMPORT_DIRECTORY = 11;
+const BOUND_DESCRIPTOR_BYTES = 8;
 const DELAY_DESCRIPTOR_BYTES = 32;
 const MAXIMUM_NAME_BYTES = 4096;
 /** Table entries decoded between event-loop yields and cancellation checks. */
@@ -57,11 +60,16 @@ const requireRva = (rva: number, size: number): void => {
 
 const PE_LIMITATIONS = [
   "Rows reproduce the PE import and delay-load directories; they do not establish that an import is bound, forwarded or reachable at runtime.",
-  "Bound import snapshots, the import address table as loaded, and export-forward resolution in another DLL remain unobserved.",
+  "Bound-import records preserve declared DLL timestamps and forwarder references; they do not prove binding is current, that a DLL was loaded, or which export address is used. The loaded IAT and export-forward resolution in another DLL remain unobserved.",
 ];
 
 /** The parser-owned allowances an image can exhaust. */
-export const PE_IMPORT_LIMITS = ["dlls", "functions", "retained_text"] as const;
+export const PE_IMPORT_LIMITS = [
+  "dlls",
+  "bound_records",
+  "functions",
+  "retained_text",
+] as const;
 export type PeImportLimit = (typeof PE_IMPORT_LIMITS)[number];
 
 /** Consumers read the exhausted allowance with `binaryResourceAllowance`. */
@@ -115,12 +123,14 @@ const coverage = (
   examinedDlls: number,
   imports: number,
   delayImports: number,
+  boundRecords: number,
 ): PeImports["coverage"] =>
   issues.length === 0
     ? {
         status: "complete",
         reason: null,
         examined_dlls: examinedDlls,
+        examined_bound_records: boundRecords,
         imports,
         delay_imports: delayImports,
       }
@@ -128,6 +138,7 @@ const coverage = (
         status: "partial",
         reason: `${String(issues.length)} import table issue(s) affect reported rows or metadata; see issues`,
         examined_dlls: examinedDlls,
+        examined_bound_records: boundRecords,
         imports,
         delay_imports: delayImports,
       };
@@ -295,12 +306,15 @@ const parsePeImportsCore = async (
     assertArtifactReadActive(signal);
   };
 
-  const cString = async (rva: number): Promise<string> => {
+  const cString = async (
+    rva: number,
+    maximumBytes = MAXIMUM_NAME_BYTES,
+  ): Promise<string> => {
     requireRva(rva, 1);
     const raw = await lookup.readCStringFromReader(
       (offset, maximum) => reader.readPrefix(offset, maximum),
       base + BigInt(rva),
-      Math.min(MAXIMUM_NAME_BYTES, PE_RVA_END - rva - 1),
+      Math.min(MAXIMUM_NAME_BYTES, maximumBytes, PE_RVA_END - rva - 1),
     );
     if (raw.length === 0)
       throw new BinaryFormatFailure(
@@ -325,9 +339,10 @@ const parsePeImportsCore = async (
   const readName = async (
     rva: number,
     label: string,
+    maximumBytes = MAXIMUM_NAME_BYTES,
   ): Promise<string | null> => {
     try {
-      const name = await cString(rva);
+      const name = await cString(rva, maximumBytes);
       retain(name);
       return name;
     } catch (cause) {
@@ -478,6 +493,7 @@ const parsePeImportsCore = async (
 
   const importDirectory = image.pe_data_directories?.[PE_IMPORT_DIRECTORY];
   const delayDirectory = image.pe_data_directories?.[PE_DELAY_IMPORT_DIRECTORY];
+  const boundDirectory = image.pe_data_directories?.[PE_BOUND_IMPORT_DIRECTORY];
   const imports: PeImportDll[] = [];
   let importDirectoryResult: PeImports["import_directory"] = null;
   if (importDirectory !== undefined && importDirectory.address !== 0) {
@@ -655,6 +671,120 @@ const parsePeImportsCore = async (
     };
   }
 
+  const boundImports: PeBoundImport[] = [];
+  let boundDirectoryResult: PeImports["bound_import_directory"] = null;
+  let examinedBoundRecords = 0;
+  if (boundDirectory !== undefined && boundDirectory.address !== 0) {
+    const spans: { offset: number; bytes: number }[] = [];
+    let cursor = 0;
+    const readRecord = async (label: string) => {
+      if (++entries % ENTRIES_PER_YIELD === 0) await checkpoint();
+      const rva = boundDirectory.address + cursor;
+      if (cursor + BOUND_DESCRIPTOR_BYTES > boundDirectory.size) {
+        issues.push({
+          code: "malformed_entry",
+          location: hex(rva),
+          message: `${label} exceeds the bound-import directory's declared size before a complete terminator or forwarder group`,
+        });
+        return null;
+      }
+      const offset = mapDescriptor(rva, BOUND_DESCRIPTOR_BYTES, label);
+      if (offset === null) return null;
+      consume(spans, offset, BOUND_DESCRIPTOR_BYTES);
+      cursor += BOUND_DESCRIPTOR_BYTES;
+      return {
+        time_date_stamp: await reader.u32(offset),
+        name_offset: await reader.u16(offset + 4),
+        last: await reader.u16(offset + 6),
+        location: { offset, bytes: BOUND_DESCRIPTOR_BYTES },
+      };
+    };
+    const chargeBound = () => {
+      examinedBoundRecords += 1;
+      if (examinedBoundRecords > input.max_bound_records)
+        throw peImportLimit(
+          "bound_records",
+          input.max_bound_records,
+          `Bound-import inventory declares ${String(examinedBoundRecords)} records, above the ${String(input.max_bound_records)}-entry bound-record allowance`,
+        );
+    };
+    const readBoundName = async (
+      nameOffset: number,
+    ): Promise<string | null> => {
+      const rva = boundDirectory.address + nameOffset;
+      if (nameOffset >= boundDirectory.size) {
+        issues.push({
+          code: "name_unreadable",
+          location: hex(rva),
+          message:
+            "Bound-import module name offset is outside the declared directory",
+        });
+        return null;
+      }
+      // OffsetModuleName is relative to the first bound descriptor, including
+      // forwarder names. Its NUL must stay inside the declared directory.
+      return readName(
+        rva,
+        "Bound-import module name",
+        boundDirectory.size - nameOffset - 1,
+      );
+    };
+    for (let index = 0; ; index++) {
+      const row = await readRecord("Bound-import descriptor");
+      if (row === null) break;
+      if (row.time_date_stamp === 0 && row.name_offset === 0 && row.last === 0)
+        break;
+      chargeBound();
+      const dll: PeBoundImport = {
+        index,
+        name: await readBoundName(row.name_offset),
+        name_offset: row.name_offset,
+        time_date_stamp: row.time_date_stamp,
+        location: row.location,
+        number_of_forwarder_refs: row.last,
+        forwarders: [],
+      };
+      // Keep the owning descriptor even if a later declared forwarder is unreadable.
+      boundImports.push(dll);
+      let incomplete = false;
+      for (
+        let forwarderIndex = 0;
+        forwarderIndex < row.last;
+        forwarderIndex++
+      ) {
+        const forwarder = await readRecord("Bound-import forwarder reference");
+        if (forwarder === null) {
+          incomplete = true;
+          break;
+        }
+        chargeBound();
+        if (forwarder.last !== 0)
+          issues.push({
+            code: "malformed_entry",
+            location: hex(
+              boundDirectory.address + cursor - BOUND_DESCRIPTOR_BYTES + 6,
+            ),
+            message:
+              "Bound-import forwarder reference has a nonzero reserved word",
+          });
+        dll.forwarders.push({
+          index: forwarderIndex,
+          name: await readBoundName(forwarder.name_offset),
+          name_offset: forwarder.name_offset,
+          time_date_stamp: forwarder.time_date_stamp,
+          location: forwarder.location,
+          reserved: forwarder.last,
+        });
+      }
+      if (incomplete) break;
+    }
+    boundDirectoryResult = {
+      rva: boundDirectory.address,
+      size: boundDirectory.size,
+      locations: spans,
+    };
+  }
+
   const limitations =
     importDirectoryResult === null
       ? [
@@ -667,8 +797,10 @@ const parsePeImportsCore = async (
     ...result,
     import_directory: importDirectoryResult,
     delay_import_directory: delayDirectoryResult,
+    bound_import_directory: boundDirectoryResult,
     imports,
     delay_imports: delayImports,
+    bound_imports: boundImports,
     imphash: pefileImphash(imports, {
       standardIssues,
       mappingCompatibility: standardMappingCompatibility,
@@ -682,6 +814,7 @@ const parsePeImportsCore = async (
       examinedDlls,
       imports.reduce((count, dll) => count + dll.functions.length, 0),
       delayImports.reduce((count, dll) => count + dll.functions.length, 0),
+      examinedBoundRecords,
     ),
     issues,
     limitations,
