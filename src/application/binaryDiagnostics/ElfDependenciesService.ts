@@ -124,6 +124,8 @@ const rangesOf = (
   add(report.dynamic.location);
   add(report.version_requirements.location);
   add(report.version_definitions.location);
+  for (const directive of report.loader_directives ?? [])
+    add(directive.string_location);
   return found;
 };
 
@@ -134,13 +136,24 @@ const validReport = (
   if (
     report.artifact.bytes > input.max_file_bytes ||
     report.needed.length > input.max_needed ||
+    (report.loader_directives?.length ?? 0) > input.max_loader_directives ||
     report.imports.length > input.max_imports ||
     report.coverage.examined_versions > input.max_versions
   )
     return false;
   const fileBytes = report.artifact.bytes;
-  return rangesOf(report).every(
-    (range) =>
-      range.bytes <= fileBytes && range.offset <= fileBytes - range.bytes,
+  const dynamic = report.dynamic.location;
+  return (
+    (report.loader_directives ?? []).every(
+      ({ location }) =>
+        dynamic !== null &&
+        location.offset >= dynamic.offset &&
+        location.offset + location.bytes <= dynamic.offset + dynamic.bytes &&
+        location.bytes === (report.format === "elf64" ? 16 : 8),
+    ) &&
+    rangesOf(report).every(
+      (range) =>
+        range.bytes <= fileBytes && range.offset <= fileBytes - range.bytes,
+    )
   );
 };

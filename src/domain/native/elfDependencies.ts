@@ -12,6 +12,8 @@ const range = z.strictObject({ offset: uint, bytes: uint });
 export const MAX_INSPECT_ELF_DEPENDENCY_FILE_BYTES = 536870912;
 /** Hard ceiling on DT_NEEDED entries examined in one image. */
 export const MAX_INSPECT_ELF_DEPENDENCY_NEEDED = 65536;
+/** Hard ceiling on declared filter and audit-library directives. */
+export const MAX_INSPECT_ELF_LOADER_DIRECTIVES = 65536;
 /** Hard ceiling on GNU version requirement and definition records. */
 export const MAX_INSPECT_ELF_DEPENDENCY_VERSIONS = 65536;
 /** Hard ceiling on undefined dynamic symbols examined as imports. */
@@ -222,6 +224,15 @@ export const inspectElfDependenciesInputSchema = z.strictObject({
     .describe(
       "Maximum DT_NEEDED entries to examine; exceeding the budget fails without partial success",
     ),
+  max_loader_directives: z
+    .number()
+    .int()
+    .min(1)
+    .max(MAX_INSPECT_ELF_LOADER_DIRECTIVES)
+    .default(1024)
+    .describe(
+      "Maximum DT_FILTER, DT_AUXILIARY, DT_AUDIT and DT_DEPAUDIT entries to examine; exceeding the budget fails without partial success",
+    ),
   max_versions: z
     .number()
     .int()
@@ -267,6 +278,17 @@ const neededEntrySchema = z.strictObject({
   index: uint,
   name: z.string().min(1).nullable(),
   name_offset: stringOffset,
+});
+
+const loaderDirectiveSchema = z.strictObject({
+  index: uint,
+  kind: z.enum(["filter", "auxiliary", "audit", "depaudit"]),
+  tag: uint,
+  name_offset: stringOffset,
+  value: z.string().nullable(),
+  tokens: z.array(searchTokenSchema),
+  location: range,
+  string_location: range.nullable(),
 });
 
 const versionNeedSchema = z.strictObject({
@@ -319,6 +341,7 @@ const coverageSchema = z.strictObject({
   status: coverageStatusSchema,
   reason: z.string().min(1).nullable(),
   examined_needed: uint,
+  examined_loader_directives: uint.optional(),
   examined_versions: uint,
   examined_imports: uint,
 });
@@ -356,6 +379,8 @@ export const elfDependenciesReportSchema = z.strictObject({
     flags_1: flagsSchema.nullable(),
   }),
   needed: z.array(neededEntrySchema),
+  // Older retained Evidence did not examine these tags; omission is unknown.
+  loader_directives: z.array(loaderDirectiveSchema).optional(),
   version_requirements: z.strictObject({
     status: z.enum(["present", "absent", "unreadable"]),
     location: range.nullable(),
@@ -375,6 +400,16 @@ export const elfDependenciesReportSchema = z.strictObject({
 
 export const elfDependenciesSchema = elfDependenciesReportSchema.superRefine(
   (value, context) => {
+    if (
+      value.coverage.examined_loader_directives !==
+      value.loader_directives?.length
+    )
+      context.addIssue({
+        code: "custom",
+        path: ["coverage", "examined_loader_directives"],
+        message:
+          "Loader-directive coverage must equal the retained declaration rows.",
+      });
     if (value.coverage.examined_needed !== value.needed.length)
       context.addIssue({
         code: "custom",
@@ -409,7 +444,8 @@ export const elfDependenciesSchema = elfDependenciesReportSchema.superRefine(
         value.dynamic.runpath !== null ||
         value.dynamic.flags !== null ||
         value.dynamic.flags_1 !== null ||
-        value.needed.length !== 0
+        value.needed.length !== 0 ||
+        (value.loader_directives?.length ?? 0) !== 0
       )
         context.addIssue({
           code: "custom",
@@ -427,6 +463,7 @@ export const elfDependenciesSchema = elfDependenciesReportSchema.superRefine(
 );
 export type ElfDependencies = z.infer<typeof elfDependenciesSchema>;
 export type ElfDependencyNeeded = z.infer<typeof neededEntrySchema>;
+export type ElfLoaderDirective = z.infer<typeof loaderDirectiveSchema>;
 export type ElfDependencyImport = z.infer<typeof importSchema>;
 export type ElfDependencyIssue = z.infer<typeof issueSchema>;
 export type ElfVersionNeedFile = z.infer<typeof versionNeedFileSchema>;

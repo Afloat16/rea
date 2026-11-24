@@ -26,6 +26,8 @@ import {
 } from "./selectViewRows.js";
 
 const neededRow = elfDependenciesReportSchema.shape.needed.element;
+const loaderRow =
+  elfDependenciesReportSchema.shape.loader_directives.unwrap().element;
 const importRow = elfDependenciesReportSchema.shape.imports.element;
 const issueRow = elfDependenciesReportSchema.shape.issues.element;
 const definitionTable = elfDependenciesReportSchema.shape.version_definitions;
@@ -51,6 +53,19 @@ const versionRowSchema = z.strictObject({
 export const elfDependenciesViewRequestSchema = z.discriminatedUnion(
   "collection",
   [
+    z.strictObject({
+      ...page,
+      collection: z.literal("loader-directives"),
+      names: z
+        .array(z.string())
+        .optional()
+        .describe(
+          "Exact raw filter or audit-library declarations. Omitted includes all values; [] matches none.",
+        ),
+      name_prefixes: namePrefixesSchema("loader directive values"),
+      indices: z.array(z.int().nonnegative()).optional(),
+      fields: z.array(loaderRow.keyof()).optional(),
+    }),
     z.strictObject({
       ...page,
       collection: z.literal("needed"),
@@ -125,6 +140,7 @@ export const elfDependenciesViewRequestSchema = z.discriminatedUnion(
 );
 
 export const elfDependenciesViewItemsSchema = z.union([
+  z.array(loaderRow.partial().extend(sourceIndex)),
   z.array(neededRow.partial().extend(sourceIndex)),
   z.array(versionRowSchema.partial().extend(sourceIndex)),
   z.array(definitionRow.partial().extend(sourceIndex)),
@@ -135,6 +151,7 @@ export const elfDependenciesViewItemsSchema = z.union([
 
 const counts = {
   needed_count: z.int().nonnegative(),
+  loader_directive_count: z.int().nonnegative().nullable(),
   version_count: z.int().nonnegative(),
   definition_count: z.int().nonnegative(),
   derived_maximum_count: z.int().nonnegative(),
@@ -147,6 +164,7 @@ const counts = {
 export const elfDependenciesSummarySchema = elfDependenciesReportSchema
   .omit({
     needed: true,
+    loader_directives: true,
     imports: true,
     issues: true,
     limitations: true,
@@ -209,6 +227,7 @@ export const projectElfDependenciesView = (
     },
     coverage: report.coverage,
     needed_count: report.needed.length,
+    loader_directive_count: report.loader_directives?.length ?? null,
     version_count: report.version_requirements.files.reduce(
       (count, file) => count + file.versions.length,
       0,
@@ -229,13 +248,19 @@ export const projectElfDependenciesView = (
       parent.evidenceId,
       "limitations",
     ),
-    unknowns:
-      report.coverage.status === "complete"
+    unknowns: [
+      ...(report.loader_directives === undefined
+        ? [
+            "This retained Evidence predates loader-directive inspection; those declarations are unobserved.",
+          ]
+        : []),
+      ...(report.coverage.status === "complete"
         ? []
         : [
             report.coverage.reason ??
               "Dynamic-dependency coverage is incomplete; no-match pages do not prove absence.",
-          ],
+          ]),
+    ],
   };
   if (view.kind === "summary")
     return ok({
@@ -324,6 +349,18 @@ export const projectElfDependenciesView = (
     });
   };
   switch (view.collection) {
+    case "loader-directives":
+      if (report.loader_directives === undefined)
+        return invalid(
+          "This retained Evidence did not inspect loader directives; inspect the ELF again to record them.",
+        );
+      return pageRows(
+        report.loader_directives,
+        loaderRow.keyof().options,
+        view.fields,
+        "loader-directive",
+        (row) => row.value,
+      );
     case "needed":
       return pageRows(
         report.needed,

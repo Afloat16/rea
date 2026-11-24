@@ -45,6 +45,7 @@ import {
   DF_FLAG_BITS,
   MAX_INSPECT_ELF_DEPENDENCY_IMPORTS,
   MAX_INSPECT_ELF_DEPENDENCY_NEEDED,
+  MAX_INSPECT_ELF_LOADER_DIRECTIVES,
   MAX_INSPECT_ELF_DEPENDENCY_VERSIONS,
   decodeElfDynamicFlags,
   derivedElfVersionMaxima,
@@ -54,6 +55,7 @@ import {
   type ElfDependencyImport,
   type ElfDependencyIssue,
   type ElfDependencyNeeded,
+  type ElfLoaderDirective,
   type ElfVersionDefinition,
   type ElfVersionNeedFile,
   type InspectElfDependenciesInput,
@@ -89,6 +91,12 @@ const SHT_GNU_VERDEF = 0x6ffffffd;
 const SHT_GNU_VERNEED = 0x6ffffffe;
 const SHT_GNU_VERSYM = 0x6fffffff;
 const DT_SONAME = 14n;
+const LOADER_DIRECTIVES = new Map<bigint, ElfLoaderDirective["kind"]>([
+  [0x7fffffffn, "filter"],
+  [0x7ffffffdn, "auxiliary"],
+  [0x6ffffefcn, "audit"],
+  [0x6ffffefbn, "depaudit"],
+]);
 const DT_VERSYM = 0x6ffffff0n;
 const DT_VERDEF = 0x6ffffffcn;
 const DT_VERDEFNUM = 0x6ffffffdn;
@@ -132,6 +140,7 @@ const LIMITATIONS = [
   "This workflow does not execute the image, invoke the dynamic loader, or resolve DT_NEEDED paths against the host filesystem.",
   "$ORIGIN, $LIB, and $PLATFORM tokens are reported as written; they are not expanded.",
   "Derived version maxima compare GNU-style NAME_x.y strings and do not establish ABI compatibility.",
+  "Filter and audit-library directives are recorded declarations; their presence does not establish that the host loader accepts or loads those libraries.",
 ] as const;
 
 const STATIC_LIMITATIONS = [
@@ -200,7 +209,11 @@ const charge = (
   limit: number,
   ceiling: number,
   entries: string,
-  parameter: "max_needed" | "max_versions" | "max_imports",
+  parameter:
+    | "max_needed"
+    | "max_loader_directives"
+    | "max_versions"
+    | "max_imports",
 ): void => {
   if (count > ceiling)
     throw ceilingFailure(entries, ceiling, `${parameter}_ceiling`, count);
@@ -217,12 +230,14 @@ const coverageOf = (
   needed: number,
   versions: number,
   imports: number,
+  loaderDirectives: number,
 ): ElfDependencies["coverage"] =>
   issues.length === 0
     ? {
         status: "complete",
         reason: null,
         examined_needed: needed,
+        examined_loader_directives: loaderDirectives,
         examined_versions: versions,
         examined_imports: imports,
       }
@@ -230,6 +245,7 @@ const coverageOf = (
         status: "partial",
         reason: `${String(issues.length)} dynamic-dependency issue(s) affect reported rows or metadata; see issues`,
         examined_needed: needed,
+        examined_loader_directives: loaderDirectives,
         examined_versions: versions,
         examined_imports: imports,
       };
@@ -843,11 +859,12 @@ const emptyInventory = (
     flags_1: null,
   },
   needed: [],
+  loader_directives: [],
   version_requirements: { status: "absent", location: null, files: [] },
   version_definitions: { status: "absent", location: null, names: [] },
   derived_version_maxima: [],
   imports: [],
-  coverage: coverageOf(issues, 0, 0, 0),
+  coverage: coverageOf(issues, 0, 0, 0, 0),
   issues,
   limitations: [...STATIC_LIMITATIONS],
 });
@@ -975,6 +992,12 @@ const parseElfDependenciesCore = function* (
     readonly nameOffset: number;
     readonly sourceOffset: number;
   }[] = [];
+  const loaderEntries: {
+    readonly kind: ElfLoaderDirective["kind"];
+    readonly tag: number;
+    readonly nameOffset: number;
+    readonly sourceOffset: number;
+  }[] = [];
   const walked = walkElfDynamicTable<never>(
     table,
     { bits, littleEndian: little },
@@ -992,9 +1015,26 @@ const parseElfDependenciesCore = function* (
           "DT_NEEDED entries",
           "max_needed",
         );
-      } else if (ADDRESS_DYNAMIC_TAGS.has(tag)) addresses.set(tag, value);
-      else if (singleton)
-        unique.set(tag, asNumber(value, `DT tag ${hex(tag)}`));
+      } else {
+        const kind = LOADER_DIRECTIVES.get(tag);
+        if (kind !== undefined) {
+          loaderEntries.push({
+            kind,
+            tag: Number(tag),
+            nameOffset: asNumber(value, `DT_${kind.toUpperCase()}`),
+            sourceOffset: dynamic.offset + offset,
+          });
+          charge(
+            loaderEntries.length,
+            input.max_loader_directives,
+            MAX_INSPECT_ELF_LOADER_DIRECTIVES,
+            "ELF loader directives",
+            "max_loader_directives",
+          );
+        } else if (ADDRESS_DYNAMIC_TAGS.has(tag)) addresses.set(tag, value);
+        else if (singleton)
+          unique.set(tag, asNumber(value, `DT tag ${hex(tag)}`));
+      }
     },
   );
   if (!walked.ok)
@@ -1112,7 +1152,10 @@ const parseElfDependenciesCore = function* (
         : null));
   if (
     dynstrTable === null &&
-    (ambiguousStrings || neededEntries.length > 0 || unique.has(DT_SONAME))
+    (ambiguousStrings ||
+      neededEntries.length > 0 ||
+      loaderEntries.length > 0 ||
+      unique.has(DT_SONAME))
   )
     issues.push({
       code: "table_unavailable",
@@ -1144,6 +1187,34 @@ const parseElfDependenciesCore = function* (
     needed.push({ index, name, name_offset: nameOffset });
   }
   const sonameOffset = unique.get(DT_SONAME);
+  const loaderDirectives: ElfLoaderDirective[] = [];
+  for (const [index, entry] of loaderEntries.entries()) {
+    const observed = yield* dynstr.read(entry.nameOffset);
+    const value = observed.name;
+    if (value === null || value.length === 0)
+      issues.push({
+        code: "name_unreadable",
+        location: hex(observed.location ?? entry.sourceOffset),
+        message: unreadDynamicString(
+          `DT_${entry.kind.toUpperCase()}`,
+          observed,
+          entry.nameOffset,
+        ),
+      });
+    loaderDirectives.push({
+      index,
+      kind: entry.kind,
+      tag: entry.tag,
+      name_offset: entry.nameOffset,
+      value,
+      tokens: value === null ? [] : elfSearchPathTokens(value),
+      location: { offset: entry.sourceOffset, bytes: bits / 4 },
+      string_location:
+        observed.state === "terminated"
+          ? { offset: observed.location, bytes: observed.name.length + 1 }
+          : null,
+    });
+  }
   const soname =
     sonameOffset === undefined
       ? null
@@ -1326,6 +1397,7 @@ const parseElfDependenciesCore = function* (
           : decodeElfDynamicFlags(flags1Raw, DF_1_FLAG_BITS),
     },
     needed,
+    loader_directives: loaderDirectives,
     version_requirements: versionRequirements,
     version_definitions: versionDefinitions,
     derived_version_maxima: derivedElfVersionMaxima(requirementNames),
@@ -1335,6 +1407,7 @@ const parseElfDependenciesCore = function* (
       needed.length,
       examinedVersions,
       imports.length,
+      loaderDirectives.length,
     ),
     issues,
     limitations: [...LIMITATIONS],

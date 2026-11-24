@@ -37,6 +37,17 @@ tag is present. `dynamic.rpath` and `dynamic.runpath` keep the raw `DT_RPATH` /
 `$ORIGIN`, `$LIB`, or `$PLATFORM` tokens as written, including `${...}` forms.
 Those tokens are not expanded against the host filesystem.
 
+`loader_directives[]` records `DT_FILTER`, `DT_AUXILIARY`, `DT_AUDIT` and
+`DT_DEPAUDIT` separately from `DT_NEEDED`. Each row retains its numeric tag,
+kind, string-table offset, exact raw value, unexpanded tokens, dynamic-entry
+file range, and the NUL-terminated string range when readable. Filter and
+auxiliary declarations name filtee objects; audit and depaudit declarations
+name loader auditing modules. Audit lists stay as written, including colons
+and empty components. Repeated declarations retain dynamic-table order. An
+unreadable value stays null; an empty string stays empty with an issue. Neither
+establishes a successfully loaded library. These are static declarations;
+REA does not test which directives a particular loader accepts or follows.
+
 `dynamic.flags` and `dynamic.flags_1` decode `DT_FLAGS` and `DT_FLAGS_1` into
 named bits (`BIND_NOW` / `NOW`, `ORIGIN`, `PIE`, `NODEFLIB`, and the other
 documented `DF_*` / `DF_1_*` names). Unrecognized bits stay numeric.
@@ -82,8 +93,10 @@ string cannot be read. Complete coverage never retains issues.
 ## Limits and failures
 
 The selected file is limited to 64 MiB by default (512 MiB maximum). At most
-1024 `DT_NEEDED` entries, 4096 GNU version records, and 65536 undefined
-dynamic symbols are examined by default (65536 / 65536 / 262144 maximum).
+1024 `DT_NEEDED` entries, 1024 filter/audit directives, 4096 GNU version records,
+and 65536 undefined dynamic symbols are examined by default
+(65536 / 65536 / 65536 / 262144 maximum). `max_loader_directives` selects the
+combined budget for the four filter/audit tags independently of `max_needed`.
 Omitted budgets use these defaults during analysis and stay omitted in
 Evidence parameters. Explicitly selecting a default value records that choice.
 GNU hash decoding has a fixed allowance of 262144 bucket, bloom, or symbol
@@ -113,7 +126,7 @@ Derived version maxima do not establish ABI compatibility.
 Omitted or `complete` detail returns the inventory inline. `detail: "summary"`
 retains the complete Evidence and returns identity, counts, and source
 coverage. Query `inspect_analysis_view` with `kind: "elf-dependencies"` and
-collection `needed`, `versions`, `definitions`, `maxima`, or `imports`, using
+collection `needed`, `loader-directives`, `versions`, `definitions`, `maxima`, or `imports`, using
 exact names (namespaces for `maxima`), `name_prefixes` such as `["Py"]`, or
 original indices, selected fields, and matching-row pagination. With both
 `names` and `name_prefixes`, a row must match both. `coverage.total` counts
@@ -122,6 +135,11 @@ pagination only; its rows are returned whole and have no name filter. Summaries 
 version-definition and derived-maximum counts; those rows are paged through
 their own collections. CLI summary
 requires `--evidence_output`.
+
+`loader-directives` name filters match the exact raw declaration, including a
+complete audit list. Summary `loader_directive_count` is null for older retained
+Evidence that did not inspect these tags; a loader-directives page asks for a
+fresh inspection instead of presenting that unknown as an empty inventory.
 
 This workflow does not execute the image, invoke the dynamic loader, or resolve
 `DT_NEEDED` paths against the host filesystem.

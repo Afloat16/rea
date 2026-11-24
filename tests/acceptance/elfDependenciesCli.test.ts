@@ -1,15 +1,71 @@
-import { writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect } from "vitest";
 import { contractNamed } from "../../src/cli/contractCliDescription.js";
 import { BINARY_DIAGNOSTICS_TOOL_CONTRACTS } from "../../src/contracts/native/binaryDiagnosticsToolContracts.js";
 import { elfDependencyFixture } from "../../src/native/elf/ElfDependencies.fixture.js";
+import { elfLoaderDirectivesFixture } from "../../src/native/elf/ElfLoaderDirectives.fixture.js";
 import { createTestTempDirectory } from "../fixtures/temporaryDirectory.js";
 import { cliTest } from "../support/cli/cliFixture.js";
 
 const dependenciesContract = contractNamed(
   BINARY_DIAGNOSTICS_TOOL_CONTRACTS,
   "inspect_elf_dependencies",
+);
+
+cliTest(
+  "reports loader directives and their capacity recovery through CLI and stdio MCP",
+  async ({ cli }) => {
+    const root = await createTestTempDirectory("rea-elf-loader-cli-");
+    const path = join(root, "library.so");
+    const { bytes } = elfLoaderDirectivesFixture();
+    await writeFile(path, bytes);
+    const result = await cli.run({
+      arguments: [
+        "inspect-elf-dependencies",
+        path,
+        "--max-loader-directives",
+        "4",
+        "--json",
+      ],
+    });
+    expect(result.exitCode, result.stderr).toBe(0);
+    const evidence = dependenciesContract.outputSchema.parse(result.json);
+    expect(evidence.parameters).toEqual({ path, max_loader_directives: 4 });
+    expect(evidence.normalized_result).toMatchObject({
+      loader_directives: [
+        { kind: "filter", value: "$ORIGIN/libfilter.so" },
+        { kind: "auxiliary", value: "libaux.so" },
+        { kind: "audit", value: "audit.so:${LIB}/audit2.so" },
+        { kind: "depaudit", value: "dep-audit.so" },
+      ],
+      needed: [{ name: "libc.so.6" }],
+      coverage: { status: "complete", examined_loader_directives: 4 },
+    });
+    const call = await cli.sharedMcpCall!();
+    const response = await call("inspect_elf_dependencies", {
+      path,
+      max_loader_directives: 4,
+    });
+    expect(response.isError, JSON.stringify(response)).not.toBe(true);
+    expect(
+      dependenciesContract.outputSchema.parse(response.structuredContent)
+        .normalized_result,
+    ).toEqual(evidence.normalized_result);
+    const rejected = await cli.run({
+      arguments: [
+        "inspect-elf-dependencies",
+        path,
+        "--max-loader-directives",
+        "3",
+        "--json",
+      ],
+    });
+    expect(rejected.exitCode).toBe(1);
+    expect(JSON.stringify(rejected.json)).toMatch(/max_loader_directives/u);
+    expect(JSON.stringify(rejected.json)).toMatch(/65536/u);
+    expect((await readFile(path)).equals(bytes)).toBe(true);
+  },
 );
 
 cliTest(

@@ -11,6 +11,7 @@ import { digestCanonicalValue } from "../../../src/domain/canonicalDigest.js";
 import { analysisViewResultSchema } from "../../../src/domain/analysisView/analysisViewResult.js";
 import { connectLocalToolsMcp } from "../../fixtures/localToolsMcp.js";
 import { elfDependencyFixture } from "../../../src/native/elf/ElfDependencies.fixture.js";
+import { elfLoaderDirectivesFixture } from "../../../src/native/elf/ElfLoaderDirectives.fixture.js";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 import { cliTest } from "../../support/cli/cliFixture.js";
 
@@ -21,6 +22,72 @@ const dependenciesContract = contractNamed(
 const viewContract = contractNamed(
   ANALYSIS_VIEW_TOOL_CONTRACTS,
   "inspect_analysis_view",
+);
+
+cliTest(
+  "pages retained loader directives after deleting the ELF through CLI and stdio MCP",
+  async ({ cli }) => {
+    const root = await createTestTempDirectory("rea-elf-loader-views-");
+    const path = join(root, "library.so");
+    const bundle = join(root, "loader.bundle.json");
+    await writeFile(path, elfLoaderDirectivesFixture().bytes);
+    const result = await cli.run({
+      arguments: [
+        "inspect-elf-dependencies",
+        path,
+        "--detail",
+        "summary",
+        "--evidence_output",
+        bundle,
+        "--json",
+      ],
+    });
+    expect(result.exitCode, result.stderr).toBe(0);
+    const loaded = await readEvidenceBundle(bundle);
+    if (!loaded.ok) throw loaded.error;
+    const parent = loaded.value.records[0];
+    if (parent === undefined) throw new Error("Expected retained Evidence");
+    const call = await cli.sharedMcpCall!();
+    const observed = await call("inspect_elf_dependencies", {
+      path,
+      detail: "summary",
+    });
+    expect(observed.isError, JSON.stringify(observed)).not.toBe(true);
+    expect(
+      dependenciesContract.outputSchema.parse(observed.structuredContent)
+        .normalized_result,
+    ).toMatchObject({ summary: { loader_directive_count: 4 } });
+    await rm(path);
+    const request = {
+      source: { kind: "retained-evidence", evidence_id: parent.evidence_id },
+      view: {
+        kind: "elf-dependencies",
+        collection: "loader-directives",
+        indices: [2],
+        fields: ["kind", "value", "location", "string_location"],
+      },
+    };
+    const response = await call("inspect_analysis_view", request);
+    expect(response.isError, JSON.stringify(response)).not.toBe(true);
+    const page = viewContract.outputSchema.parse(response.structuredContent);
+    expect(page.normalized_result).toMatchObject({
+      items: [
+        { source_index: 2, kind: "audit", value: "audit.so:${LIB}/audit2.so" },
+      ],
+      coverage: { total: 1, exhausted: true },
+    });
+    const offline = await cli.run({
+      arguments: [
+        "inspect-analysis-view",
+        JSON.stringify(request),
+        "--evidence-bundle",
+        bundle,
+        "--json",
+      ],
+    });
+    expect(offline.exitCode, offline.stderr).toBe(0);
+    expect(viewContract.outputSchema.parse(offline.json)).toEqual(page);
+  },
 );
 
 cliTest(

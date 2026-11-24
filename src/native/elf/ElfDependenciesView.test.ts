@@ -9,6 +9,7 @@ import { digestCanonicalValue } from "../../domain/canonicalDigest.js";
 import { projectAnalysisView } from "../../domain/analysisView/analysisView.js";
 import type { AnalysisViewParent } from "../../domain/analysisView/analysisViewParent.js";
 import { analysisViewRequestSchema } from "../../domain/analysisView/analysisViewRequest.js";
+import { elfLoaderDirectivesFixture } from "./ElfLoaderDirectives.fixture.js";
 
 const input = inspectElfDependenciesInputSchema.parse({
   path: "/artifacts/program",
@@ -42,6 +43,78 @@ const project = (report: unknown, input: unknown) => {
 const report = await decode(
   elfDependencyFixture({ needed: ["libc.so.6", "libc.so.6", "libm.so.6"] }),
 );
+
+it("pages loader directives from retained values and preserves duplicate source indices", async () => {
+  const directives = await decode(
+    elfLoaderDirectivesFixture([
+      { tag: 0x7ffffffd, value: "libsame.so" },
+      { tag: 0x6ffffefc, value: "audit.so" },
+      { tag: 0x7ffffffd, value: "libsame.so" },
+    ]).bytes,
+  );
+  const view = {
+    kind: "elf-dependencies",
+    collection: "loader-directives",
+    names: ["libsame.so"],
+    name_prefixes: ["lib"],
+    fields: ["kind", "value", "location"],
+    offset: 1,
+    limit: 1,
+  };
+  expect(project(directives, view)).toMatchObject({
+    items: [
+      {
+        source_index: 2,
+        kind: "auxiliary",
+        value: "libsame.so",
+        location: directives.loader_directives?.[2]?.location,
+      },
+    ],
+    dependencies: { loader_directive_count: 3 },
+    coverage: { total: 2, exhausted: true },
+  });
+  expect(project(directives, { kind: "summary" })).not.toHaveProperty(
+    "summary.loader_directives",
+  );
+  expect(project(directives, { ...view, names: [], offset: 0 })).toMatchObject({
+    items: [],
+    coverage: { total: 0 },
+  });
+});
+
+it("keeps unobserved historical loader directives distinct from an observed empty collection", () => {
+  const historical = structuredClone(report);
+  delete historical.loader_directives;
+  delete historical.coverage.examined_loader_directives;
+  expect(project(historical, { kind: "summary" })).toMatchObject({
+    summary: { loader_directive_count: null },
+    unknowns: [expect.stringMatching(/unobserved/u)],
+  });
+  expect(
+    projectAnalysisView(
+      parent(historical),
+      analysisViewRequestSchema.parse({
+        kind: "elf-dependencies",
+        collection: "loader-directives",
+      }),
+    ),
+  ).toMatchObject({
+    ok: false,
+    error: {
+      issues: [{ message: expect.stringMatching(/inspect the ELF again/u) }],
+    },
+  });
+  expect(
+    project(report, {
+      kind: "elf-dependencies",
+      collection: "loader-directives",
+    }),
+  ).toMatchObject({
+    items: [],
+    dependencies: { loader_directive_count: 0 },
+    unknowns: [],
+  });
+});
 
 it("pages duplicate DT_NEEDED names with original indices and selected fields", () => {
   const input = {

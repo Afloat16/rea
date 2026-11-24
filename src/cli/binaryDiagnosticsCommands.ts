@@ -418,7 +418,7 @@ export const registerBinaryDiagnosticsCommands = (
     contract("inspect_elf_dependencies"),
     {
       description:
-        "Inspect ELF needed libraries and required symbol versions without executing the image",
+        "Inspect ELF libraries, filter/audit directives and required versions without executing the image",
       positionals: ["path"],
       callerPaths: ["path"],
       evidenceDelivery: true,
