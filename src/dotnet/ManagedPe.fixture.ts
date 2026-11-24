@@ -9,6 +9,13 @@ interface ManagedPeFixtureOptions {
   readonly corruptMetadataSignature?: boolean;
   readonly customAttributeTypeRaw?: number;
   readonly customAttributeValue?: Buffer;
+  /** DeclSecurity rows; Parent is the raw HasDeclSecurity coded index. */
+  readonly securityDeclarations?: readonly {
+    readonly action: number;
+    readonly parent: number;
+    readonly permissionSet: Buffer;
+    readonly blobIndex?: number;
+  }[];
   readonly extendsRaw?: number;
   readonly exportedTypes?: readonly {
     readonly namespace: string;
@@ -649,6 +656,7 @@ interface FixtureMetadataRowContext {
     readonly methodSignature: number;
     readonly constructorSignature: number;
     readonly attributeBlob: number;
+    readonly permissionSets: readonly number[];
     readonly typeSpecSignatures: readonly number[];
     readonly methodSpecInstantiation: number;
     readonly standaloneSignatures: readonly number[];
@@ -830,6 +838,7 @@ const fixtureIndexWidths = ({
     [6, options.methodRowCount ?? 1],
     [8, 0],
     [10, options.memberRefRowCount ?? 1],
+    [14, options.securityDeclarations?.length ?? 0],
     [
       12,
       options.targetFramework === null
@@ -882,7 +891,13 @@ const typeDefTable = (
   [...indexes.additionalTypeNames, indexes.typeName].map((name, index) =>
     typeDefRow({
       name,
-      flags: nestedRows.has(index + 1) ? 0x0010_0002 : 0x0010_0001,
+      flags:
+        (nestedRows.has(index + 1) ? 0x0010_0002 : 0x0010_0001) |
+        (options.securityDeclarations?.some(
+          ({ parent }) => parent === (index + 1) * 4,
+        ) === true
+          ? 0x0004_0000
+          : 0),
       namespace: indexes.typeNamespace,
       fieldList: index === 0 ? 1 : 1 + (options.firstTypeFieldRowCount ?? 0),
       methodList: index === 0 ? 1 : 1 + (options.firstTypeMethodRowCount ?? 0),
@@ -896,6 +911,30 @@ const typeDefTable = (
     }),
   ),
 ];
+
+const securityDeclarationTable = (
+  options: ManagedPeFixtureOptions,
+  indexes: FixtureMetadataRowContext["indexes"],
+  heapSizes: FixtureMetadataRowContext["heapSizes"],
+  widths: FixtureIndexWidths,
+): readonly (readonly [number, readonly Buffer[]])[] =>
+  options.securityDeclarations === undefined
+    ? []
+    : [
+        [
+          14,
+          options.securityDeclarations.map((declaration, index) =>
+            Buffer.concat([
+              u16(declaration.action),
+              metadataIndex(declaration.parent, widths.coded([2, 6, 32], 2)),
+              metadataIndex(
+                declaration.blobIndex ?? indexes.permissionSets[index]!,
+                heapSizes.blobs,
+              ),
+            ]),
+          ),
+        ],
+      ];
 
 const fixtureMetadataRows = ({
   options,
@@ -946,7 +985,12 @@ const fixtureMetadataRows = ({
           rva: methodRva,
           flags:
             options.methodFlags ??
-            (options.pinvoke === undefined ? 0x0016 : 0x2016),
+            (options.pinvoke === undefined ? 0x0016 : 0x2016) |
+              (options.securityDeclarations?.some(
+                ({ parent }) => parent === (index + 1) * 4 + 1,
+              ) === true
+                ? 0x4000
+                : 0),
         }),
       ),
     ],
@@ -966,6 +1010,7 @@ const fixtureMetadataRows = ({
       ),
     ],
     [12, customAttributeRows({ options, indexes, heapSizes }, widths)],
+    ...securityDeclarationTable(options, indexes, heapSizes, widths),
     ...(indexes.pinvokeModuleName === null
       ? []
       : ([
@@ -1140,6 +1185,9 @@ const buildManagedFixtureMetadata = (
           : (options.targetFramework ?? ".NETCoreApp,Version=v8.0"),
       ),
   );
+  const permissionSets = (options.securityDeclarations ?? []).map(
+    ({ permissionSet }) => blobs.add(permissionSet),
+  );
   const stringSize = indexSize(strings.size);
   const blobSize = indexSize(blobs.size);
   const guidSize = indexSize(guidHeap(options.mvid).length);
@@ -1171,6 +1219,7 @@ const buildManagedFixtureMetadata = (
       methodSignature,
       standaloneSignatures,
       attributeBlob,
+      permissionSets,
       ...referenceBlobs,
     },
     heapSizes: { strings: stringSize, blobs: blobSize, guids: guidSize },
@@ -1316,6 +1365,7 @@ export const buildManagedMemberPointerFixture = (
     readonly fieldPointers?: readonly number[] | null;
     readonly methodPointers?: readonly number[] | null;
     readonly streamName?: "#~" | "#-";
+    readonly securityDeclarations?: ManagedPeFixtureOptions["securityDeclarations"];
   } = {},
 ): Buffer => {
   const fieldPointers =
@@ -1421,6 +1471,17 @@ export const buildManagedMemberPointerFixture = (
     ]);
     if (fieldPointers !== null) rows.set(3, fieldPointers.map(u16));
     if (methodPointers !== null) rows.set(5, methodPointers.map(u16));
+    if (options.securityDeclarations !== undefined)
+      rows.set(
+        14,
+        options.securityDeclarations.map(({ action, parent, permissionSet }) =>
+          Buffer.concat([
+            u16(action),
+            u16(parent),
+            u16(blobs.add(permissionSet)),
+          ]),
+        ),
+      );
     return metadataRoot(
       {
         tables: tablesStream(rows, 0n, 0),

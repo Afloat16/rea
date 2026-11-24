@@ -34,7 +34,7 @@ import type {
 
 export const MANAGED_MEMBER_SCOPE_GUIDANCE = {
   selectedNominalRows:
-    "Exported types and member references cover the whole assembly. Named type rows, fields, methods, call edges, field accesses and user strings follow the declaring-type selection.",
+    "Exported types, member references and assembly security declarations cover the whole assembly. Named type rows, fields, methods, call edges, field accesses and user strings follow the declaring-type selection. Type and method security declarations follow the inspected type and physical method-row scope.",
   unresolvedTypeRows:
     "Unresolved TypeDef coordinates cover the assembly-wide name scan.",
   unresolvedMethodRows:
@@ -186,6 +186,17 @@ const collectionPage = (
           collection,
           rows: report.user_strings?.literals,
           identity: ["token", "offset"],
+        },
+        view,
+      );
+    case "security_declarations":
+      return selectRows(
+        {
+          collection,
+          rows: report.security_declarations?.declarations,
+          identity: ["token", "row_offset", "parent_token", "parent_raw"],
+          name: "parent_name",
+          cacheOwner: report,
         },
         view,
       );
@@ -381,6 +392,7 @@ const summarizeMembers = (
     call_edges,
     field_accesses,
     user_strings,
+    security_declarations,
     unresolved_definitions,
     ...identity
   } = report;
@@ -396,6 +408,17 @@ const summarizeMembers = (
       user_strings === null
         ? null
         : { state: user_strings.state, issues: user_strings.issues },
+    ...(security_declarations === undefined
+      ? {}
+      : {
+          security_declarations:
+            security_declarations === null
+              ? null
+              : {
+                  state: security_declarations.state,
+                  issues: security_declarations.issues,
+                },
+        }),
     reported_counts: {
       types: types.length,
       exported_types: exported_types?.length ?? null,
@@ -405,6 +428,12 @@ const summarizeMembers = (
       call_edges: call_edges.length,
       field_accesses: field_accesses.length,
       user_strings: user_strings?.literals.length ?? null,
+      ...(security_declarations === undefined
+        ? {}
+        : {
+            security_declarations:
+              security_declarations?.declarations.length ?? null,
+          }),
       ...(unresolved_definitions === undefined
         ? {}
         : { unresolved_definitions: unresolved_definitions.rows.length }),
@@ -533,12 +562,18 @@ export const projectManagedMemberView = (
           unresolved_module_name: report.metadata.unresolved_module_name,
         }),
     source_coverage:
-      view.collection === "user_strings" && report.user_strings !== null
+      view.collection === "security_declarations" &&
+      report.security_declarations != null
         ? {
-            state: report.user_strings.state,
-            issues: report.user_strings.issues,
+            state: report.security_declarations.state,
+            issues: report.security_declarations.issues,
           }
-        : report.coverage,
+        : view.collection === "user_strings" && report.user_strings !== null
+          ? {
+              state: report.user_strings.state,
+              issues: report.user_strings.issues,
+            }
+          : report.coverage,
     coverage: pageViewCoverage(view.offset, page.rows.length, total),
   });
 };

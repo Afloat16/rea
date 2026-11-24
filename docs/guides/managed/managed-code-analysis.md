@@ -162,6 +162,37 @@ including the existing `inspect-analysis-view` CLI. Session record lifetime and
 export/import semantics remain unchanged. A server without Evidence retention
 rejects selected summary before analysis; complete delivery remains available.
 
+### Declared security metadata
+
+`inspect_managed_members` reports ECMA-335 `DeclSecurity` rows in
+`security_declarations`, including the action, checked parent token and name,
+parent flags, physical row offset, and exact PermissionSet bytes, digest and
+blob coordinates. Assembly declarations remain assembly-wide; TypeDef and
+MethodDef declarations follow the inspected declaring types and physical method
+row interval. An unresolved parent remains explicit rather than being silently
+classified outside the selection.
+
+Binary PermissionSet decoding reports each framed attribute type name, named
+argument count, and raw argument block. It follows the
+[.NET encoding clarification](https://github.com/dotnet/runtime/blob/main/docs/design/specs/Ecma-335-Augments.md#declsecurity-binary-permission-set-encoding):
+each attribute has a compressed argument-block byte length, and its named count
+is also compressed. Named argument values and legacy XML permission sets remain
+opaque; no target assembly or attribute constructor is executed, and declarations
+do not establish runtime permission enforcement.
+
+The facet has independent coverage. Malformed rows, unknown actions, nonminimal
+length encodings and unreadable names retain their checked coordinates and
+available raw bytes beside diagnostics. A representation-limit failure keeps
+already admitted members and declarations. Null means unexamined; an empty
+complete collection means no declarations in the inspected scope. Historical
+Evidence may omit this facet and remains readable.
+
+Summary delivery keeps declaration counts and coverage. Retained views use
+`kind: "managed-members", collection: "security_declarations"`; `names` matches
+exact `parent_name`, and `fields` narrows columns while retaining the source
+index, row token/offset and parent coordinates. These views read retained
+Evidence even after the source file has been removed.
+
 ### Member summary and retained member rows
 
 Complete `inspect_managed_members` delivery always includes the assembly-wide
@@ -189,10 +220,10 @@ rows with view kind `managed-members`:
 ```
 
 Collections are `types`, `exported_types`, `fields`, `methods`, `member_refs`,
-`call_edges`, `field_accesses` and `user_strings` (the literals). Each page names
+`call_edges`, `field_accesses`, `user_strings` (the literals) and `security_declarations`. Each page names
 its collection, retains original rows, order, tokens, signatures and body facts,
 and carries the source selection and coverage; `user_strings` pages carry the
-literal pool's own coverage. Evidence whose member decoding exceeded capacity
+literal pool's own coverage. Security pages carry the declaration facet's coverage. Evidence whose member decoding exceeded capacity
 never examined exported types or user strings; it reports a null count and
 refuses those pages rather than returning an empty one.
 

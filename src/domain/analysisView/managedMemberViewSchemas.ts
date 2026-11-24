@@ -1,5 +1,9 @@
 import { z } from "zod";
-import { managedMemberInspectionSchema } from "../managed/managedArtifact.js";
+import {
+  managedMemberInspectionSchema,
+  managedSecurityDeclarationSchema,
+  managedSecurityDeclarationsSchema,
+} from "../managed/managedArtifact.js";
 import { unresolvedDefinitionSchema } from "../managed/managedUnresolvedDefinitions.js";
 
 const member = managedMemberInspectionSchema.shape;
@@ -13,6 +17,7 @@ const rows = {
   call_edges: member.call_edges.element,
   field_accesses: member.field_accesses.element,
   user_strings: member.user_strings.unwrap().shape.literals.element,
+  security_declarations: managedSecurityDeclarationSchema,
   unresolved_definitions: unresolvedDefinitionSchema,
 };
 const pageRequest = {
@@ -92,6 +97,17 @@ export const managedMembersViewRequestSchema = z.discriminatedUnion(
       fields: fieldsOf(rows.user_strings.keyof()),
     }),
     z.strictObject({
+      ...namedRequest,
+      names: z
+        .array(z.string())
+        .exactOptional()
+        .describe(
+          "Exact declaration parent_name; empty matches nothing. Assembly, type and method names retain their distinct parent_kind.",
+        ),
+      collection: z.literal("security_declarations"),
+      fields: fieldsOf(rows.security_declarations.keyof()),
+    }),
+    z.strictObject({
       ...pageRequest,
       collection: z.literal("unresolved_definitions"),
     }),
@@ -161,6 +177,15 @@ export const managedMembersViewPageSchema = z.discriminatedUnion("collection", [
     "user_strings",
     rows.user_strings.partial().required({ token: true, offset: true }),
   ),
+  rowsOf(
+    "security_declarations",
+    rows.security_declarations.partial().required({
+      token: true,
+      row_offset: true,
+      parent_token: true,
+      parent_raw: true,
+    }),
+  ),
   z.strictObject({
     collection: z.literal("unresolved_definitions"),
     rows: z.array(rows.unresolved_definitions),
@@ -190,6 +215,10 @@ export const managedMemberSummarySchema = z.strictObject({
       issues: member.user_strings.unwrap().shape.issues,
     })
     .nullable(),
+  security_declarations: managedSecurityDeclarationsSchema
+    .pick({ state: true, issues: true })
+    .nullable()
+    .exactOptional(),
   limitations: member.limitations,
   reported_counts: z.strictObject({
     types: z.int().nonnegative(),
@@ -200,6 +229,7 @@ export const managedMemberSummarySchema = z.strictObject({
     call_edges: z.int().nonnegative(),
     field_accesses: z.int().nonnegative(),
     user_strings: nullableCount,
+    security_declarations: nullableCount.exactOptional(),
     unresolved_definitions: z.int().nonnegative().exactOptional(),
   }),
 });

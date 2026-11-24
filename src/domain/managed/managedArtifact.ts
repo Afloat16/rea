@@ -577,6 +577,62 @@ const UNEXAMINED_MEMBER_COLLECTIONS = [
   "field_accesses",
 ] as const;
 
+const securityAttributeSchema = z.object({
+  offset: offsetSchema,
+  type_name: z.string().nullable(),
+  type_name_hex: z.string().regex(/^(?:[0-9a-f]{2})*$/u),
+  arguments_offset: offsetSchema,
+  arguments_length: z.int().nonnegative(),
+  named_argument_count: z.int().nonnegative().nullable(),
+  arguments_hex: z
+    .string()
+    .regex(/^(?:[0-9a-f]{2})*$/u)
+    .describe(
+      "Exact framed named-argument block including its compressed count; argument values are not interpreted.",
+    ),
+});
+
+/** File-backed DeclSecurity facts, without permission evaluation or assembly loading. */
+export const managedSecurityDeclarationSchema = z.object({
+  token: managedMetadataTokenSchema,
+  row_offset: offsetSchema,
+  parent_raw: z.int().nonnegative().max(0xffff_ffff),
+  parent_token: managedMetadataTokenSchema.nullable(),
+  parent_kind: z.enum(["Assembly", "TypeDef", "MethodDef", "unknown"]),
+  parent_name: z.string().nullable(),
+  parent_flags: z.int().nonnegative().max(0xffff_ffff).nullable(),
+  declaring_type_token: managedMetadataTokenSchema.nullable(),
+  declaring_type: z.string().nullable(),
+  action: z.int().nonnegative().max(0xffff),
+  action_name: z.string().nullable(),
+  permission_set: z
+    .object({
+      blob_index: z.int().nonnegative(),
+      blob_offset: offsetSchema.nullable(),
+      data_offset: offsetSchema.nullable(),
+      byte_length: z.int().nonnegative(),
+      sha256: digestSchema,
+      raw_hex: z.string().regex(/^(?:[0-9a-f]{2})*$/u),
+      format: z.enum(["binary", "legacy-or-unknown", "empty"]),
+      attribute_count: z.int().nonnegative().nullable(),
+      attributes: z.array(securityAttributeSchema),
+    })
+    .nullable(),
+});
+
+export const managedSecurityDeclarationsSchema = z.object({
+  state: knownCoverageStatusSchema,
+  declarations: z.array(managedSecurityDeclarationSchema),
+  issues: z.array(managedParseIssueSchema),
+});
+
+export type ManagedSecurityDeclaration = z.infer<
+  typeof managedSecurityDeclarationSchema
+>;
+export type ManagedSecurityDeclarations = z.infer<
+  typeof managedSecurityDeclarationsSchema
+>;
+
 /** Provider-neutral, execution-free metadata/signature/IL member inspection. */
 export const managedMemberInspectionSchema = z
   .object({
@@ -607,6 +663,12 @@ export const managedMemberInspectionSchema = z
     member_refs: z.array(managedMemberReferenceSchema),
     call_edges: z.array(managedCallEdgeSchema),
     field_accesses: z.array(managedFieldAccessSchema),
+    security_declarations: managedSecurityDeclarationsSchema
+      .nullable()
+      .exactOptional()
+      .describe(
+        "DeclSecurity rows for returned types and the inspected physical method scope, plus assembly-wide declarations. Its own coverage is independent of member decoding. Null means unexamined; omission preserves historical Evidence. These declarations do not establish runtime enforcement.",
+      ),
     // Distinct #US literals loaded by ldstr in the inspected method bodies, in
     // token order, with their own coverage: #US issues never enter the member
     // coverage. null means they were not examined, not that there were none.
